@@ -29,7 +29,7 @@ It uses a pluggable torrent search backend (Jackett, Prowlarr, etc.) for torrent
 │  │              │  │  (abstract)  │  │    (qBittorrent)       │ │
 │  └──────────────┘  └──────────────┘  └────────────────────────┘ │
 │  ┌──────────────┐  ┌──────────────┐  ┌────────────────────────┐ │
-│  │ QueueManager │  │ CacheWarmer  │  │    Placer              │ │
+│  │ QueueManager │  │ShadowCatalog │  │    Placer              │ │
 │  └──────────────┘  └──────────────┘  └────────────────────────┘ │
 │                                                                  │
 │  Traits (implemented per content type):                          │
@@ -405,6 +405,19 @@ Multiple users may request the same content:
 3. **On completion**: All linked requests are resolved together
 4. **Partial overlap**: Requests are merged (tracks 1-5 + 3-8 → 1-8)
 
+### Ticket Priority
+
+Tickets have a priority field (`u16`) for queue ordering. Higher value = higher priority.
+
+```rust
+struct Ticket {
+    // ...
+    priority: u16,  // 0 = lowest, u16::MAX = highest
+}
+```
+
+All processing pools use priority queues, so high-priority tickets are processed first within each stage.
+
 ### Ticket JSON
 
 ```json
@@ -412,6 +425,7 @@ Multiple users may request the same content:
   "ticket_id": "uuid",
   "created_at": "2024-12-24T10:00:00Z",
   "requested_by": "user_id_from_auth",
+  "priority": 100,
   "dry_run": false,
   "linked_tickets": ["uuid2", "uuid3"],
   "request_scope": "full_album",
@@ -729,14 +743,47 @@ GET    /api/v1/config
 ### Real-time Updates
 
 ```
-WS     /api/v1/ws
+WS     /api/v1/ws?include_terminal=false
        → WebSocket for state change notifications
-
-       Messages:
-       - { "type": "state_change", "ticket_id": "...", "old_state": "...", "new_state": "...", "details": {...} }
-       - { "type": "progress", "ticket_id": "...", "progress_pct": 45.2 }
-       - { "type": "needs_approval", "ticket_id": "...", "candidates": [...] }
 ```
+
+#### Connection Protocol
+
+On connect, server sends a snapshot of current tickets for state consistency:
+
+```json
+← { "type": "snapshot", "seq": 1043, "tickets": [...active tickets...] }
+← { "type": "state_change", "seq": 1044, ... }
+← { "type": "state_change", "seq": 1045, ... }
+```
+
+Query parameters:
+- `include_terminal=false` (default): Snapshot only includes active (non-terminal) tickets
+- `include_terminal=true`: Snapshot includes all tickets (may be large)
+
+#### Subscription Filtering (Optional)
+
+By default, clients receive all events (admin/firehose mode). Optionally filter:
+
+```json
+→ { "action": "subscribe", "ticket_id": "uuid1" }
+← { "type": "subscribed", "ticket_id": "uuid1" }
+
+→ { "action": "subscribe", "filter": { "requested_by": "pezzottify" } }
+← { "type": "subscribed", "filter": {...} }
+
+→ { "action": "unsubscribe", "ticket_id": "uuid1" }
+```
+
+#### Event Types
+
+```json
+{ "type": "state_change", "seq": 1044, "ticket_id": "...", "old_state": "...", "new_state": "...", "details": {...} }
+{ "type": "progress", "seq": 1045, "ticket_id": "...", "progress_pct": 45.2 }
+{ "type": "needs_approval", "seq": 1046, "ticket_id": "...", "candidates": [...] }
+```
+
+The `seq` field is a monotonic sequence number for consistency tracking. If a client reconnects and detects a gap in sequence numbers, it should refetch state.
 
 ## Components
 
@@ -785,20 +832,20 @@ trait TorrentCatalog {
 }
 ```
 
-### 3. Cache Warmer (`cache_warmer/`)
+### 3. Shadow Catalog (`shadow_catalog/`)
 
-Background job that proactively builds the torrent catalog.
+Background system that proactively builds a torrent catalog mirroring your music library. It lurks in the background, pre-downloading discographies so requests can be served instantly from cache.
 
 ```rust
-struct CacheWarmer {
+struct ShadowCatalog {
     catalog: Arc<dyn TorrentCatalog>,
     searcher: Arc<dyn TorrentSearcher>,
     matcher: Arc<dyn Matcher>,
     torrent_client: Arc<dyn TorrentClient>,
-    config: CacheWarmerConfig,
+    config: ShadowCatalogConfig,
 }
 
-struct CacheWarmerConfig {
+struct ShadowCatalogConfig {
     enabled: bool,
     scan_interval_hours: u32,
     max_concurrent_downloads: usize,
@@ -807,14 +854,44 @@ struct CacheWarmerConfig {
 }
 ```
 
+The Shadow Catalog is implemented early (Phase 2) to prove torrent search and seeding work before building the full processing pipeline.
+
 ### 4. Queue Manager (`queue/`)
 
 - SQLite-backed ticket persistence
 - State machine enforcement
 - Retry logic with exponential backoff
-- Priority handling
+- Priority queue ordering (higher `priority` value = processed first)
 
-### 5. Searcher (`searcher/`)
+### 5. Processing Pools (`processor/`)
+
+Tickets flow through a series of processing pools. Each pool handles one stage of the pipeline and enforces concurrency limits.
+
+```rust
+struct ProcessorPools {
+    searcher: Pool<SearchJob>,      // Respects per-indexer rate limits
+    matcher: Pool<MatchJob>,        // 1 worker for dumb, N for LLM (latency hiding)
+    downloader: Pool<DownloadJob>,  // max_parallel_downloads workers
+    converter: Pool<ConvertJob>,    // max_parallel_conversions workers
+    placer: Pool<PlaceJob>,         // Generous, I/O bound
+}
+```
+
+Each pool is a priority queue - tickets with higher priority are processed first within each stage.
+
+```
+┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐
+│ Searcher │───▶│ Matcher  │───▶│Downloader│───▶│Converter │───▶│  Placer  │
+│   Pool   │    │   Pool   │    │   Pool   │    │   Pool   │    │   Pool   │
+└──────────┘    └──────────┘    └──────────┘    └──────────┘    └──────────┘
+   PENDING      SEARCHING       APPROVED/       DOWNLOADING      CONVERTING
+      ▼          MATCHING      AUTO_APPROVED     COMPLETE           ▼
+  SEARCHING        ▼               ▼               ▼            PLACING
+               MATCHING/       DOWNLOADING     CONVERTING          ▼
+              NEEDS_APPROVAL                                   COMPLETED
+```
+
+### 6. Searcher (`searcher/`)
 
 Pluggable torrent search backend:
 
@@ -839,7 +916,7 @@ struct TorrentCandidate {
 }
 ```
 
-### 6. Matcher (`matcher/`)
+### 7. Matcher (`matcher/`)
 
 Layered matching with optional LLM:
 
@@ -858,7 +935,7 @@ struct DumbMatcher;  // Fuzzy string matching + heuristics
 struct LlmMatcher;   // Intelligent semantic matching
 ```
 
-### 7. Torrent Client (`torrent_client/`)
+### 8. Torrent Client (`torrent_client/`)
 
 qBittorrent Web API integration:
 
@@ -872,7 +949,7 @@ trait TorrentClient {
 }
 ```
 
-### 8. Converter (`converter/`)
+### 9. Converter (`converter/`)
 
 ffmpeg wrapper:
 
@@ -900,7 +977,7 @@ trait Converter<T: Ticket>: Send + Sync {
 }
 ```
 
-### 9. Placer (`placer/`)
+### 10. Placer (`placer/`)
 
 File operations:
 - Move converted files to dest_path
@@ -908,6 +985,73 @@ File operations:
 - Verify file integrity after move
 - Cleanup temp files
 - Rollback on partial failure
+
+## Admin Dashboard
+
+The admin dashboard is built with **Vue 3 + TypeScript + Vite** and evolves alongside the backend. Every phase delivers corresponding dashboard functionality.
+
+### Tech Stack
+
+| Component | Choice |
+|-----------|--------|
+| Framework | Vue 3 (Composition API) |
+| Language | TypeScript |
+| Build | Vite |
+| State | Pinia |
+| Styling | UnoCSS (Tailwind-compatible, Vite-native) |
+| WebSocket | Native WebSocket + VueUse composables |
+
+### Type Synchronization
+
+TypeScript types are generated from Rust structs using `ts-rs` or `specta`:
+
+```rust
+// In Rust
+#[derive(Serialize, TS)]
+#[ts(export)]
+struct Ticket {
+    ticket_id: String,
+    priority: u16,
+    // ...
+}
+```
+
+```typescript
+// Generated in TypeScript
+export interface Ticket {
+    ticket_id: string;
+    priority: number;
+    // ...
+}
+```
+
+### Key Composables
+
+```typescript
+// useWebSocket - Real-time updates with snapshot-on-connect
+const { tickets, isConnected, subscribe } = useWebSocket()
+
+// useTickets - Ticket management
+const { createTicket, approveTicket, rejectTicket } = useTickets()
+
+// useAuth - Authentication state
+const { identity, isAuthenticated, logout } = useAuth()
+
+// useShadowCatalog - Shadow catalog browser
+const { torrents, coverage, searchTorrent } = useShadowCatalog()
+```
+
+### Dashboard Features by Phase
+
+| Phase | Dashboard Features |
+|-------|-------------------|
+| 1 | Auth flow, config display, basic layout |
+| 2 | Search testing, torrent status, Shadow Catalog browser |
+| 3 | Pipeline visualization, pool status, job progress |
+| 4 | Ticket creation, matching preview, conversion status |
+| 5 | Approval queue, candidate comparison, LLM reasoning |
+| 6 | Real-time updates, audit log viewer, system health |
+| 7 | Video-specific views |
 
 ## Cover Art
 
@@ -1049,9 +1193,12 @@ quentin-torrentino/
 │   │       │   ├── mod.rs
 │   │       │   ├── store.rs
 │   │       │   └── coverage.rs
-│   │       ├── cache_warmer/
+│   │       ├── shadow_catalog/
 │   │       │   ├── mod.rs
 │   │       │   └── priority.rs
+│   │       ├── processor/
+│   │       │   ├── mod.rs
+│   │       │   └── pools.rs
 │   │       ├── queue/
 │   │       │   ├── mod.rs
 │   │       │   ├── manager.rs
@@ -1095,18 +1242,33 @@ quentin-torrentino/
 │   ├── video/                    # torrentino-video (future)
 │   │   └── ...
 │   │
-│   └── server/                   # torrentino-server (HTTP service)
-│       ├── Cargo.toml
-│       └── src/
-│           ├── main.rs
-│           ├── api/
-│           │   ├── mod.rs
-│           │   ├── routes.rs
-│           │   ├── handlers.rs
-│           │   ├── websocket.rs
-│           │   └── auth_middleware.rs
-│           └── bin/
-│               └── quentin.rs
+│   ├── server/                   # torrentino-server (HTTP service)
+│   │   ├── Cargo.toml
+│   │   └── src/
+│   │       ├── main.rs
+│   │       ├── api/
+│   │       │   ├── mod.rs
+│   │       │   ├── routes.rs
+│   │       │   ├── handlers.rs
+│   │       │   ├── websocket.rs
+│   │       │   └── auth_middleware.rs
+│   │       └── bin/
+│   │           └── quentin.rs
+│   │
+│   └── dashboard/                # Admin dashboard (Vue 3 + TypeScript + Vite)
+│       ├── package.json
+│       ├── vite.config.ts
+│       ├── tsconfig.json
+│       ├── index.html
+│       ├── src/
+│       │   ├── main.ts
+│       │   ├── App.vue
+│       │   ├── api/              # API client (generated from OpenAPI or ts-rs)
+│       │   ├── composables/      # useWebSocket, useTickets, useAuth, etc.
+│       │   ├── components/
+│       │   ├── views/
+│       │   └── stores/           # Pinia stores
+│       └── public/
 │
 ├── tests/
 │   ├── integration/
@@ -1222,26 +1384,34 @@ services:
 
 ## Implementation Phases
 
-**Phase 1: Core Library (`torrentino-core`)**
-- [ ] Workspace setup
+Each phase includes corresponding admin dashboard work. The dashboard evolves alongside the backend, ensuring every feature is immediately usable and testable.
+
+**Phase 1: Core Library + Dashboard Foundation**
+- [ ] Workspace setup (including dashboard crate)
 - [ ] Core traits: `Ticket`, `ContentItem`, `Matcher`, `Converter`
 - [ ] Auth system (all authenticators)
 - [ ] Audit log system
 - [ ] SQLite schema + migrations
 - [ ] State machine implementation
-- [ ] Queue manager
+- [ ] Queue manager with priority queues
+- [ ] Processing pools skeleton
 - [ ] Configuration loading (with auth validation)
+- [ ] **Dashboard**: Basic shell, auth flow, config display
 
-**Phase 2: External Integrations**
+**Phase 2: Search + Torrent Client + Shadow Catalog**
 - [ ] Jackett client + per-indexer rate limiting
-- [ ] qBittorrent client
-- [ ] Torrent catalog
+- [ ] qBittorrent client (add/monitor/seed)
+- [ ] Torrent catalog storage
 - [ ] Searcher trait + Jackett implementation
+- [ ] Shadow Catalog - proactive search & seeding
+- [ ] **Dashboard**: Search testing UI, torrent status view, Shadow Catalog browser
 
 **Phase 3: Processing Pipeline**
 - [ ] ffmpeg wrapper (audio first)
 - [ ] Placer with rollback
 - [ ] End-to-end processing with dumb matcher
+- [ ] Processing pools fully wired
+- [ ] **Dashboard**: Pipeline visualization, pool status, job progress
 
 **Phase 4: Music Module (`torrentino-music`)**
 - [ ] MusicTicket implementation
@@ -1249,26 +1419,30 @@ services:
 - [ ] Audio converter
 - [ ] Cover art fetching (MusicBrainz, Discogs, embedded)
 - [ ] Metadata embedding
+- [ ] **Dashboard**: Ticket creation form, matching preview, conversion status
 
 **Phase 5: Smart Matching (Optional)**
 - [ ] LLM integration (Anthropic/OpenAI/DeepSeek/Ollama)
 - [ ] LLM matcher implementation
-- [ ] Approval workflow
+- [ ] Approval workflow (approve/reject candidates)
 - [ ] Training data export
+- [ ] **Dashboard**: Approval queue, candidate comparison view, LLM reasoning display
 
 **Phase 6: Production Ready**
 - [ ] HTTP server (`torrentino-server`)
-- [ ] WebSocket real-time updates
+- [ ] WebSocket real-time updates (snapshot-on-connect + subscriptions)
 - [ ] Retry logic with exponential backoff
 - [ ] Metrics/observability
 - [ ] Docker packaging
 - [ ] Comprehensive testing
+- [ ] **Dashboard**: Real-time updates, audit log viewer, system health page
 
 **Phase 7: Video Module (Future)**
 - [ ] `torrentino-video` crate
 - [ ] Movie/TV matchers
 - [ ] Video converter
 - [ ] Subtitle handling
+- [ ] **Dashboard**: Video-specific views
 
 ## Design Decisions
 
@@ -1284,10 +1458,17 @@ services:
 
 6. **Fail-safe placement**: If any file fails to place, rollback all placed files for that ticket.
 
+7. **Priority queues**: All processing pools use priority queues. Higher `priority` value = processed first.
+
+8. **Dashboard-first development**: Admin dashboard evolves with each phase. Every feature is immediately testable via UI.
+
+9. **WebSocket consistency**: Snapshot-on-connect with sequence numbers ensures dashboard state is always consistent.
+
+10. **Shadow Catalog early**: Implemented in Phase 2 to prove torrent search/seeding before full pipeline.
+
 ## Future Enhancements (Not In Scope Yet)
 
 - Notification system (webhooks, email, Telegram with interactive approvals)
 - Bulk admin operations
-- Priority queues
 - Fine-tuned local LLM for matching
-- Cache warmer for proactive downloading
+- Per-user rate limits / quotas
