@@ -48,5 +48,8 @@ chrono = { version = "0.4", features = ["serde"] }
 # Hashing
 sha2 = "0.10"
 
+# UUID
+uuid = { version = "1", features = ["v4"] }
+
 # Testing
 tokio-test = "0.4"
