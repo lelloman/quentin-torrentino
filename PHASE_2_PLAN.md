@@ -275,23 +275,23 @@ CREATE INDEX idx_tickets_priority ON tickets(priority DESC);
 
 ## Implementation Tasks
 
-### Task 1: Core Data Types
+### Task 1: Core Data Types ✅
 **File**: `crates/core/src/ticket/mod.rs` (new)
 
-- [ ] Define `TicketState` enum with serde serialization
-- [ ] Define `QueryContext` struct
-- [ ] Define `Ticket` struct
-- [ ] Implement `TicketState::is_terminal()` method
-- [ ] Implement `TicketState::can_cancel()` method
-- [ ] Unit tests for state logic
+- [x] Define `TicketState` enum with serde serialization
+- [x] Define `QueryContext` struct
+- [x] Define `Ticket` struct
+- [x] Implement `TicketState::is_terminal()` method
+- [x] Implement `TicketState::can_cancel()` method
+- [x] Unit tests for state logic
 
-### Task 2: Ticket Store Trait
+### Task 2: Ticket Store Trait ✅
 **File**: `crates/core/src/ticket/store.rs` (new)
 
-- [ ] Define `TicketStore` trait
-- [ ] Define `TicketFilter` for queries
-- [ ] Define `CreateTicketRequest` struct
-- [ ] Methods: `create`, `get`, `list`, `update_state`, `count`
+- [x] Define `TicketStore` trait
+- [x] Define `TicketFilter` for queries
+- [x] Define `CreateTicketRequest` struct
+- [x] Methods: `create`, `get`, `list`, `update_state`, `count`
 
 ```rust
 #[async_trait]
@@ -304,68 +304,68 @@ pub trait TicketStore: Send + Sync {
 }
 ```
 
-### Task 3: SQLite Ticket Store Implementation
+### Task 3: SQLite Ticket Store Implementation ✅
 **File**: `crates/core/src/ticket/sqlite_store.rs` (new)
 
-- [ ] Implement `SqliteTicketStore`
-- [ ] Create tickets table migration
-- [ ] Implement all trait methods
-- [ ] JSON serialization for state and query_context
-- [ ] Integration tests with real SQLite
+- [x] Implement `SqliteTicketStore`
+- [x] Create tickets table migration
+- [x] Implement all trait methods
+- [x] JSON serialization for state and query_context
+- [x] Integration tests with real SQLite
 
-### Task 4: Ticket Audit Events
+### Task 4: Ticket Audit Events ✅
 **File**: `crates/core/src/audit/events.rs` (modify)
 
-- [ ] Add `TicketCreated` event type
-- [ ] Add `TicketCancelled` event type
-- [ ] Add `TicketStateChanged` event type (for future use)
-- [ ] Update `AuditEventData` enum
+- [x] Add `TicketCreated` event type (enhanced with priority, tags, description, dest_path)
+- [x] Add `TicketCancelled` event type (enhanced with previous_state)
+- [x] Add `TicketStateChanged` event type (for future use)
+- [x] Update `AuditEventData` enum
 
-### Task 5: Update Core Exports
+### Task 5: Update Core Exports ✅
 **File**: `crates/core/src/lib.rs` (modify)
 
-- [ ] Add `pub mod ticket`
-- [ ] Export ticket types in prelude
+- [x] Add `pub mod ticket`
+- [x] Export ticket types in prelude
 
-### Task 6: Ticket API Handlers
+### Task 6: Ticket API Handlers ✅
 **File**: `crates/server/src/api/tickets.rs` (new)
 
-- [ ] `POST /api/v1/tickets` - create ticket
-- [ ] `GET /api/v1/tickets/{id}` - get ticket
-- [ ] `GET /api/v1/tickets` - list tickets with filters
-- [ ] `DELETE /api/v1/tickets/{id}` - cancel ticket
-- [ ] Request/response types with serde
-- [ ] Error handling and status codes
+- [x] `POST /api/v1/tickets` - create ticket
+- [x] `GET /api/v1/tickets/{id}` - get ticket
+- [x] `GET /api/v1/tickets` - list tickets with filters
+- [x] `DELETE /api/v1/tickets/{id}` - cancel ticket
+- [x] Request/response types with serde
+- [x] Error handling and status codes
 
-### Task 7: Wire Up Routes
+### Task 7: Wire Up Routes ✅
 **File**: `crates/server/src/api/mod.rs` (modify)
 
-- [ ] Add tickets module
-- [ ] Register routes in router
+- [x] Add tickets module
+- [x] Register routes in router
 
-### Task 8: Update AppState
+### Task 8: Update AppState ✅
 **File**: `crates/server/src/state.rs` (modify)
 
-- [ ] Add `TicketStore` to AppState
-- [ ] Add constructor parameter
+- [x] Add `TicketStore` to AppState
+- [x] Add constructor parameter
 
-### Task 9: Update Server Startup
+### Task 9: Update Server Startup ✅
 **File**: `crates/server/src/main.rs` (modify)
 
-- [ ] Create `SqliteTicketStore` instance
-- [ ] Run migrations for tickets table
-- [ ] Pass to AppState
+- [x] Create `SqliteTicketStore` instance
+- [x] Run migrations for tickets table
+- [x] Pass to AppState
 
-### Task 10: Integration Tests
+### Task 10: Integration Tests ✅
 **File**: `crates/server/tests/ticket_integration.rs` (new)
 
-- [ ] Test create ticket
-- [ ] Test get ticket
-- [ ] Test list tickets with filters
-- [ ] Test cancel ticket
-- [ ] Test cancel already-cancelled ticket (409)
-- [ ] Test get non-existent ticket (404)
-- [ ] Verify audit events are created
+- [x] Test create ticket
+- [x] Test get ticket
+- [x] Test list tickets with filters
+- [x] Test cancel ticket
+- [x] Test cancel already-cancelled ticket (409)
+- [x] Test get non-existent ticket (404)
+- [x] Verify audit events are created
 
 ## Manual Testing Guide
 
@@ -426,12 +426,12 @@ curl -X DELETE http://localhost:8080/api/v1/tickets/{id}
 
 ## Success Criteria
 
-- [ ] All 10 tasks implemented
-- [ ] `cargo test` passes (unit + integration tests)
-- [ ] `cargo clippy` has no warnings
-- [ ] Manual testing guide works end-to-end
-- [ ] Audit events recorded for all ticket operations
-- [ ] State transitions enforced (can't cancel terminal tickets)
+- [x] All 10 tasks implemented
+- [x] `cargo test` passes (unit + integration tests) - 89 tests passing
+- [x] `cargo clippy` has no warnings
+- [x] Manual testing guide works end-to-end
+- [x] Audit events recorded for all ticket operations
+- [x] State transitions enforced (can't cancel terminal tickets)
 
 ## Files Changed/Created
 
