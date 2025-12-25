@@ -1,0 +1,26 @@
+# Quentin Torrentino Configuration
+# Copy this file to config.toml and modify as needed
+
+# ==============================================================================
+# AUTHENTICATION (REQUIRED)
+# ==============================================================================
+# The service will not start without an explicit [auth] section.
+# You must choose an authentication method.
+
+[auth]
+# Available methods: "none", "oidc", "address", "cert", "plugin"
+# Currently only "none" is implemented
+method = "none"
+
+# ==============================================================================
+# SERVER
+# ==============================================================================
+
+[server]
+# IP address to bind to
+# Default: "0.0.0.0" (all interfaces)
+host = "0.0.0.0"
+
+# Port to listen on
+# Default: 8080
+port = 8080

@@ -67,9 +67,7 @@ async fn run() -> Result<()> {
         .await
         .with_context(|| format!("Failed to bind to {}", addr))?;
 
-    axum::serve(listener, app)
-        .await
-        .context("Server error")?;
+    axum::serve(listener, app).await.context("Server error")?;
 
     Ok(())
 }
