@@ -13,7 +13,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use torrentino_core::{
     create_audit_system, create_authenticator, load_config, validate_config, AuditEvent,
-    AuditStore, Authenticator, SqliteAuditStore,
+    AuditStore, Authenticator, SqliteAuditStore, SqliteTicketStore, TicketStore,
 };
 
 use api::create_router;
@@ -76,6 +76,12 @@ async fn run() -> Result<()> {
     );
     info!("Audit store initialized");
 
+    // Create SQLite ticket store
+    let ticket_store: Arc<dyn TicketStore> = Arc::new(
+        SqliteTicketStore::new(&config.database.path).context("Failed to create ticket store")?,
+    );
+    info!("Ticket store initialized");
+
     // Create audit system
     let (audit_handle, audit_writer) =
         create_audit_system(Arc::clone(&audit_store), AUDIT_BUFFER_SIZE);
@@ -98,6 +104,7 @@ async fn run() -> Result<()> {
         authenticator,
         audit_handle.clone(),
         audit_store,
+        ticket_store,
     ));
 
     // Create router

@@ -1,13 +1,13 @@
 use std::sync::Arc;
-use torrentino_core::{AuditHandle, AuditStore, Authenticator, Config, SanitizedConfig};
+use torrentino_core::{AuditHandle, AuditStore, Authenticator, Config, SanitizedConfig, TicketStore};
 
 /// Shared application state
 pub struct AppState {
     config: Config,
     authenticator: Arc<dyn Authenticator>,
-    #[allow(dead_code)] // Will be used by handlers that emit audit events
     audit_handle: AuditHandle,
     audit_store: Arc<dyn AuditStore>,
+    ticket_store: Arc<dyn TicketStore>,
 }
 
 impl AppState {
@@ -16,12 +16,14 @@ impl AppState {
         authenticator: Arc<dyn Authenticator>,
         audit_handle: AuditHandle,
         audit_store: Arc<dyn AuditStore>,
+        ticket_store: Arc<dyn TicketStore>,
     ) -> Self {
         Self {
             config,
             authenticator,
             audit_handle,
             audit_store,
+            ticket_store,
         }
     }
 
@@ -35,7 +37,6 @@ impl AppState {
     }
 
     /// Get the audit handle for emitting events
-    #[allow(dead_code)] // Will be used by handlers that emit audit events
     pub fn audit(&self) -> &AuditHandle {
         &self.audit_handle
     }
@@ -43,5 +44,10 @@ impl AppState {
     /// Get the audit store for querying events
     pub fn audit_store(&self) -> &Arc<dyn AuditStore> {
         &self.audit_store
+    }
+
+    /// Get the ticket store
+    pub fn ticket_store(&self) -> &Arc<dyn TicketStore> {
+        &self.ticket_store
     }
 }
