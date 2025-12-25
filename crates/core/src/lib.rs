@@ -5,5 +5,6 @@ pub use auth::{
     create_authenticator, AuthError, AuthRequest, Authenticator, Identity, NoneAuthenticator,
 };
 pub use config::{
-    load_config, load_config_from_str, validate_config, Config, ConfigError, SanitizedConfig,
+    load_config, load_config_from_str, validate_config, AuthMethod, Config, ConfigError,
+    SanitizedConfig,
 };
