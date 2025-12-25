@@ -14,10 +14,14 @@ pub enum AuditEvent {
         reason: String,
     },
 
-    // Ticket lifecycle (stubs for now - will be used in later phases)
+    // Ticket lifecycle
     TicketCreated {
         ticket_id: String,
         requested_by: String,
+        priority: u16,
+        tags: Vec<String>,
+        description: String,
+        dest_path: String,
     },
     TicketStateChanged {
         ticket_id: String,
@@ -29,6 +33,7 @@ pub enum AuditEvent {
         ticket_id: String,
         cancelled_by: String,
         reason: Option<String>,
+        previous_state: String,
     },
 }
 
@@ -105,6 +110,10 @@ mod tests {
         let event = AuditEvent::TicketCreated {
             ticket_id: "ticket-123".to_string(),
             requested_by: "user-456".to_string(),
+            priority: 100,
+            tags: vec!["music".to_string(), "flac".to_string()],
+            description: "test description".to_string(),
+            dest_path: "/media/test".to_string(),
         };
         assert_eq!(event.event_type(), "ticket_created");
         assert_eq!(event.ticket_id(), Some("ticket-123"));
@@ -130,6 +139,7 @@ mod tests {
             ticket_id: "ticket-123".to_string(),
             cancelled_by: "admin".to_string(),
             reason: Some("duplicate request".to_string()),
+            previous_state: "pending".to_string(),
         };
         assert_eq!(event.event_type(), "ticket_cancelled");
         assert_eq!(event.ticket_id(), Some("ticket-123"));
@@ -155,6 +165,10 @@ mod tests {
         let event = AuditEvent::TicketCreated {
             ticket_id: "t-001".to_string(),
             requested_by: "user-1".to_string(),
+            priority: 50,
+            tags: vec!["movie".to_string()],
+            description: "Test movie".to_string(),
+            dest_path: "/media/movies".to_string(),
         };
         let json = serde_json::to_string(&event).unwrap();
         let deserialized: AuditEvent = serde_json::from_str(&json).unwrap();

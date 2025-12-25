@@ -239,6 +239,10 @@ mod tests {
             data: AuditEvent::TicketCreated {
                 ticket_id: ticket_id.to_string(),
                 requested_by: user_id.to_string(),
+                priority: 100,
+                tags: vec!["test".to_string()],
+                description: "test ticket".to_string(),
+                dest_path: "/test/path".to_string(),
             },
         }
     }

@@ -161,6 +161,10 @@ mod tests {
                 .emit(AuditEvent::TicketCreated {
                     ticket_id: format!("t-{}", i),
                     requested_by: "user".to_string(),
+                    priority: 100,
+                    tags: vec!["test".to_string()],
+                    description: "test".to_string(),
+                    dest_path: "/test".to_string(),
                 })
                 .await;
         }
@@ -208,6 +212,10 @@ mod tests {
             .emit(AuditEvent::TicketCreated {
                 ticket_id: "ticket-123".to_string(),
                 requested_by: "user-456".to_string(),
+                priority: 100,
+                tags: vec!["test".to_string()],
+                description: "test".to_string(),
+                dest_path: "/test".to_string(),
             })
             .await;
 
