@@ -61,10 +61,7 @@ pub async fn query_audit(
     Query(params): Query<AuditQueryParams>,
 ) -> Result<Json<AuditQueryResponse>, impl IntoResponse> {
     // Validate and cap limit
-    let limit = params
-        .limit
-        .unwrap_or(DEFAULT_LIMIT)
-        .clamp(1, MAX_LIMIT);
+    let limit = params.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
 
     let offset = params.offset.unwrap_or(0).max(0);
 
