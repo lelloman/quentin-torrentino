@@ -1,2 +1,3 @@
-// torrentino-core library
-// Placeholder - will be populated in subsequent tasks
+pub mod config;
+
+pub use config::{Config, ConfigError, SanitizedConfig};
