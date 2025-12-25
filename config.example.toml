@@ -24,3 +24,13 @@ host = "0.0.0.0"
 # Port to listen on
 # Default: 8080
 port = 8080
+
+# ==============================================================================
+# DATABASE
+# ==============================================================================
+
+[database]
+# Path to SQLite database file
+# The database stores audit events and (in future phases) ticket state
+# Default: "quentin.db" (current directory)
+path = "quentin.db"
