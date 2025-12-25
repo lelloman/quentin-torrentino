@@ -39,5 +39,14 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 # Async traits
 async-trait = "0.1"
 
+# Database
+rusqlite = { version = "0.33", features = ["bundled"] }
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Hashing
+sha2 = "0.10"
+
 # Testing
 tokio-test = "0.4"
