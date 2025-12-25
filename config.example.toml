@@ -10,7 +10,7 @@
 [auth]
 # Available methods: "none", "oidc", "address", "cert", "plugin"
 # Currently only "none" is implemented
-method = "none"
+#method = "none"
 
 # ==============================================================================
 # SERVER
