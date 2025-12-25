@@ -5,9 +5,8 @@ use torrentino_core::{AuditHandle, AuditStore, Authenticator, Config, SanitizedC
 pub struct AppState {
     config: Config,
     authenticator: Arc<dyn Authenticator>,
-    #[allow(dead_code)] // Used by audit query API
+    #[allow(dead_code)] // Will be used by handlers that emit audit events
     audit_handle: AuditHandle,
-    #[allow(dead_code)] // Used by audit query API
     audit_store: Arc<dyn AuditStore>,
 }
 
@@ -42,7 +41,6 @@ impl AppState {
     }
 
     /// Get the audit store for querying events
-    #[allow(dead_code)] // Used by audit query API
     pub fn audit_store(&self) -> &Arc<dyn AuditStore> {
         &self.audit_store
     }
