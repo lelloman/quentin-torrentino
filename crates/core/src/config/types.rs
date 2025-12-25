@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::net::IpAddr;
+use std::path::PathBuf;
 
 /// Root configuration
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -7,6 +8,8 @@ pub struct Config {
     pub auth: AuthConfig,
     #[serde(default)]
     pub server: ServerConfig,
+    #[serde(default)]
+    pub database: DatabaseConfig,
 }
 
 /// Server configuration
@@ -41,6 +44,25 @@ pub struct AuthConfig {
     pub method: AuthMethod,
 }
 
+/// Database configuration
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct DatabaseConfig {
+    #[serde(default = "default_db_path")]
+    pub path: PathBuf,
+}
+
+impl Default for DatabaseConfig {
+    fn default() -> Self {
+        Self {
+            path: default_db_path(),
+        }
+    }
+}
+
+fn default_db_path() -> PathBuf {
+    PathBuf::from("quentin.db")
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AuthMethod {
@@ -53,6 +75,7 @@ pub enum AuthMethod {
 pub struct SanitizedConfig {
     pub auth: SanitizedAuthConfig,
     pub server: ServerConfig,
+    pub database: DatabaseConfig,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -69,6 +92,7 @@ impl From<&Config> for SanitizedConfig {
                 },
             },
             server: config.server.clone(),
+            database: config.database.clone(),
         }
     }
 }
@@ -122,9 +146,34 @@ port = 8080
                 method: AuthMethod::None,
             },
             server: ServerConfig::default(),
+            database: DatabaseConfig::default(),
         };
         let sanitized = SanitizedConfig::from(&config);
         assert_eq!(sanitized.auth.method, "none");
         assert_eq!(sanitized.server.port, 8080);
+        assert_eq!(sanitized.database.path.to_str().unwrap(), "quentin.db");
+    }
+
+    #[test]
+    fn test_deserialize_with_default_database() {
+        let toml = r#"
+[auth]
+method = "none"
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(config.database.path.to_str().unwrap(), "quentin.db");
+    }
+
+    #[test]
+    fn test_deserialize_with_custom_database_path() {
+        let toml = r#"
+[auth]
+method = "none"
+
+[database]
+path = "/data/my-db.sqlite"
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(config.database.path.to_str().unwrap(), "/data/my-db.sqlite");
     }
 }

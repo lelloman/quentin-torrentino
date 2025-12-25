@@ -18,7 +18,7 @@ pub fn validate_config(config: &Config) -> Result<(), ConfigError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{AuthConfig, AuthMethod, ServerConfig};
+    use crate::config::{AuthConfig, AuthMethod, DatabaseConfig, ServerConfig};
     use std::net::IpAddr;
 
     #[test]
@@ -28,6 +28,7 @@ mod tests {
                 method: AuthMethod::None,
             },
             server: ServerConfig::default(),
+            database: DatabaseConfig::default(),
         };
         assert!(validate_config(&config).is_ok());
     }
@@ -42,6 +43,7 @@ mod tests {
                 host: "0.0.0.0".parse::<IpAddr>().unwrap(),
                 port: 0,
             },
+            database: DatabaseConfig::default(),
         };
         let result = validate_config(&config);
         assert!(result.is_err());
