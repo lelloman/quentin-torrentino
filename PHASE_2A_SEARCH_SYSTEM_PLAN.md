@@ -1402,13 +1402,13 @@ Add to AppSidebar.vue:
 - [x] Implement indexer management
 - [x] Handle loading/error states
 
-### Task 9: Dashboard Components
+### Task 9: Dashboard Components ✅
 **Files**: `crates/dashboard/src/components/search/*`
 
-- [ ] Create `SearchForm.vue` (query input, indexer checkboxes, category filter)
-- [ ] Create `SearchResults.vue` (results table with sorting)
-- [ ] Create `IndexerList.vue` (indexer cards with status)
-- [ ] Create `IndexerSettings.vue` (edit modal)
+- [x] Create `SearchForm.vue` (query input, indexer checkboxes, category filter)
+- [x] Create `SearchResults.vue` (results table with sorting)
+- [x] Create `IndexerList.vue` (indexer cards with status)
+- [x] Create `IndexerSettings.vue` (edit modal)
 
 ### Task 10: Dashboard Views
 **Files**: `crates/dashboard/src/views/SearchView.vue`, `crates/dashboard/src/views/SettingsView.vue`
