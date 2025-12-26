@@ -16,8 +16,9 @@ pub use config::{
     DatabaseConfig, SanitizedConfig,
 };
 pub use searcher::{
-    IndexerStatus, RateLimitStatus, RawTorrentResult, SearchCategory, SearchError, SearchQuery,
-    SearchResult, Searcher, TorrentCandidate, TorrentFile, TorrentSource,
+    IndexerRateLimitConfig, IndexerStatus, RateLimitStatus, RateLimiterPool, RawTorrentResult,
+    SearchCategory, SearchError, SearchQuery, SearchResult, Searcher, TokenBucket,
+    TorrentCandidate, TorrentFile, TorrentSource,
 };
 pub use ticket::{
     CreateTicketRequest, QueryContext, SqliteTicketStore, Ticket, TicketError, TicketFilter,

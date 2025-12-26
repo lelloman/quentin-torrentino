@@ -1337,10 +1337,10 @@ Add to AppSidebar.vue:
 ### Task 2: Rate Limiter
 **Files**: `crates/core/src/searcher/rate_limiter.rs`
 
-- [ ] Implement `TokenBucket` struct
-- [ ] Implement `try_acquire`, `set_rate_limit`, `status` methods
-- [ ] Implement `RateLimiterPool` for multiple indexers
-- [ ] Write unit tests for rate limiting logic
+- [x] Implement `TokenBucket` struct
+- [x] Implement `try_acquire`, `set_rate_limit`, `status` methods
+- [x] Implement `RateLimiterPool` for multiple indexers
+- [x] Write unit tests for rate limiting logic
 
 ### Task 3: Configuration
 **Files**: `crates/core/src/config.rs`
