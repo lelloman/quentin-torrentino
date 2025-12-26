@@ -1,11 +1,11 @@
 use axum::{
-    routing::{delete, get, post},
+    routing::{delete, get, patch, post},
     Router,
 };
 use std::sync::Arc;
 use tower_http::services::{ServeDir, ServeFile};
 
-use super::{audit, handlers, tickets};
+use super::{audit, handlers, searcher, tickets};
 use crate::state::AppState;
 
 pub fn create_router(state: Arc<AppState>) -> Router {
@@ -25,6 +25,14 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/tickets", get(tickets::list_tickets))
         .route("/tickets/{id}", get(tickets::get_ticket))
         .route("/tickets/{id}", delete(tickets::cancel_ticket))
+        // Search
+        .route("/search", post(searcher::search))
+        .route("/searcher/status", get(searcher::get_status))
+        .route("/searcher/indexers", get(searcher::list_indexers))
+        .route(
+            "/searcher/indexers/{name}",
+            patch(searcher::update_indexer),
+        )
         .with_state(state);
 
     // Serve dashboard with SPA fallback

@@ -1,5 +1,7 @@
 use std::sync::Arc;
-use torrentino_core::{AuditHandle, AuditStore, Authenticator, Config, SanitizedConfig, TicketStore};
+use torrentino_core::{
+    AuditHandle, AuditStore, Authenticator, Config, SanitizedConfig, Searcher, TicketStore,
+};
 
 /// Shared application state
 pub struct AppState {
@@ -8,6 +10,7 @@ pub struct AppState {
     audit_handle: AuditHandle,
     audit_store: Arc<dyn AuditStore>,
     ticket_store: Arc<dyn TicketStore>,
+    searcher: Option<Arc<dyn Searcher>>,
 }
 
 impl AppState {
@@ -17,6 +20,7 @@ impl AppState {
         audit_handle: AuditHandle,
         audit_store: Arc<dyn AuditStore>,
         ticket_store: Arc<dyn TicketStore>,
+        searcher: Option<Arc<dyn Searcher>>,
     ) -> Self {
         Self {
             config,
@@ -24,6 +28,7 @@ impl AppState {
             audit_handle,
             audit_store,
             ticket_store,
+            searcher,
         }
     }
 
@@ -49,5 +54,10 @@ impl AppState {
     /// Get the ticket store
     pub fn ticket_store(&self) -> &Arc<dyn TicketStore> {
         &self.ticket_store
+    }
+
+    /// Get the searcher (if configured)
+    pub fn searcher(&self) -> Option<&Arc<dyn Searcher>> {
+        self.searcher.as_ref()
     }
 }

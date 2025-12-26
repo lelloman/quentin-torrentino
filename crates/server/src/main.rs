@@ -13,7 +13,8 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use torrentino_core::{
     create_audit_system, create_authenticator, load_config, validate_config, AuditEvent,
-    AuditStore, Authenticator, SqliteAuditStore, SqliteTicketStore, TicketStore,
+    AuditStore, Authenticator, JackettSearcher, Searcher, SearcherBackend, SqliteAuditStore,
+    SqliteTicketStore, TicketStore,
 };
 
 use api::create_router;
@@ -98,6 +99,28 @@ async fn run() -> Result<()> {
         .await;
     info!("Emitted ServiceStarted audit event");
 
+    // Create searcher if configured
+    let searcher: Option<Arc<dyn Searcher>> = match &config.searcher {
+        Some(searcher_config) => match searcher_config.backend {
+            SearcherBackend::Jackett => {
+                if let Some(jackett_config) = &searcher_config.jackett {
+                    info!(
+                        "Initializing Jackett searcher with {} indexers",
+                        jackett_config.indexers.len()
+                    );
+                    Some(Arc::new(JackettSearcher::new(jackett_config.clone())))
+                } else {
+                    error!("Jackett backend selected but no jackett config provided");
+                    None
+                }
+            }
+        },
+        None => {
+            info!("No searcher configured");
+            None
+        }
+    };
+
     // Create app state
     let state = Arc::new(AppState::new(
         config.clone(),
@@ -105,6 +128,7 @@ async fn run() -> Result<()> {
         audit_handle.clone(),
         audit_store,
         ticket_store,
+        searcher,
     ));
 
     // Create router

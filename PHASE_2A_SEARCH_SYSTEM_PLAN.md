@@ -1373,17 +1373,17 @@ Add to AppSidebar.vue:
 - [x] Add `IndexerEnabledChanged` event
 - [x] Update event serialization
 
-### Task 6: API Endpoints
+### Task 6: API Endpoints ✅
 **Files**: `crates/server/src/api/searcher.rs`, `crates/server/src/api/routes.rs`
 
-- [ ] Create searcher handlers module
-- [ ] Implement `POST /api/v1/search` handler
-- [ ] Implement `GET /api/v1/searcher/status` handler
-- [ ] Implement `GET /api/v1/searcher/indexers` handler
-- [ ] Implement `PATCH /api/v1/searcher/indexers/{name}` handler
-- [ ] Add searcher to `AppState`
-- [ ] Register routes
-- [ ] Emit audit events
+- [x] Create searcher handlers module
+- [x] Implement `POST /api/v1/search` handler
+- [x] Implement `GET /api/v1/searcher/status` handler
+- [x] Implement `GET /api/v1/searcher/indexers` handler
+- [x] Implement `PATCH /api/v1/searcher/indexers/{name}` handler
+- [x] Add searcher to `AppState`
+- [x] Register routes
+- [x] Emit audit events
 
 ### Task 7: Dashboard API Client
 **Files**: `crates/dashboard/src/api/searcher.ts`, `crates/dashboard/src/api/types.ts`
