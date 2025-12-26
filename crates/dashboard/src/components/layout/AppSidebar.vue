@@ -5,9 +5,11 @@ const route = useRoute()
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: 'i-carbon-dashboard' },
+  { to: '/tickets', label: 'Tickets', icon: 'i-carbon-ticket' },
+  { to: '/search', label: 'Search', icon: 'i-carbon-search' },
+  { to: '/settings', label: 'Settings', icon: 'i-carbon-settings-adjust' },
   { to: '/health', label: 'Health', icon: 'i-carbon-activity' },
   { to: '/config', label: 'Config', icon: 'i-carbon-settings' },
-  { to: '/tickets', label: 'Tickets', icon: 'i-carbon-ticket' },
 ]
 
 const isActive = (path: string) => {

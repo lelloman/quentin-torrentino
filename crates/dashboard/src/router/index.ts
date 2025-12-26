@@ -33,6 +33,16 @@ const router = createRouter({
           name: 'ticket-detail',
           component: () => import('../views/TicketDetailView.vue'),
         },
+        {
+          path: 'search',
+          name: 'search',
+          component: () => import('../views/SearchView.vue'),
+        },
+        {
+          path: 'settings',
+          name: 'settings',
+          component: () => import('../views/SettingsView.vue'),
+        },
       ],
     },
   ],

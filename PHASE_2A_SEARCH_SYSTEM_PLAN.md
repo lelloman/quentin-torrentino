@@ -1410,13 +1410,13 @@ Add to AppSidebar.vue:
 - [x] Create `IndexerList.vue` (indexer cards with status)
 - [x] Create `IndexerSettings.vue` (edit modal)
 
-### Task 10: Dashboard Views
+### Task 10: Dashboard Views ✅
 **Files**: `crates/dashboard/src/views/SearchView.vue`, `crates/dashboard/src/views/SettingsView.vue`
 
-- [ ] Create `SearchView.vue`
-- [ ] Create `SettingsView.vue` with indexers tab
-- [ ] Add routes
-- [ ] Add sidebar navigation
+- [x] Create `SearchView.vue`
+- [x] Create `SettingsView.vue` with indexers tab
+- [x] Add routes
+- [x] Add sidebar navigation
 
 ### Task 11: Testing & Polish
 
