@@ -77,3 +77,84 @@ export interface ApiError {
 }
 
 export type TicketStateType = 'pending' | 'cancelled' | 'completed' | 'failed'
+
+// Search types
+
+export type SearchCategory = 'audio' | 'music' | 'movies' | 'tv' | 'books' | 'software' | 'other'
+
+export interface SearchRequest {
+  query: string
+  indexers?: string[]
+  categories?: SearchCategory[]
+  limit?: number
+}
+
+export interface SearchQueryResponse {
+  query: string
+  indexers?: string[]
+  categories?: SearchCategory[]
+  limit?: number
+}
+
+export interface TorrentSource {
+  indexer: string
+  magnet_uri?: string
+  torrent_url?: string
+  seeders: number
+  leechers: number
+  details_url?: string
+}
+
+export interface TorrentFile {
+  path: string
+  size_bytes: number
+}
+
+export interface TorrentCandidate {
+  title: string
+  info_hash: string
+  size_bytes: number
+  seeders: number
+  leechers: number
+  category?: string
+  publish_date?: string
+  files?: TorrentFile[]
+  sources: TorrentSource[]
+}
+
+export interface SearchResponse {
+  query: SearchQueryResponse
+  candidates: TorrentCandidate[]
+  duration_ms: number
+  indexer_errors?: Record<string, string>
+}
+
+export interface RateLimitStatus {
+  requests_per_minute: number
+  tokens_available: number
+  next_available_in_ms?: number
+}
+
+export interface IndexerStatus {
+  name: string
+  enabled: boolean
+  rate_limit: RateLimitStatus
+  last_used?: string
+  last_error?: string
+}
+
+export interface IndexersResponse {
+  indexers: IndexerStatus[]
+}
+
+export interface SearcherStatusResponse {
+  backend: string
+  configured: boolean
+  indexers_count: number
+  indexers_enabled: number
+}
+
+export interface UpdateIndexerRequest {
+  rate_limit_rpm?: number
+  enabled?: boolean
+}

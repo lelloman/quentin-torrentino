@@ -1385,14 +1385,14 @@ Add to AppSidebar.vue:
 - [x] Register routes
 - [x] Emit audit events
 
-### Task 7: Dashboard API Client
+### Task 7: Dashboard API Client ✅
 **Files**: `crates/dashboard/src/api/searcher.ts`, `crates/dashboard/src/api/types.ts`
 
-- [ ] Add TypeScript types
-- [ ] Implement `search()` function
-- [ ] Implement `getSearcherStatus()` function
-- [ ] Implement `getIndexers()` function
-- [ ] Implement `updateIndexer()` function
+- [x] Add TypeScript types
+- [x] Implement `search()` function
+- [x] Implement `getSearcherStatus()` function
+- [x] Implement `getIndexers()` function
+- [x] Implement `updateIndexer()` function
 
 ### Task 8: Dashboard Composable
 **Files**: `crates/dashboard/src/composables/useSearcher.ts`

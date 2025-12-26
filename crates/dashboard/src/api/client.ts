@@ -54,3 +54,14 @@ export async function del<T, B = unknown>(path: string, body?: B): Promise<T> {
   })
   return handleResponse<T>(response)
 }
+
+export async function patch<T, B = unknown>(path: string, body?: B): Promise<T> {
+  const response = await fetch(`${BASE_URL}${path}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  })
+  return handleResponse<T>(response)
+}
