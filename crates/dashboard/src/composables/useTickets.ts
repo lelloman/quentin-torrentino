@@ -26,7 +26,7 @@ export function useTickets() {
   const limit = ref(20)
   const offset = ref(0)
 
-  const hasMore = computed(() => offset.value + tickets.value.length < total.value)
+  const hasMore = computed(() => tickets.value.length < total.value)
 
   async function fetchTickets(append = false) {
     loading.value = true
