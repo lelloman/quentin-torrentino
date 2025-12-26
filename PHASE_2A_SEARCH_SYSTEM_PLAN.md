@@ -1394,13 +1394,13 @@ Add to AppSidebar.vue:
 - [x] Implement `getIndexers()` function
 - [x] Implement `updateIndexer()` function
 
-### Task 8: Dashboard Composable
+### Task 8: Dashboard Composable ✅
 **Files**: `crates/dashboard/src/composables/useSearcher.ts`
 
-- [ ] Create `useSearcher` composable
-- [ ] Implement search functionality
-- [ ] Implement indexer management
-- [ ] Handle loading/error states
+- [x] Create `useSearcher` composable
+- [x] Implement search functionality
+- [x] Implement indexer management
+- [x] Handle loading/error states
 
 ### Task 9: Dashboard Components
 **Files**: `crates/dashboard/src/components/search/*`
