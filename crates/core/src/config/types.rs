@@ -10,6 +10,8 @@ pub struct Config {
     pub server: ServerConfig,
     #[serde(default)]
     pub database: DatabaseConfig,
+    #[serde(default)]
+    pub searcher: Option<SearcherConfig>,
 }
 
 /// Server configuration
@@ -70,17 +72,102 @@ pub enum AuthMethod {
     // Future: Oidc, Address, Cert, Plugin
 }
 
+/// Searcher configuration
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct SearcherConfig {
+    /// Search backend type
+    pub backend: SearcherBackend,
+    /// Jackett-specific configuration (required when backend = "jackett")
+    #[serde(default)]
+    pub jackett: Option<JackettConfig>,
+}
+
+/// Available search backends
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SearcherBackend {
+    Jackett,
+    // Future: Prowlarr, DirectApi
+}
+
+/// Jackett search backend configuration
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct JackettConfig {
+    /// Jackett server URL (e.g., "http://localhost:9117")
+    pub url: String,
+    /// Jackett API key
+    pub api_key: String,
+    /// Request timeout in seconds (default: 30)
+    #[serde(default = "default_timeout")]
+    pub timeout_secs: u32,
+    /// Configured indexers with rate limits
+    #[serde(default)]
+    pub indexers: Vec<IndexerConfig>,
+}
+
+fn default_timeout() -> u32 {
+    30
+}
+
+/// Configuration for a single indexer
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct IndexerConfig {
+    /// Indexer name (as shown in Jackett)
+    pub name: String,
+    /// Whether this indexer is enabled (default: true)
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Rate limit: max requests per minute (default: 10)
+    #[serde(default = "default_rate_limit")]
+    pub rate_limit_rpm: u32,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_rate_limit() -> u32 {
+    10
+}
+
 /// Sanitized config for API responses (secrets redacted)
 #[derive(Debug, Clone, Serialize)]
 pub struct SanitizedConfig {
     pub auth: SanitizedAuthConfig,
     pub server: ServerConfig,
     pub database: DatabaseConfig,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub searcher: Option<SanitizedSearcherConfig>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct SanitizedAuthConfig {
     pub method: String,
+}
+
+/// Sanitized searcher config (API key redacted)
+#[derive(Debug, Clone, Serialize)]
+pub struct SanitizedSearcherConfig {
+    pub backend: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub jackett: Option<SanitizedJackettConfig>,
+}
+
+/// Sanitized Jackett config (API key hidden)
+#[derive(Debug, Clone, Serialize)]
+pub struct SanitizedJackettConfig {
+    pub url: String,
+    pub api_key_configured: bool,
+    pub timeout_secs: u32,
+    pub indexers: Vec<SanitizedIndexerConfig>,
+}
+
+/// Sanitized indexer config
+#[derive(Debug, Clone, Serialize)]
+pub struct SanitizedIndexerConfig {
+    pub name: String,
+    pub enabled: bool,
+    pub rate_limit_rpm: u32,
 }
 
 impl From<&Config> for SanitizedConfig {
@@ -93,6 +180,25 @@ impl From<&Config> for SanitizedConfig {
             },
             server: config.server.clone(),
             database: config.database.clone(),
+            searcher: config.searcher.as_ref().map(|s| SanitizedSearcherConfig {
+                backend: match s.backend {
+                    SearcherBackend::Jackett => "jackett".to_string(),
+                },
+                jackett: s.jackett.as_ref().map(|j| SanitizedJackettConfig {
+                    url: j.url.clone(),
+                    api_key_configured: !j.api_key.is_empty(),
+                    timeout_secs: j.timeout_secs,
+                    indexers: j
+                        .indexers
+                        .iter()
+                        .map(|i| SanitizedIndexerConfig {
+                            name: i.name.clone(),
+                            enabled: i.enabled,
+                            rate_limit_rpm: i.rate_limit_rpm,
+                        })
+                        .collect(),
+                }),
+            }),
         }
     }
 }
@@ -147,11 +253,13 @@ port = 8080
             },
             server: ServerConfig::default(),
             database: DatabaseConfig::default(),
+            searcher: None,
         };
         let sanitized = SanitizedConfig::from(&config);
         assert_eq!(sanitized.auth.method, "none");
         assert_eq!(sanitized.server.port, 8080);
         assert_eq!(sanitized.database.path.to_str().unwrap(), "quentin.db");
+        assert!(sanitized.searcher.is_none());
     }
 
     #[test]
@@ -175,5 +283,104 @@ path = "/data/my-db.sqlite"
 "#;
         let config: Config = toml::from_str(toml).unwrap();
         assert_eq!(config.database.path.to_str().unwrap(), "/data/my-db.sqlite");
+    }
+
+    #[test]
+    fn test_deserialize_with_searcher_config() {
+        let toml = r#"
+[auth]
+method = "none"
+
+[searcher]
+backend = "jackett"
+
+[searcher.jackett]
+url = "http://localhost:9117"
+api_key = "test-api-key"
+
+[[searcher.jackett.indexers]]
+name = "rutracker"
+rate_limit_rpm = 5
+
+[[searcher.jackett.indexers]]
+name = "redacted"
+enabled = false
+rate_limit_rpm = 3
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        let searcher = config.searcher.as_ref().unwrap();
+        assert_eq!(searcher.backend, SearcherBackend::Jackett);
+
+        let jackett = searcher.jackett.as_ref().unwrap();
+        assert_eq!(jackett.url, "http://localhost:9117");
+        assert_eq!(jackett.api_key, "test-api-key");
+        assert_eq!(jackett.timeout_secs, 30); // default
+        assert_eq!(jackett.indexers.len(), 2);
+
+        assert_eq!(jackett.indexers[0].name, "rutracker");
+        assert!(jackett.indexers[0].enabled); // default
+        assert_eq!(jackett.indexers[0].rate_limit_rpm, 5);
+
+        assert_eq!(jackett.indexers[1].name, "redacted");
+        assert!(!jackett.indexers[1].enabled);
+        assert_eq!(jackett.indexers[1].rate_limit_rpm, 3);
+    }
+
+    #[test]
+    fn test_sanitized_config_with_searcher() {
+        let config = Config {
+            auth: AuthConfig {
+                method: AuthMethod::None,
+            },
+            server: ServerConfig::default(),
+            database: DatabaseConfig::default(),
+            searcher: Some(SearcherConfig {
+                backend: SearcherBackend::Jackett,
+                jackett: Some(JackettConfig {
+                    url: "http://localhost:9117".to_string(),
+                    api_key: "secret-key".to_string(),
+                    timeout_secs: 60,
+                    indexers: vec![IndexerConfig {
+                        name: "test".to_string(),
+                        enabled: true,
+                        rate_limit_rpm: 10,
+                    }],
+                }),
+            }),
+        };
+
+        let sanitized = SanitizedConfig::from(&config);
+        let searcher = sanitized.searcher.as_ref().unwrap();
+        assert_eq!(searcher.backend, "jackett");
+
+        let jackett = searcher.jackett.as_ref().unwrap();
+        assert_eq!(jackett.url, "http://localhost:9117");
+        assert!(jackett.api_key_configured); // API key is hidden, just shows if configured
+        assert_eq!(jackett.timeout_secs, 60);
+        assert_eq!(jackett.indexers.len(), 1);
+        assert_eq!(jackett.indexers[0].name, "test");
+    }
+
+    #[test]
+    fn test_indexer_config_defaults() {
+        let toml = r#"
+[auth]
+method = "none"
+
+[searcher]
+backend = "jackett"
+
+[searcher.jackett]
+url = "http://localhost:9117"
+api_key = "key"
+
+[[searcher.jackett.indexers]]
+name = "minimal"
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        let indexer = &config.searcher.unwrap().jackett.unwrap().indexers[0];
+        assert_eq!(indexer.name, "minimal");
+        assert!(indexer.enabled); // default true
+        assert_eq!(indexer.rate_limit_rpm, 10); // default 10
     }
 }

@@ -29,6 +29,7 @@ mod tests {
             },
             server: ServerConfig::default(),
             database: DatabaseConfig::default(),
+            searcher: None,
         };
         assert!(validate_config(&config).is_ok());
     }
@@ -44,6 +45,7 @@ mod tests {
                 port: 0,
             },
             database: DatabaseConfig::default(),
+            searcher: None,
         };
         let result = validate_config(&config);
         assert!(result.is_err());

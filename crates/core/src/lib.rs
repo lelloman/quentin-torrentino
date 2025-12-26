@@ -13,7 +13,7 @@ pub use auth::{
 };
 pub use config::{
     load_config, load_config_from_str, validate_config, AuthMethod, Config, ConfigError,
-    DatabaseConfig, SanitizedConfig,
+    DatabaseConfig, IndexerConfig, JackettConfig, SanitizedConfig, SearcherBackend, SearcherConfig,
 };
 pub use searcher::{
     IndexerRateLimitConfig, IndexerStatus, RateLimitStatus, RateLimiterPool, RawTorrentResult,

@@ -1343,14 +1343,14 @@ Add to AppSidebar.vue:
 - [x] Write unit tests for rate limiting logic
 
 ### Task 3: Configuration
-**Files**: `crates/core/src/config.rs`
+**Files**: `crates/core/src/config/types.rs`
 
-- [ ] Add `SearcherConfig` struct
-- [ ] Add `JackettConfig` struct
-- [ ] Add `IndexerConfig` struct
-- [ ] Add to main `Config` struct
-- [ ] Add to `SanitizedConfig` (hide API key)
-- [ ] Write config parsing tests
+- [x] Add `SearcherConfig` struct
+- [x] Add `JackettConfig` struct
+- [x] Add `IndexerConfig` struct
+- [x] Add to main `Config` struct
+- [x] Add to `SanitizedConfig` (hide API key)
+- [x] Write config parsing tests
 
 ### Task 4: Jackett Client
 **Files**: `crates/core/src/searcher/jackett.rs`, `crates/core/src/searcher/dedup.rs`
