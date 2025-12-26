@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { RouterView } from 'vue-router'
 import AppHeader from './AppHeader.vue'
 import AppSidebar from './AppSidebar.vue'
 </script>
@@ -9,7 +10,7 @@ import AppSidebar from './AppSidebar.vue'
     <div class="flex flex-1">
       <AppSidebar />
       <main class="flex-1 p-6 bg-gray-100">
-        <slot />
+        <RouterView />
       </main>
     </div>
   </div>
