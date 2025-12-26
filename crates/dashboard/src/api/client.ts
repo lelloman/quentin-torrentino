@@ -2,7 +2,7 @@
 
 import type { ApiError } from './types'
 
-const BASE_URL = '/api'
+const BASE_URL = '/api/v1'
 
 export class ApiClientError extends Error {
   constructor(

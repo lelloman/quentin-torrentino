@@ -3,21 +3,35 @@ use axum::{
     Router,
 };
 use std::sync::Arc;
+use tower_http::services::{ServeDir, ServeFile};
 
 use super::{audit, handlers, tickets};
 use crate::state::AppState;
 
 pub fn create_router(state: Arc<AppState>) -> Router {
-    Router::new()
+    // Dashboard static files path (configurable via env)
+    let dashboard_dir =
+        std::env::var("DASHBOARD_DIR").unwrap_or_else(|_| "crates/dashboard/dist".to_string());
+
+    // API routes
+    let api_routes = Router::new()
         // Health and config
-        .route("/api/v1/health", get(handlers::health))
-        .route("/api/v1/config", get(handlers::get_config))
+        .route("/health", get(handlers::health))
+        .route("/config", get(handlers::get_config))
         // Audit
-        .route("/api/v1/audit", get(audit::query_audit))
+        .route("/audit", get(audit::query_audit))
         // Tickets
-        .route("/api/v1/tickets", post(tickets::create_ticket))
-        .route("/api/v1/tickets", get(tickets::list_tickets))
-        .route("/api/v1/tickets/{id}", get(tickets::get_ticket))
-        .route("/api/v1/tickets/{id}", delete(tickets::cancel_ticket))
-        .with_state(state)
+        .route("/tickets", post(tickets::create_ticket))
+        .route("/tickets", get(tickets::list_tickets))
+        .route("/tickets/{id}", get(tickets::get_ticket))
+        .route("/tickets/{id}", delete(tickets::cancel_ticket))
+        .with_state(state);
+
+    // Serve dashboard with SPA fallback
+    let index_path = format!("{}/index.html", dashboard_dir);
+    let serve_dir = ServeDir::new(&dashboard_dir).fallback(ServeFile::new(&index_path));
+
+    Router::new()
+        .nest("/api/v1", api_routes)
+        .fallback_service(serve_dir)
 }
