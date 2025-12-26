@@ -1045,7 +1045,7 @@ const { torrents, coverage, searchTorrent } = useShadowCatalog()
 
 | Phase | Dashboard Features |
 |-------|-------------------|
-| 1 | Auth flow, config display, basic layout |
+| 1 | Auth flow, config display, basic layout, ticket management, kanban board, text search |
 | 2 | Search testing, torrent status, Shadow Catalog browser |
 | 3 | Pipeline visualization, pool status, job progress |
 | 4 | Ticket creation, matching preview, conversion status |
@@ -1396,7 +1396,7 @@ Each phase includes corresponding admin dashboard work. The dashboard evolves al
 - [ ] Queue manager with priority queues
 - [ ] Processing pools skeleton
 - [ ] Configuration loading (with auth validation)
-- [ ] **Dashboard**: Basic shell, auth flow, config display
+- [ ] **Dashboard**: Basic shell, auth flow, config display, ticket management, kanban board, text search
 
 **Phase 2: Search + Torrent Client + Shadow Catalog**
 - [ ] Jackett client + per-indexer rate limiting
