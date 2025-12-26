@@ -34,3 +34,30 @@ port = 8080
 # The database stores audit events and (in future phases) ticket state
 # Default: "quentin.db" (current directory)
 path = "quentin.db"
+
+# ==============================================================================
+# SEARCH (OPTIONAL)
+# ==============================================================================
+# Configure a search backend to enable torrent searching.
+# Currently only Jackett is supported.
+
+# Uncomment and configure to enable search:
+
+# [searcher]
+# backend = "jackett"
+#
+# [searcher.jackett]
+# url = "http://localhost:9117"
+# api_key = "your-jackett-api-key"  # Find this in Jackett UI
+# timeout_secs = 30
+#
+# # Define indexers (must match names in Jackett)
+# [[searcher.jackett.indexers]]
+# name = "1337x"
+# enabled = true
+# rate_limit_rpm = 10  # requests per minute
+#
+# [[searcher.jackett.indexers]]
+# name = "RARBG"
+# enabled = true
+# rate_limit_rpm = 5
