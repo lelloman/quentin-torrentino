@@ -1355,15 +1355,15 @@ Add to AppSidebar.vue:
 ### Task 4: Jackett Client
 **Files**: `crates/core/src/searcher/jackett.rs`, `crates/core/src/searcher/dedup.rs`
 
-- [ ] Implement `JackettSearcher` struct
-- [ ] Implement Jackett API response parsing
-- [ ] Implement `Searcher` trait for `JackettSearcher`
-- [ ] Implement concurrent multi-indexer search
-- [ ] Implement result deduplication by info_hash
-- [ ] Handle rate limiting integration
-- [ ] Track indexer state (last used, errors)
-- [ ] Write unit tests for deduplication logic
-- [ ] Write integration tests (with mock server)
+- [x] Implement `JackettSearcher` struct
+- [x] Implement Jackett API response parsing
+- [x] Implement `Searcher` trait for `JackettSearcher`
+- [x] Implement concurrent multi-indexer search
+- [x] Implement result deduplication by info_hash
+- [x] Handle rate limiting integration
+- [x] Track indexer state (last used, errors)
+- [x] Write unit tests for deduplication logic
+- [ ] Write integration tests (with mock server) (deferred to Task 11)
 
 ### Task 5: Audit Events
 **Files**: `crates/core/src/audit/events.rs`

@@ -17,6 +17,9 @@ rusqlite = { workspace = true }
 chrono = { workspace = true }
 sha2 = { workspace = true }
 uuid = { workspace = true }
+reqwest = { workspace = true }
+urlencoding = { workspace = true }
+futures = { workspace = true }
 
 [dev-dependencies]
 tokio-test = { workspace = true }
