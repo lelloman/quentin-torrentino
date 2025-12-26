@@ -6,32 +6,17 @@ use reqwest::Client;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
-use tokio::sync::RwLock;
-use tracing::{debug, warn};
+use tracing::debug;
 
 use crate::config::JackettConfig;
 
 use super::dedup::deduplicate_results;
-use super::rate_limiter::{IndexerRateLimitConfig, RateLimiterPool};
-use super::{
-    IndexerStatus, RawTorrentResult, SearchCategory, SearchError, SearchQuery, SearchResult,
-    Searcher,
-};
-
-/// Internal state for tracking an indexer.
-#[derive(Debug)]
-struct IndexerState {
-    enabled: bool,
-    last_used: Option<DateTime<Utc>>,
-    last_error: Option<String>,
-}
+use super::{IndexerStatus, RawTorrentResult, SearchCategory, SearchError, SearchQuery, SearchResult, Searcher};
 
 /// Jackett search backend implementation.
 pub struct JackettSearcher {
     client: Client,
     config: JackettConfig,
-    rate_limiters: RateLimiterPool,
-    indexer_state: RwLock<HashMap<String, IndexerState>>,
 }
 
 impl JackettSearcher {
@@ -42,45 +27,15 @@ impl JackettSearcher {
             .build()
             .expect("Failed to create HTTP client");
 
-        let rate_limit_configs: Vec<_> = config
-            .indexers
-            .iter()
-            .map(|i| IndexerRateLimitConfig {
-                name: i.name.clone(),
-                rate_limit_rpm: i.rate_limit_rpm,
-            })
-            .collect();
-        let rate_limiters = RateLimiterPool::new(&rate_limit_configs);
-
-        let indexer_state = config
-            .indexers
-            .iter()
-            .map(|i| {
-                (
-                    i.name.clone(),
-                    IndexerState {
-                        enabled: i.enabled,
-                        last_used: None,
-                        last_error: None,
-                    },
-                )
-            })
-            .collect();
-
-        Self {
-            client,
-            config,
-            rate_limiters,
-            indexer_state: RwLock::new(indexer_state),
-        }
+        Self { client, config }
     }
 
     /// Build the Jackett API URL for a search.
-    fn build_search_url(&self, query: &SearchQuery, indexer: &str) -> String {
+    /// Uses "all" to search all configured indexers at once.
+    fn build_search_url(&self, query: &SearchQuery) -> String {
         let mut url = format!(
-            "{}/api/v2.0/indexers/{}/results?apikey={}&Query={}",
+            "{}/api/v2.0/indexers/all/results?apikey={}&Query={}",
             self.config.url.trim_end_matches('/'),
-            urlencoding::encode(indexer),
             urlencoding::encode(&self.config.api_key),
             urlencoding::encode(&query.query)
         );
@@ -96,17 +51,27 @@ impl JackettSearcher {
         url
     }
 
-    /// Search a single indexer.
-    async fn search_indexer(
-        &self,
-        query: &SearchQuery,
-        indexer: &str,
-    ) -> Result<Vec<RawTorrentResult>, SearchError> {
-        // Check rate limit first
-        self.rate_limiters.try_acquire(indexer).await?;
+    /// Build URL to list configured indexers.
+    fn build_indexers_url(&self) -> String {
+        format!(
+            "{}/api/v2.0/indexers?apikey={}",
+            self.config.url.trim_end_matches('/'),
+            urlencoding::encode(&self.config.api_key)
+        )
+    }
+}
 
-        let url = self.build_search_url(query, indexer);
-        debug!(indexer = indexer, "Searching Jackett");
+#[async_trait]
+impl Searcher for JackettSearcher {
+    fn name(&self) -> &str {
+        "jackett"
+    }
+
+    async fn search(&self, query: &SearchQuery) -> Result<SearchResult, SearchError> {
+        let start = Instant::now();
+        let url = self.build_search_url(query);
+
+        debug!(query = %query.query, "Searching Jackett (all indexers)");
 
         let response = self
             .client
@@ -133,128 +98,50 @@ impl JackettSearcher {
             )));
         }
 
-        let jackett_response: JackettResponse = response
+        let jackett_response: JackettSearchResponse = response
             .json()
             .await
             .map_err(|e| SearchError::ApiError(format!("Failed to parse response: {}", e)))?;
 
-        // Update indexer state
-        {
-            let mut state = self.indexer_state.write().await;
-            if let Some(s) = state.get_mut(indexer) {
-                s.last_used = Some(Utc::now());
-                s.last_error = None;
-            }
-        }
-
-        debug!(
-            indexer = indexer,
-            results = jackett_response.Results.len(),
-            "Jackett search complete"
-        );
-
-        Ok(jackett_response
+        // Convert to raw results
+        let raw_results: Vec<RawTorrentResult> = jackett_response
             .Results
             .into_iter()
             .map(|r| RawTorrentResult {
                 title: r.Title,
-                indexer: indexer.to_string(),
+                indexer: r.Tracker.unwrap_or_else(|| "unknown".to_string()),
                 magnet_uri: r.MagnetUri,
                 torrent_url: r.Link,
                 info_hash: r.InfoHash.map(|h| h.to_lowercase()),
                 size_bytes: r.Size.unwrap_or(0) as u64,
                 seeders: r.Seeders.unwrap_or(0).max(0) as u32,
-                leechers: r
-                    .Peers
-                    .unwrap_or(0)
-                    .saturating_sub(r.Seeders.unwrap_or(0))
-                    .max(0) as u32,
+                leechers: r.Peers.unwrap_or(0).saturating_sub(r.Seeders.unwrap_or(0)).max(0) as u32,
                 category: r.CategoryDesc,
                 publish_date: r.PublishDate.and_then(|d| parse_jackett_date(&d)),
                 details_url: r.Details,
-                files: None, // Jackett doesn't return file lists in search results
-            })
-            .collect())
-    }
-}
-
-#[async_trait]
-impl Searcher for JackettSearcher {
-    fn name(&self) -> &str {
-        "jackett"
-    }
-
-    async fn search(&self, query: &SearchQuery) -> Result<SearchResult, SearchError> {
-        let start = Instant::now();
-
-        // Determine which indexers to search
-        let indexers_to_search: Vec<String> = {
-            let state = self.indexer_state.read().await;
-            match &query.indexers {
-                Some(requested) => requested
-                    .iter()
-                    .filter(|i| state.get(*i).map(|s| s.enabled).unwrap_or(false))
-                    .cloned()
-                    .collect(),
-                None => state
-                    .iter()
-                    .filter(|(_, s)| s.enabled)
-                    .map(|(name, _)| name.clone())
-                    .collect(),
-            }
-        };
-
-        if indexers_to_search.is_empty() {
-            return Err(SearchError::AllIndexersFailed(
-                [("*".to_string(), "No enabled indexers".to_string())].into(),
-            ));
-        }
-
-        debug!(
-            indexers = ?indexers_to_search,
-            query = %query.query,
-            "Starting parallel search"
-        );
-
-        // Search all indexers concurrently
-        let search_futures: Vec<_> = indexers_to_search
-            .iter()
-            .map(|indexer| {
-                let indexer = indexer.clone();
-                let query = query.clone();
-                async move {
-                    let result = self.search_indexer(&query, &indexer).await;
-                    (indexer, result)
-                }
+                files: None,
             })
             .collect();
 
-        let results = futures::future::join_all(search_futures).await;
-
-        let mut all_raw: Vec<RawTorrentResult> = Vec::new();
+        // Collect indexer errors from response
         let mut indexer_errors: HashMap<String, String> = HashMap::new();
-
-        for (indexer, result) in results {
-            match result {
-                Ok(mut torrents) => {
-                    all_raw.append(&mut torrents);
-                }
-                Err(e) => {
-                    warn!(indexer = %indexer, error = %e, "Indexer search failed");
-                    // Update indexer state with error
-                    {
-                        let mut state = self.indexer_state.write().await;
-                        if let Some(s) = state.get_mut(&indexer) {
-                            s.last_error = Some(e.to_string());
-                        }
+        if let Some(indexers) = jackett_response.Indexers {
+            for indexer in indexers {
+                if let Some(error) = indexer.Error {
+                    if !error.is_empty() {
+                        indexer_errors.insert(indexer.Name.unwrap_or_else(|| "unknown".to_string()), error);
                     }
-                    indexer_errors.insert(indexer, e.to_string());
                 }
             }
         }
 
+        debug!(
+            raw_results = raw_results.len(),
+            "Jackett search complete"
+        );
+
         // Deduplicate results
-        let mut candidates = deduplicate_results(all_raw);
+        let mut candidates = deduplicate_results(raw_results);
 
         // Apply limit
         if let Some(limit) = query.limit {
@@ -263,7 +150,7 @@ impl Searcher for JackettSearcher {
 
         let duration_ms = start.elapsed().as_millis() as u64;
 
-        // If all indexers failed, return error
+        // If no results and there were errors, return error
         if candidates.is_empty() && !indexer_errors.is_empty() {
             return Err(SearchError::AllIndexersFailed(indexer_errors));
         }
@@ -283,50 +170,37 @@ impl Searcher for JackettSearcher {
     }
 
     async fn indexer_status(&self) -> Vec<IndexerStatus> {
-        let state = self.indexer_state.read().await;
-        let rate_status = self.rate_limiters.all_status().await;
-        let rate_map: HashMap<_, _> = rate_status.into_iter().collect();
+        let url = self.build_indexers_url();
 
-        self.config
-            .indexers
-            .iter()
-            .map(|cfg| {
-                let s = state.get(&cfg.name);
-                let default_rate = super::RateLimitStatus {
-                    requests_per_minute: cfg.rate_limit_rpm,
-                    tokens_available: cfg.rate_limit_rpm as f32,
-                    next_available_in_ms: None,
-                };
-                IndexerStatus {
-                    name: cfg.name.clone(),
-                    enabled: s.map(|s| s.enabled).unwrap_or(cfg.enabled),
-                    rate_limit: rate_map.get(&cfg.name).cloned().unwrap_or(default_rate),
-                    last_used: s.and_then(|s| s.last_used),
-                    last_error: s.and_then(|s| s.last_error.clone()),
-                }
+        let response = match self.client.get(&url).send().await {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::warn!(error = %e, "Failed to fetch indexers from Jackett");
+                return vec![];
+            }
+        };
+
+        if !response.status().is_success() {
+            tracing::warn!(status = %response.status(), "Failed to fetch indexers from Jackett");
+            return vec![];
+        }
+
+        let indexers: Vec<JackettIndexer> = match response.json().await {
+            Ok(i) => i,
+            Err(e) => {
+                tracing::warn!(error = %e, "Failed to parse indexers response");
+                return vec![];
+            }
+        };
+
+        indexers
+            .into_iter()
+            .filter(|i| i.configured)
+            .map(|i| IndexerStatus {
+                name: i.id,
+                enabled: i.configured,
             })
             .collect()
-    }
-
-    async fn update_indexer_rate_limit(
-        &self,
-        indexer: &str,
-        requests_per_minute: u32,
-    ) -> Result<(), SearchError> {
-        self.rate_limiters
-            .set_rate_limit(indexer, requests_per_minute)
-            .await
-    }
-
-    async fn set_indexer_enabled(&self, indexer: &str, enabled: bool) -> Result<(), SearchError> {
-        let mut state = self.indexer_state.write().await;
-        match state.get_mut(indexer) {
-            Some(s) => {
-                s.enabled = enabled;
-                Ok(())
-            }
-            None => Err(SearchError::IndexerNotFound(indexer.to_string())),
-        }
     }
 }
 
@@ -344,12 +218,10 @@ fn category_to_jackett_ids(cat: &SearchCategory) -> Vec<i32> {
 
 /// Parse Jackett's date format.
 fn parse_jackett_date(date_str: &str) -> Option<DateTime<Utc>> {
-    // Jackett returns dates in ISO 8601 format
     DateTime::parse_from_rfc3339(date_str)
         .ok()
         .map(|dt| dt.with_timezone(&Utc))
         .or_else(|| {
-            // Try parsing without timezone
             chrono::NaiveDateTime::parse_from_str(date_str, "%Y-%m-%dT%H:%M:%S")
                 .ok()
                 .map(|ndt| ndt.and_utc())
@@ -359,14 +231,16 @@ fn parse_jackett_date(date_str: &str) -> Option<DateTime<Utc>> {
 // Jackett API response types
 #[derive(Debug, Deserialize)]
 #[allow(non_snake_case)]
-struct JackettResponse {
+struct JackettSearchResponse {
     Results: Vec<JackettResult>,
+    Indexers: Option<Vec<JackettIndexerStatus>>,
 }
 
 #[derive(Debug, Deserialize)]
 #[allow(non_snake_case)]
 struct JackettResult {
     Title: String,
+    Tracker: Option<String>,
     MagnetUri: Option<String>,
     Link: Option<String>,
     InfoHash: Option<String>,
@@ -376,6 +250,20 @@ struct JackettResult {
     CategoryDesc: Option<String>,
     PublishDate: Option<String>,
     Details: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(non_snake_case)]
+struct JackettIndexerStatus {
+    Name: Option<String>,
+    Error: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(non_snake_case)]
+struct JackettIndexer {
+    id: String,
+    configured: bool,
 }
 
 #[cfg(test)]
@@ -421,17 +309,10 @@ mod tests {
 
     #[test]
     fn test_build_search_url() {
-        use crate::config::IndexerConfig;
-
         let config = JackettConfig {
             url: "http://localhost:9117".to_string(),
             api_key: "test-key".to_string(),
             timeout_secs: 30,
-            indexers: vec![IndexerConfig {
-                name: "test".to_string(),
-                enabled: true,
-                rate_limit_rpm: 10,
-            }],
         };
 
         let searcher = JackettSearcher::new(config);
@@ -443,25 +324,18 @@ mod tests {
             limit: None,
         };
 
-        let url = searcher.build_search_url(&query, "test");
-        assert!(url.contains("http://localhost:9117/api/v2.0/indexers/test/results"));
+        let url = searcher.build_search_url(&query);
+        assert!(url.contains("http://localhost:9117/api/v2.0/indexers/all/results"));
         assert!(url.contains("apikey=test-key"));
         assert!(url.contains("Query=test%20query"));
     }
 
     #[test]
     fn test_build_search_url_with_categories() {
-        use crate::config::IndexerConfig;
-
         let config = JackettConfig {
-            url: "http://localhost:9117/".to_string(), // trailing slash
+            url: "http://localhost:9117/".to_string(),
             api_key: "key".to_string(),
             timeout_secs: 30,
-            indexers: vec![IndexerConfig {
-                name: "test".to_string(),
-                enabled: true,
-                rate_limit_rpm: 10,
-            }],
         };
 
         let searcher = JackettSearcher::new(config);
@@ -473,7 +347,7 @@ mod tests {
             limit: None,
         };
 
-        let url = searcher.build_search_url(&query, "test");
+        let url = searcher.build_search_url(&query);
         assert!(url.contains("Category[]=3000")); // Music
         assert!(url.contains("Category[]=2000")); // Movies
     }

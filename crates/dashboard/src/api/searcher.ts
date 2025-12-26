@@ -1,11 +1,9 @@
-import { get, post, patch } from './client'
+import { get, post } from './client'
 import type {
   SearchRequest,
   SearchResponse,
   SearcherStatusResponse,
   IndexersResponse,
-  IndexerStatus,
-  UpdateIndexerRequest,
 } from './types'
 
 export async function search(request: SearchRequest): Promise<SearchResponse> {
@@ -18,11 +16,4 @@ export async function getSearcherStatus(): Promise<SearcherStatusResponse> {
 
 export async function getIndexers(): Promise<IndexersResponse> {
   return get<IndexersResponse>('/searcher/indexers')
-}
-
-export async function updateIndexer(
-  name: string,
-  request: UpdateIndexerRequest
-): Promise<IndexerStatus> {
-  return patch<IndexerStatus>(`/searcher/indexers/${encodeURIComponent(name)}`, request)
 }

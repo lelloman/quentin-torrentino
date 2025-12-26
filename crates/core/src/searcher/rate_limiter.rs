@@ -1,10 +1,21 @@
 //! Token bucket rate limiter for per-indexer rate limiting.
+//!
+//! Kept for potential future use but currently not used since Jackett
+//! handles rate limiting internally.
 
 use std::collections::HashMap;
 use tokio::sync::RwLock;
 use tokio::time::{Duration, Instant};
 
-use super::{RateLimitStatus, SearchError};
+use super::SearchError;
+
+/// Rate limit status for an indexer.
+#[derive(Debug, Clone)]
+pub struct RateLimitStatus {
+    pub requests_per_minute: u32,
+    pub tokens_available: f32,
+    pub next_available_in_ms: Option<u64>,
+}
 
 /// Token bucket rate limiter for a single indexer.
 ///

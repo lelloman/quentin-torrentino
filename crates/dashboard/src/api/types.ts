@@ -129,18 +129,10 @@ export interface SearchResponse {
   indexer_errors?: Record<string, string>
 }
 
-export interface RateLimitStatus {
-  requests_per_minute: number
-  tokens_available: number
-  next_available_in_ms?: number
-}
-
+// Indexer status (read-only, configured in Jackett)
 export interface IndexerStatus {
   name: string
   enabled: boolean
-  rate_limit: RateLimitStatus
-  last_used?: string
-  last_error?: string
 }
 
 export interface IndexersResponse {
@@ -152,9 +144,4 @@ export interface SearcherStatusResponse {
   configured: boolean
   indexers_count: number
   indexers_enabled: number
-}
-
-export interface UpdateIndexerRequest {
-  rate_limit_rpm?: number
-  enabled?: boolean
 }

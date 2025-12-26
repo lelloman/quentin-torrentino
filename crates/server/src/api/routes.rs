@@ -1,5 +1,5 @@
 use axum::{
-    routing::{delete, get, patch, post},
+    routing::{delete, get, post},
     Router,
 };
 use std::sync::Arc;
@@ -25,14 +25,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/tickets", get(tickets::list_tickets))
         .route("/tickets/{id}", get(tickets::get_ticket))
         .route("/tickets/{id}", delete(tickets::cancel_ticket))
-        // Search
+        // Search (read-only, indexers configured in Jackett)
         .route("/search", post(searcher::search))
         .route("/searcher/status", get(searcher::get_status))
         .route("/searcher/indexers", get(searcher::list_indexers))
-        .route(
-            "/searcher/indexers/{name}",
-            patch(searcher::update_indexer),
-        )
         .with_state(state);
 
     // Serve dashboard with SPA fallback

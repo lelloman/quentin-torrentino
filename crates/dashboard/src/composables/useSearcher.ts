@@ -1,16 +1,9 @@
 import { ref, computed } from 'vue'
-import type {
-  SearchRequest,
-  SearchResponse,
-  IndexerStatus,
-  SearcherStatusResponse,
-  UpdateIndexerRequest,
-} from '../api/types'
+import type { SearchRequest, SearchResponse, IndexerStatus, SearcherStatusResponse } from '../api/types'
 import {
   search as apiSearch,
   getSearcherStatus as apiGetSearcherStatus,
   getIndexers as apiGetIndexers,
-  updateIndexer as apiUpdateIndexer,
 } from '../api/searcher'
 
 export function useSearcher() {
@@ -59,19 +52,6 @@ export function useSearcher() {
     }
   }
 
-  async function updateIndexer(name: string, request: UpdateIndexerRequest) {
-    try {
-      const updated = await apiUpdateIndexer(name, request)
-      const idx = indexers.value.findIndex((i) => i.name === name)
-      if (idx !== -1) {
-        indexers.value[idx] = updated
-      }
-    } catch (e) {
-      error.value = e instanceof Error ? e.message : 'Failed to update indexer'
-      throw e
-    }
-  }
-
   const enabledIndexers = computed(() => indexers.value.filter((i) => i.enabled))
 
   function clearError() {
@@ -93,7 +73,6 @@ export function useSearcher() {
     search,
     fetchStatus,
     fetchIndexers,
-    updateIndexer,
     clearError,
     clearSearch,
   }

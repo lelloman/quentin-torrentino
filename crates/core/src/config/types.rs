@@ -100,34 +100,10 @@ pub struct JackettConfig {
     /// Request timeout in seconds (default: 30)
     #[serde(default = "default_timeout")]
     pub timeout_secs: u32,
-    /// Configured indexers with rate limits
-    #[serde(default)]
-    pub indexers: Vec<IndexerConfig>,
 }
 
 fn default_timeout() -> u32 {
     30
-}
-
-/// Configuration for a single indexer
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct IndexerConfig {
-    /// Indexer name (as shown in Jackett)
-    pub name: String,
-    /// Whether this indexer is enabled (default: true)
-    #[serde(default = "default_true")]
-    pub enabled: bool,
-    /// Rate limit: max requests per minute (default: 10)
-    #[serde(default = "default_rate_limit")]
-    pub rate_limit_rpm: u32,
-}
-
-fn default_true() -> bool {
-    true
-}
-
-fn default_rate_limit() -> u32 {
-    10
 }
 
 /// Sanitized config for API responses (secrets redacted)
@@ -159,15 +135,6 @@ pub struct SanitizedJackettConfig {
     pub url: String,
     pub api_key_configured: bool,
     pub timeout_secs: u32,
-    pub indexers: Vec<SanitizedIndexerConfig>,
-}
-
-/// Sanitized indexer config
-#[derive(Debug, Clone, Serialize)]
-pub struct SanitizedIndexerConfig {
-    pub name: String,
-    pub enabled: bool,
-    pub rate_limit_rpm: u32,
 }
 
 impl From<&Config> for SanitizedConfig {
@@ -188,15 +155,6 @@ impl From<&Config> for SanitizedConfig {
                     url: j.url.clone(),
                     api_key_configured: !j.api_key.is_empty(),
                     timeout_secs: j.timeout_secs,
-                    indexers: j
-                        .indexers
-                        .iter()
-                        .map(|i| SanitizedIndexerConfig {
-                            name: i.name.clone(),
-                            enabled: i.enabled,
-                            rate_limit_rpm: i.rate_limit_rpm,
-                        })
-                        .collect(),
                 }),
             }),
         }
@@ -297,15 +255,6 @@ backend = "jackett"
 [searcher.jackett]
 url = "http://localhost:9117"
 api_key = "test-api-key"
-
-[[searcher.jackett.indexers]]
-name = "rutracker"
-rate_limit_rpm = 5
-
-[[searcher.jackett.indexers]]
-name = "redacted"
-enabled = false
-rate_limit_rpm = 3
 "#;
         let config: Config = toml::from_str(toml).unwrap();
         let searcher = config.searcher.as_ref().unwrap();
@@ -315,15 +264,6 @@ rate_limit_rpm = 3
         assert_eq!(jackett.url, "http://localhost:9117");
         assert_eq!(jackett.api_key, "test-api-key");
         assert_eq!(jackett.timeout_secs, 30); // default
-        assert_eq!(jackett.indexers.len(), 2);
-
-        assert_eq!(jackett.indexers[0].name, "rutracker");
-        assert!(jackett.indexers[0].enabled); // default
-        assert_eq!(jackett.indexers[0].rate_limit_rpm, 5);
-
-        assert_eq!(jackett.indexers[1].name, "redacted");
-        assert!(!jackett.indexers[1].enabled);
-        assert_eq!(jackett.indexers[1].rate_limit_rpm, 3);
     }
 
     #[test]
@@ -340,11 +280,6 @@ rate_limit_rpm = 3
                     url: "http://localhost:9117".to_string(),
                     api_key: "secret-key".to_string(),
                     timeout_secs: 60,
-                    indexers: vec![IndexerConfig {
-                        name: "test".to_string(),
-                        enabled: true,
-                        rate_limit_rpm: 10,
-                    }],
                 }),
             }),
         };
@@ -357,30 +292,5 @@ rate_limit_rpm = 3
         assert_eq!(jackett.url, "http://localhost:9117");
         assert!(jackett.api_key_configured); // API key is hidden, just shows if configured
         assert_eq!(jackett.timeout_secs, 60);
-        assert_eq!(jackett.indexers.len(), 1);
-        assert_eq!(jackett.indexers[0].name, "test");
-    }
-
-    #[test]
-    fn test_indexer_config_defaults() {
-        let toml = r#"
-[auth]
-method = "none"
-
-[searcher]
-backend = "jackett"
-
-[searcher.jackett]
-url = "http://localhost:9117"
-api_key = "key"
-
-[[searcher.jackett.indexers]]
-name = "minimal"
-"#;
-        let config: Config = toml::from_str(toml).unwrap();
-        let indexer = &config.searcher.unwrap().jackett.unwrap().indexers[0];
-        assert_eq!(indexer.name, "minimal");
-        assert!(indexer.enabled); // default true
-        assert_eq!(indexer.rate_limit_rpm, 10); // default 10
     }
 }

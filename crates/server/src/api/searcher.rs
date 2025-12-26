@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use axum::{
-    extract::{Path, State},
+    extract::State,
     http::StatusCode,
     response::IntoResponse,
     Json,
@@ -77,14 +77,6 @@ pub struct SearcherStatusResponse {
 #[derive(Debug, Serialize)]
 pub struct IndexersResponse {
     pub indexers: Vec<IndexerStatus>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct UpdateIndexerRequest {
-    #[serde(default)]
-    pub rate_limit_rpm: Option<u32>,
-    #[serde(default)]
-    pub enabled: Option<bool>,
 }
 
 #[derive(Debug, Serialize)]
@@ -183,6 +175,7 @@ pub async fn get_status(State(state): State<Arc<AppState>>) -> Json<SearcherStat
 /// GET /api/v1/searcher/indexers
 ///
 /// List all configured indexers with their status.
+/// Note: Indexers are read-only and configured in Jackett.
 pub async fn list_indexers(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<IndexersResponse>, impl IntoResponse> {
@@ -200,101 +193,4 @@ pub async fn list_indexers(
 
     let indexers = searcher.indexer_status().await;
     Ok(Json(IndexersResponse { indexers }))
-}
-
-/// PATCH /api/v1/searcher/indexers/{name}
-///
-/// Update an indexer's settings (rate limit, enabled state).
-pub async fn update_indexer(
-    State(state): State<Arc<AppState>>,
-    Path(name): Path<String>,
-    Json(body): Json<UpdateIndexerRequest>,
-) -> Result<Json<IndexerStatus>, impl IntoResponse> {
-    let searcher = match state.searcher() {
-        Some(s) => s,
-        None => {
-            return Err((
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(ErrorResponse {
-                    error: "Search backend not configured".to_string(),
-                }),
-            ))
-        }
-    };
-
-    // Get current status to find old values for audit
-    let current_status: Option<IndexerStatus> = searcher
-        .indexer_status()
-        .await
-        .into_iter()
-        .find(|i| i.name == name);
-
-    let current = match current_status {
-        Some(s) => s,
-        None => {
-            return Err((
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse {
-                    error: format!("Indexer '{}' not found", name),
-                }),
-            ))
-        }
-    };
-
-    // Update rate limit if provided
-    if let Some(new_rpm) = body.rate_limit_rpm {
-        let old_rpm = current.rate_limit.requests_per_minute;
-        if let Err(e) = searcher.update_indexer_rate_limit(&name, new_rpm).await {
-            return Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: e.to_string(),
-                }),
-            ));
-        }
-
-        state.audit().try_emit(AuditEvent::IndexerRateLimitUpdated {
-            user_id: "anonymous".to_string(), // TODO: Get from auth
-            indexer: name.clone(),
-            old_rpm,
-            new_rpm,
-        });
-    }
-
-    // Update enabled state if provided
-    if let Some(enabled) = body.enabled {
-        if enabled != current.enabled {
-            if let Err(e) = searcher.set_indexer_enabled(&name, enabled).await {
-                return Err((
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse {
-                        error: e.to_string(),
-                    }),
-                ));
-            }
-
-            state.audit().try_emit(AuditEvent::IndexerEnabledChanged {
-                user_id: "anonymous".to_string(), // TODO: Get from auth
-                indexer: name.clone(),
-                enabled,
-            });
-        }
-    }
-
-    // Get updated status
-    let updated_status: Option<IndexerStatus> = searcher
-        .indexer_status()
-        .await
-        .into_iter()
-        .find(|i| i.name == name);
-
-    match updated_status {
-        Some(status) => Ok(Json(status)),
-        None => Err((
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: format!("Indexer '{}' not found", name),
-            }),
-        )),
-    }
 }

@@ -6,6 +6,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use thiserror::Error;
 
+// Re-export DateTime for use in other modules
+pub use chrono;
+
 /// Query parameters for a torrent search.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchQuery {
@@ -122,33 +125,13 @@ pub struct SearchResult {
     pub indexer_errors: HashMap<String, String>,
 }
 
-/// Status of a single indexer.
+/// Status of a single indexer (from Jackett).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IndexerStatus {
-    /// Indexer name.
+    /// Indexer name/ID.
     pub name: String,
-    /// Whether this indexer is enabled.
+    /// Whether this indexer is configured/enabled.
     pub enabled: bool,
-    /// Rate limit status.
-    pub rate_limit: RateLimitStatus,
-    /// When this indexer was last used.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_used: Option<DateTime<Utc>>,
-    /// Last error message (if any).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_error: Option<String>,
-}
-
-/// Rate limit status for an indexer.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RateLimitStatus {
-    /// Maximum requests per minute.
-    pub requests_per_minute: u32,
-    /// Currently available tokens.
-    pub tokens_available: f32,
-    /// Milliseconds until next token available (if rate limited).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub next_available_in_ms: Option<u64>,
 }
 
 /// Errors that can occur during search operations.
@@ -190,16 +173,6 @@ pub trait Searcher: Send + Sync {
 
     /// Get status of all configured indexers.
     async fn indexer_status(&self) -> Vec<IndexerStatus>;
-
-    /// Update rate limit for an indexer (returns error if indexer not found).
-    async fn update_indexer_rate_limit(
-        &self,
-        indexer: &str,
-        requests_per_minute: u32,
-    ) -> Result<(), SearchError>;
-
-    /// Enable or disable an indexer.
-    async fn set_indexer_enabled(&self, indexer: &str, enabled: bool) -> Result<(), SearchError>;
 }
 
 #[cfg(test)]
@@ -302,24 +275,4 @@ mod tests {
         assert_eq!(parsed.duration_ms, 100);
     }
 
-    #[test]
-    fn test_rate_limit_status() {
-        let status = RateLimitStatus {
-            requests_per_minute: 10,
-            tokens_available: 5.5,
-            next_available_in_ms: None,
-        };
-
-        let json = serde_json::to_string(&status).unwrap();
-        assert!(!json.contains("next_available_in_ms")); // None should be skipped
-
-        let status_limited = RateLimitStatus {
-            requests_per_minute: 10,
-            tokens_available: 0.0,
-            next_available_in_ms: Some(5000),
-        };
-
-        let json = serde_json::to_string(&status_limited).unwrap();
-        assert!(json.contains("next_available_in_ms"));
-    }
 }

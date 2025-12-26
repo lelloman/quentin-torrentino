@@ -1,14 +1,16 @@
 //! Torrent search abstraction.
 //!
 //! This module provides a `Searcher` trait for searching torrents across
-//! various backends (Jackett, Prowlarr, etc.) with per-indexer rate limiting.
+//! various backends (Jackett, Prowlarr, etc.).
 
 mod dedup;
 mod jackett;
-mod rate_limiter;
 mod types;
+
+// Rate limiter kept for potential future use
+#[allow(dead_code)]
+mod rate_limiter;
 
 pub use dedup::deduplicate_results;
 pub use jackett::JackettSearcher;
-pub use rate_limiter::{IndexerRateLimitConfig, RateLimiterPool, TokenBucket};
 pub use types::*;

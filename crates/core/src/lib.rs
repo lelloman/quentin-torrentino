@@ -13,12 +13,11 @@ pub use auth::{
 };
 pub use config::{
     load_config, load_config_from_str, validate_config, AuthMethod, Config, ConfigError,
-    DatabaseConfig, IndexerConfig, JackettConfig, SanitizedConfig, SearcherBackend, SearcherConfig,
+    DatabaseConfig, JackettConfig, SanitizedConfig, SearcherBackend, SearcherConfig,
 };
 pub use searcher::{
-    deduplicate_results, IndexerRateLimitConfig, IndexerStatus, JackettSearcher, RateLimitStatus,
-    RateLimiterPool, RawTorrentResult, SearchCategory, SearchError, SearchQuery, SearchResult,
-    Searcher, TokenBucket, TorrentCandidate, TorrentFile, TorrentSource,
+    deduplicate_results, IndexerStatus, JackettSearcher, RawTorrentResult, SearchCategory,
+    SearchError, SearchQuery, SearchResult, Searcher, TorrentCandidate, TorrentFile, TorrentSource,
 };
 pub use ticket::{
     CreateTicketRequest, QueryContext, SqliteTicketStore, Ticket, TicketError, TicketFilter,

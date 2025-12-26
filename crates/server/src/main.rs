@@ -105,8 +105,7 @@ async fn run() -> Result<()> {
             SearcherBackend::Jackett => {
                 if let Some(jackett_config) = &searcher_config.jackett {
                     info!(
-                        "Initializing Jackett searcher with {} indexers",
-                        jackett_config.indexers.len()
+                        "Initializing Jackett searcher (indexers auto-discovered from Jackett)"
                     );
                     Some(Arc::new(JackettSearcher::new(jackett_config.clone())))
                 } else {
