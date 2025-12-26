@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Audit event types
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -35,6 +36,43 @@ pub enum AuditEvent {
         reason: Option<String>,
         previous_state: String,
     },
+
+    // Search events
+    SearchExecuted {
+        /// Who initiated the search
+        user_id: String,
+        /// Search backend used (e.g., "jackett")
+        searcher: String,
+        /// The query that was searched
+        query: String,
+        /// Which indexers were queried
+        indexers_queried: Vec<String>,
+        /// Number of results returned
+        results_count: u32,
+        /// How long the search took in milliseconds
+        duration_ms: u64,
+        /// Any indexers that failed (name -> error message)
+        #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+        indexer_errors: HashMap<String, String>,
+    },
+    IndexerRateLimitUpdated {
+        /// Who updated the rate limit
+        user_id: String,
+        /// Which indexer was updated
+        indexer: String,
+        /// Previous rate limit (requests per minute)
+        old_rpm: u32,
+        /// New rate limit (requests per minute)
+        new_rpm: u32,
+    },
+    IndexerEnabledChanged {
+        /// Who changed the enabled state
+        user_id: String,
+        /// Which indexer was updated
+        indexer: String,
+        /// New enabled state
+        enabled: bool,
+    },
 }
 
 impl AuditEvent {
@@ -46,16 +84,19 @@ impl AuditEvent {
             Self::TicketCreated { .. } => "ticket_created",
             Self::TicketStateChanged { .. } => "ticket_state_changed",
             Self::TicketCancelled { .. } => "ticket_cancelled",
+            Self::SearchExecuted { .. } => "search_executed",
+            Self::IndexerRateLimitUpdated { .. } => "indexer_rate_limit_updated",
+            Self::IndexerEnabledChanged { .. } => "indexer_enabled_changed",
         }
     }
 
     /// Extract ticket_id if this event is ticket-related
     pub fn ticket_id(&self) -> Option<&str> {
         match self {
-            Self::ServiceStarted { .. } | Self::ServiceStopped { .. } => None,
             Self::TicketCreated { ticket_id, .. }
             | Self::TicketStateChanged { ticket_id, .. }
             | Self::TicketCancelled { ticket_id, .. } => Some(ticket_id),
+            _ => None,
         }
     }
 
@@ -64,6 +105,9 @@ impl AuditEvent {
         match self {
             Self::TicketCreated { requested_by, .. } => Some(requested_by),
             Self::TicketCancelled { cancelled_by, .. } => Some(cancelled_by),
+            Self::SearchExecuted { user_id, .. }
+            | Self::IndexerRateLimitUpdated { user_id, .. }
+            | Self::IndexerEnabledChanged { user_id, .. } => Some(user_id),
             _ => None,
         }
     }
@@ -194,5 +238,87 @@ mod tests {
         let json = serde_json::to_string(&record).unwrap();
         assert!(json.contains("\"id\":1"));
         assert!(json.contains("\"event_type\":\"service_started\""));
+    }
+
+    #[test]
+    fn test_event_type_search_executed() {
+        let event = AuditEvent::SearchExecuted {
+            user_id: "user-123".to_string(),
+            searcher: "jackett".to_string(),
+            query: "test query".to_string(),
+            indexers_queried: vec!["rutracker".to_string(), "redacted".to_string()],
+            results_count: 42,
+            duration_ms: 1500,
+            indexer_errors: HashMap::new(),
+        };
+        assert_eq!(event.event_type(), "search_executed");
+        assert_eq!(event.ticket_id(), None);
+        assert_eq!(event.user_id(), Some("user-123"));
+    }
+
+    #[test]
+    fn test_event_type_indexer_rate_limit_updated() {
+        let event = AuditEvent::IndexerRateLimitUpdated {
+            user_id: "admin".to_string(),
+            indexer: "rutracker".to_string(),
+            old_rpm: 10,
+            new_rpm: 20,
+        };
+        assert_eq!(event.event_type(), "indexer_rate_limit_updated");
+        assert_eq!(event.ticket_id(), None);
+        assert_eq!(event.user_id(), Some("admin"));
+    }
+
+    #[test]
+    fn test_event_type_indexer_enabled_changed() {
+        let event = AuditEvent::IndexerEnabledChanged {
+            user_id: "admin".to_string(),
+            indexer: "redacted".to_string(),
+            enabled: false,
+        };
+        assert_eq!(event.event_type(), "indexer_enabled_changed");
+        assert_eq!(event.ticket_id(), None);
+        assert_eq!(event.user_id(), Some("admin"));
+    }
+
+    #[test]
+    fn test_serialize_deserialize_search_executed() {
+        let mut errors = HashMap::new();
+        errors.insert("failed_indexer".to_string(), "timeout".to_string());
+
+        let event = AuditEvent::SearchExecuted {
+            user_id: "user-1".to_string(),
+            searcher: "jackett".to_string(),
+            query: "Radiohead".to_string(),
+            indexers_queried: vec!["indexer1".to_string()],
+            results_count: 10,
+            duration_ms: 500,
+            indexer_errors: errors,
+        };
+
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("\"type\":\"search_executed\""));
+        assert!(json.contains("\"query\":\"Radiohead\""));
+        assert!(json.contains("\"indexer_errors\""));
+
+        let deserialized: AuditEvent = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.event_type(), "search_executed");
+    }
+
+    #[test]
+    fn test_serialize_search_executed_empty_errors() {
+        let event = AuditEvent::SearchExecuted {
+            user_id: "user-1".to_string(),
+            searcher: "jackett".to_string(),
+            query: "test".to_string(),
+            indexers_queried: vec![],
+            results_count: 0,
+            duration_ms: 100,
+            indexer_errors: HashMap::new(),
+        };
+
+        let json = serde_json::to_string(&event).unwrap();
+        // Empty hashmap should be skipped
+        assert!(!json.contains("indexer_errors"));
     }
 }

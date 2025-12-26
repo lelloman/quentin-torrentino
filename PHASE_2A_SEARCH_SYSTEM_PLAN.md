@@ -1368,9 +1368,10 @@ Add to AppSidebar.vue:
 ### Task 5: Audit Events
 **Files**: `crates/core/src/audit/events.rs`
 
-- [ ] Add `SearchExecuted` event
-- [ ] Add `IndexerRateLimitUpdated` event
-- [ ] Update event serialization
+- [x] Add `SearchExecuted` event
+- [x] Add `IndexerRateLimitUpdated` event
+- [x] Add `IndexerEnabledChanged` event
+- [x] Update event serialization
 
 ### Task 6: API Endpoints
 **Files**: `crates/server/src/api/searcher.rs`, `crates/server/src/api/routes.rs`
