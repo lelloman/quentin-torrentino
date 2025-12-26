@@ -171,99 +171,99 @@ export interface CreateTicketRequest {
 ### Task 1: Project Scaffolding
 **Files**: `crates/dashboard/*`
 
-- [ ] Create package.json with dependencies
-- [ ] Create vite.config.ts with proxy to backend
-- [ ] Create tsconfig.json and tsconfig.node.json
-- [ ] Create uno.config.ts with theme
-- [ ] Create index.html entry point
-- [ ] Create src/main.ts and src/App.vue
-- [ ] Verify dev server starts
+- [x] Create package.json with dependencies
+- [x] Create vite.config.ts with proxy to backend
+- [x] Create tsconfig.json and tsconfig.node.json
+- [x] Create uno.config.ts with theme
+- [x] Create index.html entry point
+- [x] Create src/main.ts and src/App.vue
+- [x] Verify dev server starts
 
 ### Task 2: API Client
 **Files**: `src/api/*`
 
-- [ ] Create client.ts with fetch wrapper (base URL, error handling)
-- [ ] Create types.ts with TypeScript interfaces
-- [ ] Create health.ts - getHealth()
-- [ ] Create config.ts - getConfig()
-- [ ] Create tickets.ts - CRUD operations
+- [x] Create client.ts with fetch wrapper (base URL, error handling)
+- [x] Create types.ts with TypeScript interfaces
+- [x] Create health.ts - getHealth()
+- [x] Create config.ts - getConfig()
+- [x] Create tickets.ts - CRUD operations
 
 ### Task 3: Layout Components
 **Files**: `src/components/layout/*`
 
-- [ ] Create AppHeader.vue (logo, nav links)
-- [ ] Create AppSidebar.vue (navigation menu)
-- [ ] Create AppLayout.vue (combines header + sidebar + slot)
+- [x] Create AppHeader.vue (logo, nav links)
+- [x] Create AppSidebar.vue (navigation menu)
+- [x] Create AppLayout.vue (combines header + sidebar + slot)
 
 ### Task 4: Common Components
 **Files**: `src/components/common/*`
 
-- [ ] Create LoadingSpinner.vue
-- [ ] Create ErrorAlert.vue
-- [ ] Create Badge.vue (for ticket states)
+- [x] Create LoadingSpinner.vue
+- [x] Create ErrorAlert.vue
+- [x] Create Badge.vue (for ticket states)
 
 ### Task 5: Router Setup
 **Files**: `src/router/index.ts`
 
-- [ ] Install and configure vue-router
-- [ ] Define routes for all views
-- [ ] Set up route guards if needed
+- [x] Install and configure vue-router
+- [x] Define routes for all views
+- [x] Set up route guards if needed
 
 ### Task 6: Pinia Store
 **Files**: `src/stores/app.ts`
 
-- [ ] Create app store with global state
-- [ ] Health status
-- [ ] Loading states
-- [ ] Error state
+- [x] Create app store with global state
+- [x] Health status
+- [x] Loading states
+- [x] Error state
 
 ### Task 7: Health & Config Views
 **Files**: `src/views/HealthView.vue`, `src/views/ConfigView.vue`
 
-- [ ] Create HealthView with health check display
-- [ ] Create ConfigView with config JSON display
-- [ ] Add refresh functionality
+- [x] Create HealthView with health check display
+- [x] Create ConfigView with config JSON display
+- [x] Add refresh functionality
 
 ### Task 8: Tickets Composable
 **Files**: `src/composables/useTickets.ts`
 
-- [ ] Implement useTickets composable
-- [ ] List tickets with filters
-- [ ] Get single ticket
-- [ ] Create ticket
-- [ ] Cancel ticket
-- [ ] Loading/error states
+- [x] Implement useTickets composable
+- [x] List tickets with filters
+- [x] Get single ticket
+- [x] Create ticket
+- [x] Cancel ticket
+- [x] Loading/error states
 
 ### Task 9: Ticket Components
 **Files**: `src/components/tickets/*`
 
-- [ ] Create TicketList.vue - list display
-- [ ] Create TicketCard.vue - single ticket card
-- [ ] Create TicketStateFilter.vue - filter dropdown
-- [ ] Create CreateTicketForm.vue - creation form
-- [ ] Create TicketDetail.vue - full ticket view
+- [x] Create TicketList.vue - list display
+- [x] Create TicketCard.vue - single ticket card
+- [x] Create TicketStateFilter.vue - filter dropdown
+- [x] Create CreateTicketForm.vue - creation form
+- [x] Create TicketDetail.vue - full ticket view
 
 ### Task 10: Tickets Views
 **Files**: `src/views/TicketsView.vue`, `src/views/TicketDetailView.vue`
 
-- [ ] Create TicketsView with list + filters + create button
-- [ ] Create TicketDetailView with full info + cancel action
+- [x] Create TicketsView with list + filters + create button
+- [x] Create TicketDetailView with full info + cancel action
 
 ### Task 11: Dashboard Overview
 **Files**: `src/views/DashboardView.vue`
 
-- [ ] Create overview page
-- [ ] Health status card
-- [ ] Recent tickets summary
-- [ ] Quick stats (total, pending, etc.)
+- [x] Create overview page
+- [x] Health status card
+- [x] Recent tickets summary
+- [x] Quick stats (total, pending, etc.)
 
 ### Task 12: Styles & Polish
 **Files**: `src/styles/main.css`
 
-- [ ] Global reset/normalize
-- [ ] Dark theme (optional, can default to light)
-- [ ] Responsive layout adjustments
-- [ ] Transitions and animations
+- [x] Global reset/normalize
+- [x] Dark theme (optional, can default to light)
+- [x] Responsive layout adjustments
+- [x] Transitions and animations
 
 ## Development Workflow
 
@@ -337,16 +337,16 @@ After implementation, verify these flows:
 
 ## Success Criteria
 
-- [ ] `npm run dev` starts without errors
-- [ ] `npm run build` produces production build
-- [ ] `npm run type-check` passes
-- [ ] All views render correctly
-- [ ] API calls work through proxy
-- [ ] Create ticket works
-- [ ] Cancel ticket works
-- [ ] Filters work
-- [ ] Error states display properly
-- [ ] Loading states display properly
+- [x] `npm run dev` starts without errors
+- [x] `npm run build` produces production build
+- [x] `npm run type-check` passes
+- [x] All views render correctly
+- [x] API calls work through proxy
+- [x] Create ticket works
+- [x] Cancel ticket works
+- [x] Filters work
+- [x] Error states display properly
+- [x] Loading states display properly
 
 ## Dependencies
 
