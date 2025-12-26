@@ -3,6 +3,7 @@ pub mod auth;
 pub mod config;
 pub mod searcher;
 pub mod ticket;
+pub mod torrent_client;
 
 pub use audit::{
     create_audit_system, AuditError, AuditEvent, AuditEventEnvelope, AuditFilter, AuditHandle,
@@ -13,7 +14,8 @@ pub use auth::{
 };
 pub use config::{
     load_config, load_config_from_str, validate_config, AuthMethod, Config, ConfigError,
-    DatabaseConfig, JackettConfig, SanitizedConfig, SearcherBackend, SearcherConfig,
+    DatabaseConfig, JackettConfig, LibrqbitConfig, QBittorrentConfig, SanitizedConfig,
+    SearcherBackend, SearcherConfig, TorrentClientBackend, TorrentClientConfig,
 };
 pub use searcher::{
     deduplicate_results, IndexerStatus, JackettSearcher, RawTorrentResult, SearchCategory,
@@ -22,4 +24,8 @@ pub use searcher::{
 pub use ticket::{
     CreateTicketRequest, QueryContext, SqliteTicketStore, Ticket, TicketError, TicketFilter,
     TicketState, TicketStore,
+};
+pub use torrent_client::{
+    AddTorrentRequest, AddTorrentResult, LibrqbitClient, QBittorrentClient, TorrentClient,
+    TorrentClientError, TorrentFilters, TorrentInfo, TorrentState,
 };

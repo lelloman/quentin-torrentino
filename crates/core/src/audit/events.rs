@@ -73,6 +73,68 @@ pub enum AuditEvent {
         /// New enabled state
         enabled: bool,
     },
+
+    // Torrent client events
+    TorrentAdded {
+        /// Who added the torrent
+        user_id: String,
+        /// Info hash of the added torrent
+        hash: String,
+        /// Torrent name (if available)
+        name: Option<String>,
+        /// Source: "magnet" or "file"
+        source: String,
+        /// Associated ticket (if any)
+        ticket_id: Option<String>,
+    },
+    TorrentRemoved {
+        /// Who removed the torrent
+        user_id: String,
+        /// Info hash of the removed torrent
+        hash: String,
+        /// Torrent name
+        name: String,
+        /// Whether files were also deleted
+        delete_files: bool,
+    },
+    TorrentPaused {
+        /// Who paused the torrent
+        user_id: String,
+        /// Info hash
+        hash: String,
+        /// Torrent name
+        name: String,
+    },
+    TorrentResumed {
+        /// Who resumed the torrent
+        user_id: String,
+        /// Info hash
+        hash: String,
+        /// Torrent name
+        name: String,
+    },
+    TorrentLimitChanged {
+        /// Who changed the limit
+        user_id: String,
+        /// Info hash
+        hash: String,
+        /// Torrent name
+        name: String,
+        /// Type of limit: "upload" or "download"
+        limit_type: String,
+        /// Previous limit (bytes/sec, 0 = unlimited)
+        old_limit: u64,
+        /// New limit (bytes/sec, 0 = unlimited)
+        new_limit: u64,
+    },
+    TorrentRechecked {
+        /// Who initiated the recheck
+        user_id: String,
+        /// Info hash
+        hash: String,
+        /// Torrent name
+        name: String,
+    },
 }
 
 impl AuditEvent {
@@ -87,6 +149,12 @@ impl AuditEvent {
             Self::SearchExecuted { .. } => "search_executed",
             Self::IndexerRateLimitUpdated { .. } => "indexer_rate_limit_updated",
             Self::IndexerEnabledChanged { .. } => "indexer_enabled_changed",
+            Self::TorrentAdded { .. } => "torrent_added",
+            Self::TorrentRemoved { .. } => "torrent_removed",
+            Self::TorrentPaused { .. } => "torrent_paused",
+            Self::TorrentResumed { .. } => "torrent_resumed",
+            Self::TorrentLimitChanged { .. } => "torrent_limit_changed",
+            Self::TorrentRechecked { .. } => "torrent_rechecked",
         }
     }
 
@@ -96,6 +164,7 @@ impl AuditEvent {
             Self::TicketCreated { ticket_id, .. }
             | Self::TicketStateChanged { ticket_id, .. }
             | Self::TicketCancelled { ticket_id, .. } => Some(ticket_id),
+            Self::TorrentAdded { ticket_id, .. } => ticket_id.as_deref(),
             _ => None,
         }
     }
@@ -107,7 +176,13 @@ impl AuditEvent {
             Self::TicketCancelled { cancelled_by, .. } => Some(cancelled_by),
             Self::SearchExecuted { user_id, .. }
             | Self::IndexerRateLimitUpdated { user_id, .. }
-            | Self::IndexerEnabledChanged { user_id, .. } => Some(user_id),
+            | Self::IndexerEnabledChanged { user_id, .. }
+            | Self::TorrentAdded { user_id, .. }
+            | Self::TorrentRemoved { user_id, .. }
+            | Self::TorrentPaused { user_id, .. }
+            | Self::TorrentResumed { user_id, .. }
+            | Self::TorrentLimitChanged { user_id, .. }
+            | Self::TorrentRechecked { user_id, .. } => Some(user_id),
             _ => None,
         }
     }
@@ -320,5 +395,113 @@ mod tests {
         let json = serde_json::to_string(&event).unwrap();
         // Empty hashmap should be skipped
         assert!(!json.contains("indexer_errors"));
+    }
+
+    #[test]
+    fn test_event_type_torrent_added() {
+        let event = AuditEvent::TorrentAdded {
+            user_id: "user-123".to_string(),
+            hash: "abc123def456".to_string(),
+            name: Some("Test Torrent".to_string()),
+            source: "magnet".to_string(),
+            ticket_id: Some("ticket-789".to_string()),
+        };
+        assert_eq!(event.event_type(), "torrent_added");
+        assert_eq!(event.ticket_id(), Some("ticket-789"));
+        assert_eq!(event.user_id(), Some("user-123"));
+    }
+
+    #[test]
+    fn test_event_type_torrent_added_no_ticket() {
+        let event = AuditEvent::TorrentAdded {
+            user_id: "user-123".to_string(),
+            hash: "abc123def456".to_string(),
+            name: None,
+            source: "file".to_string(),
+            ticket_id: None,
+        };
+        assert_eq!(event.event_type(), "torrent_added");
+        assert_eq!(event.ticket_id(), None);
+        assert_eq!(event.user_id(), Some("user-123"));
+    }
+
+    #[test]
+    fn test_event_type_torrent_removed() {
+        let event = AuditEvent::TorrentRemoved {
+            user_id: "admin".to_string(),
+            hash: "abc123".to_string(),
+            name: "Test Torrent".to_string(),
+            delete_files: true,
+        };
+        assert_eq!(event.event_type(), "torrent_removed");
+        assert_eq!(event.ticket_id(), None);
+        assert_eq!(event.user_id(), Some("admin"));
+    }
+
+    #[test]
+    fn test_event_type_torrent_paused() {
+        let event = AuditEvent::TorrentPaused {
+            user_id: "user-1".to_string(),
+            hash: "abc123".to_string(),
+            name: "Test Torrent".to_string(),
+        };
+        assert_eq!(event.event_type(), "torrent_paused");
+        assert_eq!(event.user_id(), Some("user-1"));
+    }
+
+    #[test]
+    fn test_event_type_torrent_resumed() {
+        let event = AuditEvent::TorrentResumed {
+            user_id: "user-1".to_string(),
+            hash: "abc123".to_string(),
+            name: "Test Torrent".to_string(),
+        };
+        assert_eq!(event.event_type(), "torrent_resumed");
+        assert_eq!(event.user_id(), Some("user-1"));
+    }
+
+    #[test]
+    fn test_event_type_torrent_limit_changed() {
+        let event = AuditEvent::TorrentLimitChanged {
+            user_id: "admin".to_string(),
+            hash: "abc123".to_string(),
+            name: "Test Torrent".to_string(),
+            limit_type: "upload".to_string(),
+            old_limit: 0,
+            new_limit: 1048576,
+        };
+        assert_eq!(event.event_type(), "torrent_limit_changed");
+        assert_eq!(event.user_id(), Some("admin"));
+    }
+
+    #[test]
+    fn test_event_type_torrent_rechecked() {
+        let event = AuditEvent::TorrentRechecked {
+            user_id: "user-1".to_string(),
+            hash: "abc123".to_string(),
+            name: "Test Torrent".to_string(),
+        };
+        assert_eq!(event.event_type(), "torrent_rechecked");
+        assert_eq!(event.user_id(), Some("user-1"));
+    }
+
+    #[test]
+    fn test_serialize_deserialize_torrent_added() {
+        let event = AuditEvent::TorrentAdded {
+            user_id: "user-1".to_string(),
+            hash: "abcdef123456".to_string(),
+            name: Some("My Movie".to_string()),
+            source: "magnet".to_string(),
+            ticket_id: Some("t-001".to_string()),
+        };
+
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("\"type\":\"torrent_added\""));
+        assert!(json.contains("\"hash\":\"abcdef123456\""));
+        assert!(json.contains("\"source\":\"magnet\""));
+
+        let deserialized: AuditEvent = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.event_type(), "torrent_added");
+        assert_eq!(deserialized.ticket_id(), Some("t-001"));
     }
 }

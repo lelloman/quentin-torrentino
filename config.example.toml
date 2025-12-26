@@ -51,3 +51,35 @@ path = "quentin.db"
 # url = "http://localhost:9117"
 # api_key = "your-jackett-api-key"  # Find this in Jackett UI
 # timeout_secs = 30
+
+# ==============================================================================
+# TORRENT CLIENT (OPTIONAL)
+# ==============================================================================
+# Configure a torrent client to enable torrent management.
+# Choose between:
+#   - "librqbit" (embedded, no external service needed)
+#   - "qbittorrent" (requires external qBittorrent instance)
+
+# Option 1: Embedded librqbit (recommended for simple setups)
+# No external service needed - torrents are downloaded directly by this app.
+
+# [torrent_client]
+# backend = "librqbit"
+#
+# [torrent_client.librqbit]
+# download_path = "/downloads"            # Directory to save downloaded files
+# enable_dht = true                       # Enable DHT for peer discovery (default: true)
+# listen_port = 6881                      # Optional: TCP port for incoming connections
+# persistence_path = "/data/librqbit"     # Optional: persist session state between restarts
+
+# Option 2: External qBittorrent
+
+# [torrent_client]
+# backend = "qbittorrent"
+#
+# [torrent_client.qbittorrent]
+# url = "http://localhost:8080"          # qBittorrent Web UI URL
+# username = "admin"                      # Web UI username
+# password = "adminadmin"                 # Web UI password
+# download_path = "/downloads"            # Optional: default download path
+# timeout_secs = 30                       # Request timeout (default: 30)

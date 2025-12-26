@@ -5,7 +5,7 @@ use axum::{
 use std::sync::Arc;
 use tower_http::services::{ServeDir, ServeFile};
 
-use super::{audit, handlers, searcher, tickets};
+use super::{audit, handlers, searcher, tickets, torrents};
 use crate::state::AppState;
 
 pub fn create_router(state: Arc<AppState>) -> Router {
@@ -29,6 +29,18 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/search", post(searcher::search))
         .route("/searcher/status", get(searcher::get_status))
         .route("/searcher/indexers", get(searcher::list_indexers))
+        // Torrent client
+        .route("/torrents/status", get(torrents::get_status))
+        .route("/torrents", get(torrents::list_torrents))
+        .route("/torrents/{hash}", get(torrents::get_torrent))
+        .route("/torrents/{hash}", delete(torrents::remove_torrent))
+        .route("/torrents/add/magnet", post(torrents::add_magnet))
+        .route("/torrents/add/file", post(torrents::add_file))
+        .route("/torrents/{hash}/pause", post(torrents::pause_torrent))
+        .route("/torrents/{hash}/resume", post(torrents::resume_torrent))
+        .route("/torrents/{hash}/upload-limit", post(torrents::set_upload_limit))
+        .route("/torrents/{hash}/download-limit", post(torrents::set_download_limit))
+        .route("/torrents/{hash}/recheck", post(torrents::recheck_torrent))
         .with_state(state);
 
     // Serve dashboard with SPA fallback

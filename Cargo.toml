@@ -16,7 +16,7 @@ rust-version = "1.83"
 tokio = { version = "1", features = ["full"] }
 
 # Web framework
-axum = "0.8"
+axum = { version = "0.8", features = ["multipart"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["trace", "cors", "fs"] }
 
@@ -52,13 +52,17 @@ sha2 = "0.10"
 uuid = { version = "1", features = ["v4"] }
 
 # HTTP client
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.12", features = ["json", "multipart", "cookies"] }
 
 # URL encoding
 urlencoding = "2"
 
 # Futures utilities
 futures = "0.3"
+
+# BitTorrent
+librqbit = "8.1"
+librqbit-core = "5.0"
 
 # Testing
 tokio-test = "0.4"

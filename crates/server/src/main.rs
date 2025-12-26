@@ -13,8 +13,9 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use torrentino_core::{
     create_audit_system, create_authenticator, load_config, validate_config, AuditEvent,
-    AuditStore, Authenticator, JackettSearcher, Searcher, SearcherBackend, SqliteAuditStore,
-    SqliteTicketStore, TicketStore,
+    AuditStore, Authenticator, JackettSearcher, LibrqbitClient, QBittorrentClient, Searcher,
+    SearcherBackend, SqliteAuditStore, SqliteTicketStore, TicketStore, TorrentClient,
+    TorrentClientBackend,
 };
 
 use api::create_router;
@@ -120,6 +121,43 @@ async fn run() -> Result<()> {
         }
     };
 
+    // Create torrent client if configured
+    let torrent_client: Option<Arc<dyn TorrentClient>> = match &config.torrent_client {
+        Some(tc_config) => match tc_config.backend {
+            TorrentClientBackend::QBittorrent => {
+                if let Some(qbit_config) = &tc_config.qbittorrent {
+                    info!("Initializing qBittorrent client at {}", qbit_config.url);
+                    Some(Arc::new(QBittorrentClient::new(qbit_config.clone())))
+                } else {
+                    error!("qBittorrent backend selected but no qbittorrent config provided");
+                    None
+                }
+            }
+            TorrentClientBackend::Librqbit => {
+                if let Some(librqbit_config) = &tc_config.librqbit {
+                    info!(
+                        "Initializing embedded librqbit client (download path: {})",
+                        librqbit_config.download_path
+                    );
+                    match LibrqbitClient::new(librqbit_config).await {
+                        Ok(client) => Some(Arc::new(client)),
+                        Err(e) => {
+                            error!("Failed to initialize librqbit client: {}", e);
+                            None
+                        }
+                    }
+                } else {
+                    error!("librqbit backend selected but no librqbit config provided");
+                    None
+                }
+            }
+        },
+        None => {
+            info!("No torrent client configured");
+            None
+        }
+    };
+
     // Create app state
     let state = Arc::new(AppState::new(
         config.clone(),
@@ -128,6 +166,7 @@ async fn run() -> Result<()> {
         audit_store,
         ticket_store,
         searcher,
+        torrent_client,
     ));
 
     // Create router

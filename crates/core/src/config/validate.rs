@@ -30,6 +30,7 @@ mod tests {
             server: ServerConfig::default(),
             database: DatabaseConfig::default(),
             searcher: None,
+            torrent_client: None,
         };
         assert!(validate_config(&config).is_ok());
     }
@@ -46,6 +47,7 @@ mod tests {
             },
             database: DatabaseConfig::default(),
             searcher: None,
+            torrent_client: None,
         };
         let result = validate_config(&config);
         assert!(result.is_err());

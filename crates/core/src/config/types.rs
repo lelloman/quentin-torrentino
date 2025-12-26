@@ -12,6 +12,8 @@ pub struct Config {
     pub database: DatabaseConfig,
     #[serde(default)]
     pub searcher: Option<SearcherConfig>,
+    #[serde(default)]
+    pub torrent_client: Option<TorrentClientConfig>,
 }
 
 /// Server configuration
@@ -106,6 +108,66 @@ fn default_timeout() -> u32 {
     30
 }
 
+/// Torrent client configuration
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct TorrentClientConfig {
+    /// Torrent client backend type
+    pub backend: TorrentClientBackend,
+    /// qBittorrent-specific configuration (required when backend = "qbittorrent")
+    #[serde(default)]
+    pub qbittorrent: Option<QBittorrentConfig>,
+    /// librqbit-specific configuration (required when backend = "librqbit")
+    #[serde(default)]
+    pub librqbit: Option<LibrqbitConfig>,
+}
+
+/// Available torrent client backends
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TorrentClientBackend {
+    #[serde(rename = "qbittorrent")]
+    QBittorrent,
+    /// Embedded librqbit (no external service needed)
+    Librqbit,
+}
+
+/// qBittorrent client configuration
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct QBittorrentConfig {
+    /// qBittorrent Web UI URL (e.g., "http://localhost:8080")
+    pub url: String,
+    /// Username for Web UI authentication
+    pub username: String,
+    /// Password for Web UI authentication
+    pub password: String,
+    /// Default download path (optional)
+    #[serde(default)]
+    pub download_path: Option<String>,
+    /// Request timeout in seconds (default: 30)
+    #[serde(default = "default_timeout")]
+    pub timeout_secs: u32,
+}
+
+/// librqbit embedded client configuration
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct LibrqbitConfig {
+    /// Download directory path
+    pub download_path: String,
+    /// Enable DHT (Distributed Hash Table) for peer discovery
+    #[serde(default = "default_true")]
+    pub enable_dht: bool,
+    /// TCP listen port (0 for random, None to disable)
+    #[serde(default)]
+    pub listen_port: Option<u16>,
+    /// Persistence directory for session state (optional)
+    #[serde(default)]
+    pub persistence_path: Option<String>,
+}
+
+fn default_true() -> bool {
+    true
+}
+
 /// Sanitized config for API responses (secrets redacted)
 #[derive(Debug, Clone, Serialize)]
 pub struct SanitizedConfig {
@@ -114,6 +176,8 @@ pub struct SanitizedConfig {
     pub database: DatabaseConfig,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub searcher: Option<SanitizedSearcherConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub torrent_client: Option<SanitizedTorrentClientConfig>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -137,6 +201,38 @@ pub struct SanitizedJackettConfig {
     pub timeout_secs: u32,
 }
 
+/// Sanitized torrent client config (credentials hidden)
+#[derive(Debug, Clone, Serialize)]
+pub struct SanitizedTorrentClientConfig {
+    pub backend: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub qbittorrent: Option<SanitizedQBittorrentConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub librqbit: Option<SanitizedLibrqbitConfig>,
+}
+
+/// Sanitized qBittorrent config (password hidden)
+#[derive(Debug, Clone, Serialize)]
+pub struct SanitizedQBittorrentConfig {
+    pub url: String,
+    pub username: String,
+    pub credentials_configured: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub download_path: Option<String>,
+    pub timeout_secs: u32,
+}
+
+/// Sanitized librqbit config
+#[derive(Debug, Clone, Serialize)]
+pub struct SanitizedLibrqbitConfig {
+    pub download_path: String,
+    pub enable_dht: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub listen_port: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub persistence_path: Option<String>,
+}
+
 impl From<&Config> for SanitizedConfig {
     fn from(config: &Config) -> Self {
         Self {
@@ -156,6 +252,31 @@ impl From<&Config> for SanitizedConfig {
                     api_key_configured: !j.api_key.is_empty(),
                     timeout_secs: j.timeout_secs,
                 }),
+            }),
+            torrent_client: config.torrent_client.as_ref().map(|tc| {
+                SanitizedTorrentClientConfig {
+                    backend: match tc.backend {
+                        TorrentClientBackend::QBittorrent => "qbittorrent".to_string(),
+                        TorrentClientBackend::Librqbit => "librqbit".to_string(),
+                    },
+                    qbittorrent: tc.qbittorrent.as_ref().map(|qb| {
+                        SanitizedQBittorrentConfig {
+                            url: qb.url.clone(),
+                            username: qb.username.clone(),
+                            credentials_configured: !qb.password.is_empty(),
+                            download_path: qb.download_path.clone(),
+                            timeout_secs: qb.timeout_secs,
+                        }
+                    }),
+                    librqbit: tc.librqbit.as_ref().map(|lb| {
+                        SanitizedLibrqbitConfig {
+                            download_path: lb.download_path.clone(),
+                            enable_dht: lb.enable_dht,
+                            listen_port: lb.listen_port,
+                            persistence_path: lb.persistence_path.clone(),
+                        }
+                    }),
+                }
             }),
         }
     }
@@ -212,12 +333,14 @@ port = 8080
             server: ServerConfig::default(),
             database: DatabaseConfig::default(),
             searcher: None,
+            torrent_client: None,
         };
         let sanitized = SanitizedConfig::from(&config);
         assert_eq!(sanitized.auth.method, "none");
         assert_eq!(sanitized.server.port, 8080);
         assert_eq!(sanitized.database.path.to_str().unwrap(), "quentin.db");
         assert!(sanitized.searcher.is_none());
+        assert!(sanitized.torrent_client.is_none());
     }
 
     #[test]
@@ -282,6 +405,7 @@ api_key = "test-api-key"
                     timeout_secs: 60,
                 }),
             }),
+            torrent_client: None,
         };
 
         let sanitized = SanitizedConfig::from(&config);
@@ -292,5 +416,87 @@ api_key = "test-api-key"
         assert_eq!(jackett.url, "http://localhost:9117");
         assert!(jackett.api_key_configured); // API key is hidden, just shows if configured
         assert_eq!(jackett.timeout_secs, 60);
+    }
+
+    #[test]
+    fn test_deserialize_with_torrent_client_config() {
+        let toml = r#"
+[auth]
+method = "none"
+
+[torrent_client]
+backend = "qbittorrent"
+
+[torrent_client.qbittorrent]
+url = "http://localhost:8080"
+username = "admin"
+password = "adminadmin"
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        let tc = config.torrent_client.as_ref().unwrap();
+        assert_eq!(tc.backend, TorrentClientBackend::QBittorrent);
+
+        let qbit = tc.qbittorrent.as_ref().unwrap();
+        assert_eq!(qbit.url, "http://localhost:8080");
+        assert_eq!(qbit.username, "admin");
+        assert_eq!(qbit.password, "adminadmin");
+        assert_eq!(qbit.timeout_secs, 30); // default
+        assert!(qbit.download_path.is_none());
+    }
+
+    #[test]
+    fn test_deserialize_torrent_client_with_optional_fields() {
+        let toml = r#"
+[auth]
+method = "none"
+
+[torrent_client]
+backend = "qbittorrent"
+
+[torrent_client.qbittorrent]
+url = "http://localhost:8080"
+username = "admin"
+password = "secret"
+download_path = "/downloads"
+timeout_secs = 60
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        let qbit = config.torrent_client.as_ref().unwrap().qbittorrent.as_ref().unwrap();
+        assert_eq!(qbit.download_path, Some("/downloads".to_string()));
+        assert_eq!(qbit.timeout_secs, 60);
+    }
+
+    #[test]
+    fn test_sanitized_config_with_torrent_client() {
+        let config = Config {
+            auth: AuthConfig {
+                method: AuthMethod::None,
+            },
+            server: ServerConfig::default(),
+            database: DatabaseConfig::default(),
+            searcher: None,
+            torrent_client: Some(TorrentClientConfig {
+                backend: TorrentClientBackend::QBittorrent,
+                qbittorrent: Some(QBittorrentConfig {
+                    url: "http://localhost:8080".to_string(),
+                    username: "admin".to_string(),
+                    password: "secret-password".to_string(),
+                    download_path: Some("/downloads".to_string()),
+                    timeout_secs: 45,
+                }),
+                librqbit: None,
+            }),
+        };
+
+        let sanitized = SanitizedConfig::from(&config);
+        let tc = sanitized.torrent_client.as_ref().unwrap();
+        assert_eq!(tc.backend, "qbittorrent");
+
+        let qbit = tc.qbittorrent.as_ref().unwrap();
+        assert_eq!(qbit.url, "http://localhost:8080");
+        assert_eq!(qbit.username, "admin");
+        assert!(qbit.credentials_configured); // Password is hidden
+        assert_eq!(qbit.download_path, Some("/downloads".to_string()));
+        assert_eq!(qbit.timeout_secs, 45);
     }
 }

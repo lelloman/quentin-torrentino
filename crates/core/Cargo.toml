@@ -20,6 +20,8 @@ uuid = { workspace = true }
 reqwest = { workspace = true }
 urlencoding = { workspace = true }
 futures = { workspace = true }
+librqbit = { workspace = true }
+librqbit-core = { workspace = true }
 
 [dev-dependencies]
 tokio-test = { workspace = true }

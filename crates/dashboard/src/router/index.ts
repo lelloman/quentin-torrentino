@@ -39,6 +39,11 @@ const router = createRouter({
           component: () => import('../views/SearchView.vue'),
         },
         {
+          path: 'torrents',
+          name: 'torrents',
+          component: () => import('../views/TorrentsView.vue'),
+        },
+        {
           path: 'settings',
           name: 'settings',
           component: () => import('../views/SettingsView.vue'),

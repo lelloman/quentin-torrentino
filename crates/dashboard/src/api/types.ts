@@ -145,3 +145,74 @@ export interface SearcherStatusResponse {
   indexers_count: number
   indexers_enabled: number
 }
+
+// Torrent client types
+
+export type TorrentState =
+  | 'downloading'
+  | 'seeding'
+  | 'paused'
+  | 'checking'
+  | 'queued'
+  | 'stalled'
+  | 'error'
+  | 'unknown'
+
+export interface TorrentInfo {
+  hash: string
+  name: string
+  state: TorrentState
+  progress: number
+  size_bytes: number
+  downloaded_bytes: number
+  uploaded_bytes: number
+  download_speed: number
+  upload_speed: number
+  seeders: number
+  leechers: number
+  ratio: number
+  eta_secs?: number
+  added_at?: string
+  completed_at?: string
+  save_path?: string
+  category?: string
+  upload_limit: number
+  download_limit: number
+}
+
+export interface TorrentListResponse {
+  torrents: TorrentInfo[]
+  count: number
+}
+
+export interface TorrentFilterParams {
+  state?: TorrentState
+  category?: string
+  search?: string
+}
+
+export interface AddMagnetRequest {
+  uri: string
+  download_path?: string
+  category?: string
+  paused?: boolean
+  ticket_id?: string
+}
+
+export interface AddTorrentResponse {
+  hash: string
+  name?: string
+}
+
+export interface TorrentClientStatusResponse {
+  backend: string
+  configured: boolean
+}
+
+export interface SetLimitRequest {
+  limit: number
+}
+
+export interface SuccessResponse {
+  message: string
+}

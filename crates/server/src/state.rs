@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use torrentino_core::{
     AuditHandle, AuditStore, Authenticator, Config, SanitizedConfig, Searcher, TicketStore,
+    TorrentClient,
 };
 
 /// Shared application state
@@ -11,6 +12,7 @@ pub struct AppState {
     audit_store: Arc<dyn AuditStore>,
     ticket_store: Arc<dyn TicketStore>,
     searcher: Option<Arc<dyn Searcher>>,
+    torrent_client: Option<Arc<dyn TorrentClient>>,
 }
 
 impl AppState {
@@ -21,6 +23,7 @@ impl AppState {
         audit_store: Arc<dyn AuditStore>,
         ticket_store: Arc<dyn TicketStore>,
         searcher: Option<Arc<dyn Searcher>>,
+        torrent_client: Option<Arc<dyn TorrentClient>>,
     ) -> Self {
         Self {
             config,
@@ -29,6 +32,7 @@ impl AppState {
             audit_store,
             ticket_store,
             searcher,
+            torrent_client,
         }
     }
 
@@ -59,5 +63,10 @@ impl AppState {
     /// Get the searcher (if configured)
     pub fn searcher(&self) -> Option<&Arc<dyn Searcher>> {
         self.searcher.as_ref()
+    }
+
+    /// Get the torrent client (if configured)
+    pub fn torrent_client(&self) -> Option<&Arc<dyn TorrentClient>> {
+        self.torrent_client.as_ref()
     }
 }
