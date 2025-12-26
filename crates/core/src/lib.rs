@@ -1,6 +1,7 @@
 pub mod audit;
 pub mod auth;
 pub mod config;
+pub mod searcher;
 pub mod ticket;
 
 pub use audit::{
@@ -13,6 +14,10 @@ pub use auth::{
 pub use config::{
     load_config, load_config_from_str, validate_config, AuthMethod, Config, ConfigError,
     DatabaseConfig, SanitizedConfig,
+};
+pub use searcher::{
+    IndexerStatus, RateLimitStatus, RawTorrentResult, SearchCategory, SearchError, SearchQuery,
+    SearchResult, Searcher, TorrentCandidate, TorrentFile, TorrentSource,
 };
 pub use ticket::{
     CreateTicketRequest, QueryContext, SqliteTicketStore, Ticket, TicketError, TicketFilter,

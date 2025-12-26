@@ -1398,13 +1398,28 @@ Each phase includes corresponding admin dashboard work. The dashboard evolves al
 - [ ] Configuration loading (with auth validation)
 - [ ] **Dashboard**: Basic shell, auth flow, config display, ticket management, kanban board, text search
 
-**Phase 2: Search + Torrent Client + Shadow Catalog**
-- [ ] Jackett client + per-indexer rate limiting
-- [ ] qBittorrent client (add/monitor/seed)
-- [ ] Torrent catalog storage
-- [ ] Searcher trait + Jackett implementation
-- [ ] Shadow Catalog - proactive search & seeding
-- [ ] **Dashboard**: Search testing UI, torrent status view, Shadow Catalog browser
+**Phase 2: Search + Torrent Client + Catalog**
+
+*Phase 2a: Search System*
+- [ ] `Searcher` trait definition
+- [ ] Jackett client implementation
+- [ ] Per-indexer rate limiting (token bucket)
+- [ ] Search API endpoint (`POST /api/v1/search`)
+- [ ] Searcher config API (`GET/PATCH /api/v1/config/searcher`)
+- [ ] **Dashboard**: Search testing page, indexer settings
+
+*Phase 2b: Torrent Client*
+- [ ] `TorrentClient` trait definition
+- [ ] qBittorrent client implementation
+- [ ] Torrent management API (`GET/POST/DELETE /api/v1/torrents`)
+- [ ] **Dashboard**: Torrent status page, add torrent modal
+
+*Phase 2c: Torrent Catalog*
+- [ ] `TorrentCatalog` trait definition
+- [ ] SQLite storage for cached torrents + content indexing
+- [ ] Catalog API (`GET /api/v1/catalog`, `GET /api/v1/catalog/{hash}/files`)
+- [ ] Auto-registration of completed downloads
+- [ ] **Dashboard**: Catalog browser, file viewer
 
 **Phase 3: Processing Pipeline**
 - [ ] ffmpeg wrapper (audio first)
@@ -1464,10 +1479,11 @@ Each phase includes corresponding admin dashboard work. The dashboard evolves al
 
 9. **WebSocket consistency**: Snapshot-on-connect with sequence numbers ensures dashboard state is always consistent.
 
-10. **Shadow Catalog early**: Implemented in Phase 2 to prove torrent search/seeding before full pipeline.
+10. **Shadow Catalog deferred**: Proactive torrent caching is complex and requires integration with consumer catalogs. Deferred to a later phase.
 
 ## Future Enhancements (Not In Scope Yet)
 
+- Shadow Catalog - proactive search & seeding to pre-cache content
 - Notification system (webhooks, email, Telegram with interactive approvals)
 - Bulk admin operations
 - Fine-tuned local LLM for matching
