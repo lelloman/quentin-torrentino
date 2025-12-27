@@ -5,7 +5,7 @@ use axum::{
 use std::sync::Arc;
 use tower_http::services::{ServeDir, ServeFile};
 
-use super::{audit, catalog, handlers, searcher, tickets, torrents};
+use super::{audit, catalog, handlers, searcher, textbrain, tickets, torrents};
 use crate::state::AppState;
 
 pub fn create_router(state: Arc<AppState>) -> Router {
@@ -48,6 +48,9 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/catalog/stats", get(catalog::get_stats))
         .route("/catalog/{hash}", get(catalog::get_entry))
         .route("/catalog/{hash}", delete(catalog::remove_entry))
+        // TextBrain (LLM experimentation)
+        .route("/textbrain/complete", post(textbrain::complete))
+        .route("/textbrain/process/{ticket_id}", post(textbrain::process_ticket))
         .with_state(state);
 
     // Serve dashboard with SPA fallback

@@ -190,9 +190,6 @@ pub async fn search(
         }
     }
 
-    let cache_hits = cached_results.len();
-    let external_hits = external_results.len();
-
     // 3. Merge and deduplicate by info_hash
     // External results take precedence (fresher seeder counts)
     let mut seen_hashes: HashSet<String> = HashSet::new();
@@ -226,6 +223,10 @@ pub async fn search(
     if combined.len() > limit as usize {
         combined.truncate(limit as usize);
     }
+
+    // Count cache vs external hits from the final deduplicated results
+    let cache_hits = combined.iter().filter(|c| c.from_cache).count();
+    let external_hits = combined.iter().filter(|c| !c.from_cache).count();
 
     let duration_ms = start.elapsed().as_millis() as u64;
 

@@ -3,6 +3,7 @@ pub mod auth;
 pub mod catalog;
 pub mod config;
 pub mod searcher;
+pub mod textbrain;
 pub mod ticket;
 pub mod torrent_client;
 
@@ -33,4 +34,7 @@ pub use torrent_client::{
 pub use catalog::{
     CachedTorrent, CachedTorrentFile, CachedTorrentSource, CatalogError, CatalogSearchQuery,
     CatalogStats, SearchMode, SqliteCatalog, TorrentCatalog,
+};
+pub use textbrain::{
+    AnthropicClient, CompletionRequest, CompletionResponse, LlmClient, LlmError, LlmUsage,
 };

@@ -135,6 +135,52 @@ pub enum AuditEvent {
         /// Torrent name
         name: String,
     },
+
+    // TextBrain events
+    QueriesGenerated {
+        /// Associated ticket
+        ticket_id: String,
+        /// Generated search queries
+        queries: Vec<String>,
+        /// Method used: "dumb", "llm", or "dumb_then_llm"
+        method: String,
+        /// LLM tokens used (if any)
+        llm_input_tokens: Option<u32>,
+        llm_output_tokens: Option<u32>,
+        /// How long query generation took
+        duration_ms: u64,
+    },
+    CandidatesScored {
+        /// Associated ticket
+        ticket_id: String,
+        /// Number of candidates scored
+        candidates_count: u32,
+        /// Top candidate info hash (if any)
+        top_candidate_hash: Option<String>,
+        /// Top candidate score (0-100)
+        top_candidate_score: Option<u32>,
+        /// Method used: "dumb", "llm", or "dumb_then_llm"
+        method: String,
+        /// LLM tokens used (if any)
+        llm_input_tokens: Option<u32>,
+        llm_output_tokens: Option<u32>,
+        /// How long scoring took
+        duration_ms: u64,
+    },
+    CandidateSelected {
+        /// Associated ticket
+        ticket_id: String,
+        /// Who selected (user or "auto")
+        selected_by: String,
+        /// Selected torrent info hash
+        hash: String,
+        /// Selected torrent title
+        title: String,
+        /// Final score
+        score: u32,
+        /// Whether this was auto-selected (high confidence) or manual
+        auto_selected: bool,
+    },
 }
 
 impl AuditEvent {
@@ -155,6 +201,9 @@ impl AuditEvent {
             Self::TorrentResumed { .. } => "torrent_resumed",
             Self::TorrentLimitChanged { .. } => "torrent_limit_changed",
             Self::TorrentRechecked { .. } => "torrent_rechecked",
+            Self::QueriesGenerated { .. } => "queries_generated",
+            Self::CandidatesScored { .. } => "candidates_scored",
+            Self::CandidateSelected { .. } => "candidate_selected",
         }
     }
 
@@ -163,7 +212,10 @@ impl AuditEvent {
         match self {
             Self::TicketCreated { ticket_id, .. }
             | Self::TicketStateChanged { ticket_id, .. }
-            | Self::TicketCancelled { ticket_id, .. } => Some(ticket_id),
+            | Self::TicketCancelled { ticket_id, .. }
+            | Self::QueriesGenerated { ticket_id, .. }
+            | Self::CandidatesScored { ticket_id, .. }
+            | Self::CandidateSelected { ticket_id, .. } => Some(ticket_id),
             Self::TorrentAdded { ticket_id, .. } => ticket_id.as_deref(),
             _ => None,
         }
@@ -174,6 +226,7 @@ impl AuditEvent {
         match self {
             Self::TicketCreated { requested_by, .. } => Some(requested_by),
             Self::TicketCancelled { cancelled_by, .. } => Some(cancelled_by),
+            Self::CandidateSelected { selected_by, .. } => Some(selected_by),
             Self::SearchExecuted { user_id, .. }
             | Self::IndexerRateLimitUpdated { user_id, .. }
             | Self::IndexerEnabledChanged { user_id, .. }

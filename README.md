@@ -10,50 +10,43 @@ It uses a pluggable torrent search backend (Jackett, Prowlarr, etc.) for torrent
 
 ### Supported Content Types
 
-| Content Type | Catalog App | Matching Strategy | Conversion |
-|--------------|-------------|-------------------|------------|
-| Music | Pezzottify | Artist/Album/Track mapping | Audio transcode + metadata |
-| Movies | Pezzottflix | Title/Year/Quality matching | Video transcode (optional) |
-| TV Series | Pezzottflix | Show/Season/Episode mapping | Video transcode (optional) |
+| Content Type | Example Use Case | Matching Strategy |
+|--------------|------------------|-------------------|
+| Music | Pezzottify | Artist/Album/Track mapping |
+| Movies | Pezzottflix | Title/Year/Quality matching |
+| TV Series | Pezzottflix | Show/Season/Episode mapping |
+| Software | - | Name/Version matching |
+| Ebooks | - | Title/Author matching |
 
-> **Note:** Music support is implemented first. Video support will follow, reusing patterns from the music module.
+The system is **content-agnostic** - the ticket structure hints at content type, and TextBrain adapts its query building and matching strategies accordingly.
+
+> **Note:** Music support is implemented first. Other content types follow the same patterns.
 
 ### Architecture: Library + Service
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                  quentin-torrentino-core (library)               │
-│                                                                  │
-│  ┌──────────────┐  ┌──────────────┐  ┌────────────────────────┐ │
-│  │ TorrentCatalog│  │   Searcher   │  │    TorrentClient       │ │
-│  │              │  │  (abstract)  │  │    (qBittorrent)       │ │
-│  └──────────────┘  └──────────────┘  └────────────────────────┘ │
-│  ┌──────────────┐  ┌──────────────┐  ┌────────────────────────┐ │
-│  │ QueueManager │  │ShadowCatalog │  │    Placer              │ │
-│  └──────────────┘  └──────────────┘  └────────────────────────┘ │
-│                                                                  │
-│  Traits (implemented per content type):                          │
-│  ┌──────────────┐  ┌──────────────┐                             │
-│  │ Matcher<T>   │  │ Converter<T> │                             │
-│  └──────────────┘  └──────────────┘                             │
-└─────────────────────────────────────────────────────────────────┘
-           │                                    │
-           ▼                                    ▼
-┌─────────────────────┐              ┌─────────────────────┐
-│ torrentino-music    │              │ torrentino-video    │
-│                     │              │                     │
-│ - AudioMatcher      │              │ - MovieMatcher      │
-│ - AudioConverter    │              │ - TvMatcher         │
-│ - MusicTicket       │              │ - VideoConverter    │
-│                     │              │ - MovieTicket       │
-│                     │              │ - TvTicket          │
-└─────────────────────┘              └─────────────────────┘
-           │                                    │
-           ▼                                    ▼
-┌─────────────────────┐              ┌─────────────────────┐
-│ torrentino-server   │              │ pezzottflix-server  │
-│ (for Pezzottify)    │              │ (for Pezzottflix)   │
-└─────────────────────┘              └─────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│                    quentin-torrentino-core (library)                  │
+│                                                                       │
+│  ┌─────────────────────────────────────────────────────────────────┐ │
+│  │                         TextBrain                                │ │
+│  │  ┌─────────────────┐  ┌─────────────────┐  ┌──────────────────┐ │ │
+│  │  │ DumbQueryBuilder│  │   DumbMatcher   │  │ LlmClient (opt)  │ │ │
+│  │  └─────────────────┘  └─────────────────┘  │ - Anthropic      │ │ │
+│  │                                            │ - OpenAI         │ │ │
+│  │  Modes: dumb-only | dumb-first |           │ - Ollama         │ │ │
+│  │         llm-first | llm-only               │ - Custom HTTP    │ │ │
+│  └─────────────────────────────────────────────┴──────────────────┘ │
+│                                                                       │
+│  ┌──────────────┐  ┌──────────────┐  ┌────────────────────────────┐ │
+│  │TorrentCatalog│  │   Searcher   │  │      TorrentClient         │ │
+│  │ (cache)      │  │  (Jackett)   │  │  (librqbit / qBittorrent)  │ │
+│  └──────────────┘  └──────────────┘  └────────────────────────────┘ │
+│                                                                       │
+│  ┌──────────────┐  ┌──────────────┐  ┌────────────────────────────┐ │
+│  │ QueueManager │  │  Converter   │  │         Placer             │ │
+│  └──────────────┘  └──────────────┘  └────────────────────────────┘ │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Runtime Architecture
@@ -175,65 +168,128 @@ timeout_ms = 5000
 # Plugin returns JSON: { "user_id": "...", "claims": {...} } or { "error": "..." }
 ```
 
-## Matching System
+## TextBrain: Query Building + Matching
 
-The matching system supports two modes: a deterministic "dumb" matcher and an LLM-powered intelligent matcher.
+TextBrain is the central intelligence component that handles search query generation and result matching. It coordinates between fast heuristic-based ("dumb") methods and optional LLM-powered intelligence.
 
-### Layered Matching Strategy
+### Architecture
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    Matching Pipeline                     │
-│                                                          │
-│  1. Search Query Generation                              │
-│     ├─ Dumb: Template-based queries                     │
-│     └─ LLM: Intelligent query variations                │
-│                                                          │
-│  2. Candidate Scoring                                    │
-│     ├─ Dumb: Fuzzy string match + heuristics            │
-│     └─ LLM: Semantic understanding + context            │
-│                                                          │
-│  3. Track Mapping (torrent files → ticket tracks)       │
-│     ├─ Dumb: Filename-based fuzzy matching              │
-│     └─ LLM: Intelligent file-to-track mapping           │
-│                                                          │
-│  4. Confidence Check                                     │
-│     ├─ High confidence → Auto-approve                   │
-│     └─ Low confidence → Needs manual approval           │
-└─────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                          TextBrain                               │
+│                                                                  │
+│  ┌──────────────────────────────────────────────────────────┐   │
+│  │                    Core Components                        │   │
+│  │  ┌─────────────────┐        ┌─────────────────┐          │   │
+│  │  │ DumbQueryBuilder│        │   DumbMatcher   │          │   │
+│  │  │ (always avail)  │        │ (always avail)  │          │   │
+│  │  └─────────────────┘        └─────────────────┘          │   │
+│  └──────────────────────────────────────────────────────────┘   │
+│                                                                  │
+│  ┌──────────────────────────────────────────────────────────┐   │
+│  │                 LlmClient (optional)                      │   │
+│  │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌─────────────┐  │   │
+│  │  │Anthropic │ │  OpenAI  │ │  Ollama  │ │ Custom HTTP │  │   │
+│  │  └──────────┘ └──────────┘ └──────────┘ └─────────────┘  │   │
+│  └──────────────────────────────────────────────────────────┘   │
+│                                                                  │
+│  Coordination Modes:                                             │
+│  • dumb-only:  Heuristics only, no LLM                          │
+│  • dumb-first: Heuristics, then LLM if low confidence           │
+│  • llm-first:  LLM preferred, heuristics as fallback            │
+│  • llm-only:   Require LLM, fail if unavailable                 │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-### Dumb Matcher (No LLM Required)
+### Pipeline
 
-Works for ~70-80% of mainstream music. Uses:
-- Fuzzy string matching for artist/album names
+```
+Ticket
+   │
+   ▼
+┌─────────────────────┐
+│ 1. Query Building   │  Generate search queries
+│    (Dumb and/or LLM)│  from ticket metadata
+└──────────┬──────────┘
+           ▼
+┌─────────────────────┐
+│ 2. Search           │  Query Jackett + cache
+│    (Searcher)       │
+└──────────┬──────────┘
+           ▼
+┌─────────────────────┐
+│ 3. Candidate Scoring│  Score results against
+│    (Dumb and/or LLM)│  ticket requirements
+└──────────┬──────────┘
+           ▼
+┌─────────────────────┐
+│ 4. File Mapping     │  Map torrent files to
+│    (Dumb and/or LLM)│  ticket items
+└──────────┬──────────┘
+           ▼
+┌─────────────────────┐
+│ 5. Selection        │  Auto-select if high
+│                     │  confidence, else user
+└─────────────────────┘
+```
+
+### Dumb Components (Always Available)
+
+**DumbQueryBuilder** - Template-based query generation:
+- `"{artist} {album}"`
+- `"{artist} discography FLAC"`
+- Format variations, common misspellings
+
+**DumbMatcher** - Heuristic scoring:
+- Fuzzy string matching (artist, album, track names)
 - Format detection (FLAC, 320, V0) from torrent titles
 - Red flag detection (karaoke, cover, tribute, compilation)
-- Seeder count as tiebreaker
+- Seeder count and size as tiebreakers
 - Filename-based track mapping
 
-### LLM Matcher (Optional, Recommended)
+Works for ~70-80% of mainstream content without any LLM.
 
-When configured, provides:
-- Intelligent search query generation (name variations, transliterations)
-- Semantic torrent title understanding
-- Smart handling of edge cases (deluxe editions, remasters, regional variants)
-- Accurate track-to-file mapping
-- Detailed reasoning (logged for fine-tuning)
+### LLM Enhancement (Optional)
+
+When configured, LLM provides:
+- Intelligent query variations (transliterations, alternate names)
+- Semantic title understanding ("The White Album" → "The Beatles")
+- Edge case handling (deluxe editions, remasters, regional variants)
+- Accurate track-to-file mapping for complex structures
+- Detailed reasoning (logged for training data)
 
 ```toml
-# Optional LLM configuration
-[matcher.llm]
-provider = "anthropic"  # or "openai", "deepseek", "ollama"
+[textbrain]
+mode = "dumb-first"  # or "dumb-only", "llm-first", "llm-only"
+auto_approve_threshold = 0.85
+
+[textbrain.llm]
+provider = "anthropic"  # or "openai", "ollama", "custom"
 model = "claude-3-haiku-20240307"
 api_key = "your-api-key"  # or use environment variable
 api_base = "https://api.anthropic.com"  # optional, for custom endpoints
-auto_approve_threshold = 0.85
+
+# For Ollama (local)
+# provider = "ollama"
+# model = "llama2"
+# api_base = "http://localhost:11434"
+
+# For custom HTTP endpoint
+# provider = "custom"
+# api_base = "https://my-llm-proxy.example.com/v1"
 ```
 
-### Future: Fine-Tuned Model
+### Training Data Collection
 
-All LLM matching decisions are logged with full context. This data can be used to fine-tune a smaller model (Llama, Mistral, Qwen) for this specific task, enabling local inference.
+All TextBrain decisions are logged with full context:
+- Input ticket
+- Generated queries
+- Candidate scores with reasoning
+- File mappings
+- Which method (dumb/LLM) produced each result
+- User corrections (when manual selection differs from auto)
+
+This data enables fine-tuning smaller models for local inference, reducing latency and API costs.
 
 ## Audit Log System
 
@@ -1386,78 +1442,85 @@ services:
 
 Each phase includes corresponding admin dashboard work. The dashboard evolves alongside the backend, ensuring every feature is immediately usable and testable.
 
-**Phase 1: Core Library + Dashboard Foundation**
-- [ ] Workspace setup (including dashboard crate)
-- [ ] Core traits: `Ticket`, `ContentItem`, `Matcher`, `Converter`
-- [ ] Auth system (all authenticators)
-- [ ] Audit log system
-- [ ] SQLite schema + migrations
-- [ ] State machine implementation
-- [ ] Queue manager with priority queues
-- [ ] Processing pools skeleton
-- [ ] Configuration loading (with auth validation)
-- [ ] **Dashboard**: Basic shell, auth flow, config display, ticket management, kanban board, text search
+**Phase 1: Core Library + Dashboard Foundation** ✅
+- [x] Workspace setup (including dashboard crate)
+- [x] Core traits: `Ticket`, `ContentItem`
+- [x] Auth system (all authenticators)
+- [x] Audit log system
+- [x] SQLite schema + migrations
+- [x] State machine implementation
+- [x] Queue manager with priority queues
+- [x] Configuration loading (with auth validation)
+- [x] **Dashboard**: Basic shell, auth flow, config display, ticket management, kanban board, text search
 
-**Phase 2: Search + Torrent Client + Catalog**
+**Phase 2: Search + Torrent Client + Catalog** ✅
 
-*Phase 2a: Search System*
-- [ ] `Searcher` trait definition
-- [ ] Jackett client implementation
-- [ ] Per-indexer rate limiting (token bucket)
-- [ ] Search API endpoint (`POST /api/v1/search`)
-- [ ] Searcher config API (`GET/PATCH /api/v1/config/searcher`)
-- [ ] **Dashboard**: Search testing page, indexer settings
+*Phase 2a: Search System* ✅
+- [x] `Searcher` trait definition
+- [x] Jackett client implementation
+- [x] Per-indexer rate limiting (token bucket)
+- [x] Search API endpoint (`POST /api/v1/search`)
+- [x] **Dashboard**: Search testing page, indexer settings
 
-*Phase 2b: Torrent Client*
-- [ ] `TorrentClient` trait definition
-- [ ] qBittorrent client implementation
-- [ ] Torrent management API (`GET/POST/DELETE /api/v1/torrents`)
-- [ ] **Dashboard**: Torrent status page, add torrent modal
+*Phase 2b: Torrent Client* ✅
+- [x] `TorrentClient` trait definition
+- [x] librqbit (embedded) + qBittorrent implementations
+- [x] Torrent management API (`GET/POST/DELETE /api/v1/torrents`)
+- [x] **Dashboard**: Torrent status page, add torrent modal
 
-*Phase 2c: Torrent Catalog*
-- [ ] `TorrentCatalog` trait definition
-- [ ] SQLite storage for cached torrents + content indexing
-- [ ] Catalog API (`GET /api/v1/catalog`, `GET /api/v1/catalog/{hash}/files`)
-- [ ] Auto-registration of completed downloads
-- [ ] **Dashboard**: Catalog browser, file viewer
+*Phase 2c: Torrent Catalog* ✅
+- [x] `TorrentCatalog` trait definition
+- [x] SQLite storage for cached torrents + content indexing
+- [x] Catalog API (`GET /api/v1/catalog`, `GET /api/v1/catalog/{hash}/files`)
+- [x] Auto-caching of search results
+- [x] **Dashboard**: Catalog browser
 
-**Phase 3: Processing Pipeline**
-- [ ] ffmpeg wrapper (audio first)
+**Phase 3: TextBrain (Query Building + Matching)** ⬅️ CURRENT
+- [ ] `LlmClient` trait with implementations (Anthropic, OpenAI, Ollama, custom HTTP)
+- [ ] `TextBrain` coordinator with configurable modes:
+  - `dumb-only`: No LLM, heuristics only
+  - `dumb-first`: Try heuristics, enhance with LLM if low confidence
+  - `llm-first`: Use LLM, fall back to heuristics on failure
+  - `llm-only`: Require LLM (fail if unavailable)
+- [ ] `DumbQueryBuilder`: Generate search queries from ticket using templates/heuristics
+- [ ] `DumbMatcher`: Score candidates using fuzzy matching, format detection, seeder heuristics
+- [ ] LLM-enhanced query building (search term variations, transliterations)
+- [ ] LLM-enhanced matching (semantic understanding, edge cases)
+- [ ] File-to-track mapping (which torrent files match which ticket items)
+- [ ] Audit: track which method (dumb/LLM) produced each result
+- [ ] Training data collection: log prompts + results for fine-tuning
+- [ ] **Dashboard**: Query preview, candidate scoring view, file mapping UI
+
+**Phase 4: Processing Pipeline**
+- [ ] ffmpeg wrapper (audio first, then video)
 - [ ] Placer with rollback
-- [ ] End-to-end processing with dumb matcher
-- [ ] Processing pools fully wired
+- [ ] Processing pools fully wired (search → match → download → convert → place)
 - [ ] **Dashboard**: Pipeline visualization, pool status, job progress
 
-**Phase 4: Music Module (`torrentino-music`)**
-- [ ] MusicTicket implementation
-- [ ] Dumb matcher for music
-- [ ] Audio converter
-- [ ] Cover art fetching (MusicBrainz, Discogs, embedded)
-- [ ] Metadata embedding
-- [ ] **Dashboard**: Ticket creation form, matching preview, conversion status
+**Phase 5: Content Modules**
 
-**Phase 5: Smart Matching (Optional)**
-- [ ] LLM integration (Anthropic/OpenAI/DeepSeek/Ollama)
-- [ ] LLM matcher implementation
-- [ ] Approval workflow (approve/reject candidates)
-- [ ] Training data export
-- [ ] **Dashboard**: Approval queue, candidate comparison view, LLM reasoning display
+*Phase 5a: Music Module*
+- [ ] MusicTicket implementation
+- [ ] Audio converter (transcode + metadata embedding)
+- [ ] Cover art fetching (MusicBrainz, Discogs, embedded)
+- [ ] **Dashboard**: Ticket creation form, conversion status
+
+*Phase 5b: Video Module*
+- [ ] VideoTicket implementation (movies, TV series)
+- [ ] Video converter
+- [ ] Subtitle handling
+- [ ] **Dashboard**: Video-specific views
+
+*Phase 5c: Other Content Types*
+- [ ] Software, ebooks, etc. as needed
 
 **Phase 6: Production Ready**
-- [ ] HTTP server (`torrentino-server`)
 - [ ] WebSocket real-time updates (snapshot-on-connect + subscriptions)
 - [ ] Retry logic with exponential backoff
 - [ ] Metrics/observability
 - [ ] Docker packaging
 - [ ] Comprehensive testing
 - [ ] **Dashboard**: Real-time updates, audit log viewer, system health page
-
-**Phase 7: Video Module (Future)**
-- [ ] `torrentino-video` crate
-- [ ] Movie/TV matchers
-- [ ] Video converter
-- [ ] Subtitle handling
-- [ ] **Dashboard**: Video-specific views
 
 ## Design Decisions
 
