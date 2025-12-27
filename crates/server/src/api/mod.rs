@@ -1,4 +1,5 @@
 pub mod audit;
+pub mod catalog;
 pub mod handlers;
 pub mod routes;
 pub mod searcher;

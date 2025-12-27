@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import type { IndexerStatus, SearchCategory, SearchRequest } from '../../api/types'
+import type { IndexerStatus, SearchCategory, SearchMode, SearchRequest } from '../../api/types'
 
 defineProps<{
   indexers: IndexerStatus[]
@@ -15,6 +15,7 @@ const query = ref('')
 const selectedIndexers = ref<string[]>([])
 const selectedCategories = ref<SearchCategory[]>([])
 const limit = ref<number | undefined>(undefined)
+const searchMode = ref<SearchMode>('both')
 
 const categories: { value: SearchCategory; label: string }[] = [
   { value: 'movies', label: 'Movies' },
@@ -26,6 +27,12 @@ const categories: { value: SearchCategory; label: string }[] = [
   { value: 'other', label: 'Other' },
 ]
 
+const searchModes: { value: SearchMode; label: string }[] = [
+  { value: 'both', label: 'Both (cache + external)' },
+  { value: 'cache_only', label: 'Cache only' },
+  { value: 'external_only', label: 'External only' },
+]
+
 const isValid = computed(() => query.value.trim().length > 0)
 
 function handleSubmit() {
@@ -33,6 +40,7 @@ function handleSubmit() {
 
   const request: SearchRequest = {
     query: query.value.trim(),
+    mode: searchMode.value,
   }
 
   if (selectedIndexers.value.length > 0) {
@@ -73,6 +81,7 @@ function clearForm() {
   selectedIndexers.value = []
   selectedCategories.value = []
   limit.value = undefined
+  searchMode.value = 'both'
 }
 </script>
 
@@ -153,20 +162,38 @@ function clearForm() {
       </div>
     </div>
 
-    <div>
-      <label for="limit" class="block text-sm font-medium text-gray-700 mb-1">
-        Result Limit (optional)
-      </label>
-      <input
-        id="limit"
-        v-model.number="limit"
-        type="number"
-        min="1"
-        max="500"
-        class="input w-32"
-        placeholder="No limit"
-        :disabled="isSearching"
-      />
+    <div class="flex gap-6">
+      <div>
+        <label for="limit" class="block text-sm font-medium text-gray-700 mb-1">
+          Result Limit (optional)
+        </label>
+        <input
+          id="limit"
+          v-model.number="limit"
+          type="number"
+          min="1"
+          max="500"
+          class="input w-32"
+          placeholder="No limit"
+          :disabled="isSearching"
+        />
+      </div>
+
+      <div>
+        <label for="mode" class="block text-sm font-medium text-gray-700 mb-1">
+          Search Mode
+        </label>
+        <select
+          id="mode"
+          v-model="searchMode"
+          class="input w-48"
+          :disabled="isSearching"
+        >
+          <option v-for="mode in searchModes" :key="mode.value" :value="mode.value">
+            {{ mode.label }}
+          </option>
+        </select>
+      </div>
     </div>
   </form>
 </template>

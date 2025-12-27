@@ -63,6 +63,9 @@ pub struct TorrentCandidate {
     pub files: Option<Vec<TorrentFile>>,
     /// All indexers that have this torrent.
     pub sources: Vec<TorrentSource>,
+    /// Whether this result came from the local cache.
+    #[serde(default)]
+    pub from_cache: bool,
 }
 
 /// A single indexer's listing for a torrent.
@@ -243,6 +246,7 @@ mod tests {
                 leechers: 5,
                 details_url: None,
             }],
+            from_cache: false,
         };
 
         let json = serde_json::to_string(&candidate).unwrap();

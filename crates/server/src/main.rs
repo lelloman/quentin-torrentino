@@ -14,8 +14,8 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use torrentino_core::{
     create_audit_system, create_authenticator, load_config, validate_config, AuditEvent,
     AuditStore, Authenticator, JackettSearcher, LibrqbitClient, QBittorrentClient, Searcher,
-    SearcherBackend, SqliteAuditStore, SqliteTicketStore, TicketStore, TorrentClient,
-    TorrentClientBackend,
+    SearcherBackend, SqliteAuditStore, SqliteCatalog, SqliteTicketStore, TicketStore,
+    TorrentCatalog, TorrentClient, TorrentClientBackend,
 };
 
 use api::create_router;
@@ -83,6 +83,12 @@ async fn run() -> Result<()> {
         SqliteTicketStore::new(&config.database.path).context("Failed to create ticket store")?,
     );
     info!("Ticket store initialized");
+
+    // Create SQLite catalog (torrent search result cache)
+    let catalog: Arc<dyn TorrentCatalog> = Arc::new(
+        SqliteCatalog::new(&config.database.path).context("Failed to create torrent catalog")?,
+    );
+    info!("Torrent catalog initialized");
 
     // Create audit system
     let (audit_handle, audit_writer) =
@@ -167,6 +173,7 @@ async fn run() -> Result<()> {
         ticket_store,
         searcher,
         torrent_client,
+        catalog,
     ));
 
     // Create router

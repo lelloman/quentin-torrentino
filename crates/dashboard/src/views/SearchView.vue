@@ -2,10 +2,11 @@
 import { ref, onMounted } from 'vue'
 import { useSearcher } from '../composables/useSearcher'
 import { addMagnet, addTorrentFromUrl } from '../api/torrents'
+import { getCatalogStats } from '../api/catalog'
 import SearchForm from '../components/search/SearchForm.vue'
 import SearchResults from '../components/search/SearchResults.vue'
 import ErrorAlert from '../components/common/ErrorAlert.vue'
-import type { SearchRequest } from '../api/types'
+import type { SearchRequest, CatalogStats } from '../api/types'
 
 const {
   searchResult,
@@ -18,14 +19,33 @@ const {
 } = useSearcher()
 
 const downloadStatus = ref<{ type: 'success' | 'error'; message: string } | null>(null)
+const catalogStats = ref<CatalogStats | null>(null)
+
+function formatSize(bytes: number): string {
+  if (bytes === 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  const i = Math.floor(Math.log(bytes) / Math.log(1024))
+  return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`
+}
+
+async function loadCatalogStats() {
+  try {
+    catalogStats.value = await getCatalogStats()
+  } catch {
+    // Silently ignore - stats are optional
+  }
+}
 
 onMounted(() => {
   fetchIndexers()
+  loadCatalogStats()
 })
 
 async function handleSearch(request: SearchRequest) {
   try {
     await search(request)
+    // Refresh catalog stats after search (results may have been added to cache)
+    loadCatalogStats()
   } catch {
     // Error is handled by composable
   }
@@ -63,7 +83,13 @@ function clearDownloadStatus() {
 
 <template>
   <div>
-    <h1 class="text-2xl font-bold mb-6">Search</h1>
+    <div class="flex items-center justify-between mb-6">
+      <h1 class="text-2xl font-bold">Search</h1>
+      <div v-if="catalogStats" class="text-sm text-gray-500">
+        <span class="i-carbon-data-base inline-block mr-1"></span>
+        Cache: {{ catalogStats.total_torrents.toLocaleString() }} torrents | {{ formatSize(catalogStats.total_size_bytes) }}
+      </div>
+    </div>
 
     <!-- Download status toast -->
     <div

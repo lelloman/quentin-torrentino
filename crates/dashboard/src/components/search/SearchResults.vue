@@ -117,6 +117,11 @@ function getSortIcon(field: SortField): string {
     <div class="flex items-center justify-between mb-4">
       <h2 class="text-lg font-semibold">
         Results ({{ result.candidates.length }})
+        <span class="text-sm font-normal text-gray-500 ml-2">
+          <span v-if="result.cache_hits > 0" class="text-purple-600">{{ result.cache_hits }} from cache</span>
+          <span v-if="result.cache_hits > 0 && result.external_hits > 0">, </span>
+          <span v-if="result.external_hits > 0" class="text-blue-600">{{ result.external_hits }} from external</span>
+        </span>
       </h2>
       <span class="text-sm text-gray-500">
         Search took {{ result.duration_ms }}ms
@@ -142,6 +147,9 @@ function getSortIcon(field: SortField): string {
       <table class="w-full text-sm">
         <thead class="bg-gray-50 border-b">
           <tr>
+            <th class="text-center p-3 font-medium w-12" title="Source: Cache or External">
+              Src
+            </th>
             <th class="text-left p-3 font-medium">
               <button
                 @click="toggleSort('title')"
@@ -188,6 +196,22 @@ function getSortIcon(field: SortField): string {
             :key="candidate.info_hash"
             class="hover:bg-gray-50"
           >
+            <td class="p-3 text-center">
+              <span
+                v-if="candidate.from_cache"
+                class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-purple-100 text-purple-600"
+                title="From cache"
+              >
+                <span class="i-carbon-data-base text-sm"></span>
+              </span>
+              <span
+                v-else
+                class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-blue-100 text-blue-600"
+                title="From external search"
+              >
+                <span class="i-carbon-globe text-sm"></span>
+              </span>
+            </td>
             <td class="p-3">
               <div class="max-w-md truncate" :title="candidate.title">
                 {{ candidate.title }}

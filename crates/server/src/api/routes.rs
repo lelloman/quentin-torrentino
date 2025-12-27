@@ -5,7 +5,7 @@ use axum::{
 use std::sync::Arc;
 use tower_http::services::{ServeDir, ServeFile};
 
-use super::{audit, handlers, searcher, tickets, torrents};
+use super::{audit, catalog, handlers, searcher, tickets, torrents};
 use crate::state::AppState;
 
 pub fn create_router(state: Arc<AppState>) -> Router {
@@ -42,6 +42,12 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/torrents/{hash}/upload-limit", post(torrents::set_upload_limit))
         .route("/torrents/{hash}/download-limit", post(torrents::set_download_limit))
         .route("/torrents/{hash}/recheck", post(torrents::recheck_torrent))
+        // Catalog (search result cache)
+        .route("/catalog", get(catalog::list_catalog))
+        .route("/catalog", delete(catalog::clear_catalog))
+        .route("/catalog/stats", get(catalog::get_stats))
+        .route("/catalog/{hash}", get(catalog::get_entry))
+        .route("/catalog/{hash}", delete(catalog::remove_entry))
         .with_state(state);
 
     // Serve dashboard with SPA fallback

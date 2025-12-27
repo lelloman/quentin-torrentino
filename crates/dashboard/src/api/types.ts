@@ -82,11 +82,14 @@ export type TicketStateType = 'pending' | 'cancelled' | 'completed' | 'failed'
 
 export type SearchCategory = 'audio' | 'music' | 'movies' | 'tv' | 'books' | 'software' | 'other'
 
+export type SearchMode = 'cache_only' | 'external_only' | 'both'
+
 export interface SearchRequest {
   query: string
   indexers?: string[]
   categories?: SearchCategory[]
   limit?: number
+  mode?: SearchMode
 }
 
 export interface SearchQueryResponse {
@@ -120,6 +123,7 @@ export interface TorrentCandidate {
   publish_date?: string
   files?: TorrentFile[]
   sources: TorrentSource[]
+  from_cache: boolean
 }
 
 export interface SearchResponse {
@@ -127,6 +131,8 @@ export interface SearchResponse {
   candidates: TorrentCandidate[]
   duration_ms: number
   indexer_errors?: Record<string, string>
+  cache_hits: number
+  external_hits: number
 }
 
 // Indexer status (read-only, configured in Jackett)
@@ -223,4 +229,15 @@ export interface SetLimitRequest {
 
 export interface SuccessResponse {
   message: string
+}
+
+// Catalog types (search result cache)
+
+export interface CatalogStats {
+  total_torrents: number
+  total_files: number
+  total_size_bytes: number
+  unique_indexers: number
+  oldest_entry?: string
+  newest_entry?: string
 }

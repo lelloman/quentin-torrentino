@@ -63,6 +63,7 @@ pub fn deduplicate_results(raw: Vec<RawTorrentResult>) -> Vec<TorrentCandidate> 
                                 leechers: r.leechers,
                                 details_url: r.details_url,
                             }],
+                            from_cache: false,
                         },
                     );
                 }
@@ -86,6 +87,7 @@ pub fn deduplicate_results(raw: Vec<RawTorrentResult>) -> Vec<TorrentCandidate> 
                         leechers: r.leechers,
                         details_url: r.details_url,
                     }],
+                    from_cache: false,
                 });
             }
         }
