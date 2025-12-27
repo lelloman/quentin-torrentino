@@ -36,6 +36,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/torrents/{hash}", delete(torrents::remove_torrent))
         .route("/torrents/add/magnet", post(torrents::add_magnet))
         .route("/torrents/add/file", post(torrents::add_file))
+        .route("/torrents/add/url", post(torrents::add_from_url))
         .route("/torrents/{hash}/pause", post(torrents::pause_torrent))
         .route("/torrents/{hash}/resume", post(torrents::resume_torrent))
         .route("/torrents/{hash}/upload-limit", post(torrents::set_upload_limit))

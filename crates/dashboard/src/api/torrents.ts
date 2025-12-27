@@ -4,6 +4,7 @@ import type {
   TorrentListResponse,
   TorrentFilterParams,
   AddMagnetRequest,
+  AddFromUrlRequest,
   AddTorrentResponse,
   TorrentClientStatusResponse,
   SetLimitRequest,
@@ -106,4 +107,21 @@ export async function setDownloadLimit(
 
 export async function recheckTorrent(hash: string): Promise<SuccessResponse> {
   return post<SuccessResponse>(`/torrents/${hash}/recheck`)
+}
+
+export async function addTorrentFromUrl(
+  torrentUrl: string,
+  options?: {
+    download_path?: string
+    category?: string
+    paused?: boolean
+    ticket_id?: string
+  }
+): Promise<AddTorrentResponse> {
+  // Use backend proxy to fetch the URL (avoids CORS issues with redirects)
+  const request: AddFromUrlRequest = {
+    url: torrentUrl,
+    ...options,
+  }
+  return post<AddTorrentResponse, AddFromUrlRequest>('/torrents/add/url', request)
 }

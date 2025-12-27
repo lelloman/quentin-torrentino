@@ -34,6 +34,19 @@ pub struct AddMagnetRequest {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct AddFromUrlRequest {
+    pub url: String,
+    #[serde(default)]
+    pub download_path: Option<String>,
+    #[serde(default)]
+    pub category: Option<String>,
+    #[serde(default)]
+    pub paused: bool,
+    #[serde(default)]
+    pub ticket_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct TorrentFilterParams {
     #[serde(default)]
     pub state: Option<TorrentState>,
@@ -332,6 +345,154 @@ pub async fn add_file(
                 name: result.name.clone().or(filename),
                 source: "file".to_string(),
                 ticket_id,
+            });
+
+            Ok(Json(AddTorrentResponse {
+                hash: result.hash,
+                name: result.name,
+            }))
+        }
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )),
+    }
+}
+
+/// POST /api/v1/torrents/add/url
+///
+/// Add a torrent by fetching from a URL (handles redirects including magnet links).
+pub async fn add_from_url(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<AddFromUrlRequest>,
+) -> Result<Json<AddTorrentResponse>, impl IntoResponse> {
+    tracing::info!(url = %body.url, "Fetching torrent from URL");
+
+    let client = match state.torrent_client() {
+        Some(c) => c,
+        None => {
+            return Err((
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(ErrorResponse {
+                    error: "Torrent client not configured".to_string(),
+                }),
+            ))
+        }
+    };
+
+    // Create HTTP client that doesn't follow redirects automatically
+    let http_client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(std::time::Duration::from_secs(30))
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("Failed to create HTTP client: {}", e),
+                }),
+            )
+        })?;
+
+    // Fetch the URL
+    tracing::debug!("Sending GET request to URL");
+    let response = http_client.get(&body.url).send().await.map_err(|e| {
+        tracing::error!(error = %e, "Failed to fetch URL");
+        (
+            StatusCode::BAD_GATEWAY,
+            Json(ErrorResponse {
+                error: format!("Failed to fetch URL: {}", e),
+            }),
+        )
+    })?;
+    tracing::debug!(status = %response.status(), "Got response from URL");
+
+    // Check for redirect to magnet link
+    if response.status().is_redirection() {
+        if let Some(location) = response.headers().get("location") {
+            let location_str = location.to_str().unwrap_or("");
+            if location_str.starts_with("magnet:") {
+                // It's a magnet link redirect - use it directly
+                let request = AddTorrentRequest::Magnet {
+                    uri: location_str.to_string(),
+                    download_path: body.download_path,
+                    category: body.category,
+                    paused: body.paused,
+                };
+
+                return match client.add_torrent(request).await {
+                    Ok(result) => {
+                        state.audit().try_emit(AuditEvent::TorrentAdded {
+                            user_id: "anonymous".to_string(),
+                            hash: result.hash.clone(),
+                            name: result.name.clone(),
+                            source: "url".to_string(),
+                            ticket_id: body.ticket_id,
+                        });
+
+                        Ok(Json(AddTorrentResponse {
+                            hash: result.hash,
+                            name: result.name,
+                        }))
+                    }
+                    Err(e) => Err((
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(ErrorResponse {
+                            error: e.to_string(),
+                        }),
+                    )),
+                };
+            }
+        }
+    }
+
+    // Not a magnet redirect - try to get the response body as a .torrent file
+    if !response.status().is_success() {
+        return Err((
+            StatusCode::BAD_GATEWAY,
+            Json(ErrorResponse {
+                error: format!("URL returned status: {}", response.status()),
+            }),
+        ));
+    }
+
+    let data = response.bytes().await.map_err(|e| {
+        (
+            StatusCode::BAD_GATEWAY,
+            Json(ErrorResponse {
+                error: format!("Failed to read response body: {}", e),
+            }),
+        )
+    })?;
+
+    if data.is_empty() {
+        return Err((
+            StatusCode::BAD_GATEWAY,
+            Json(ErrorResponse {
+                error: "Empty response from URL".to_string(),
+            }),
+        ));
+    }
+
+    let request = AddTorrentRequest::TorrentFile {
+        data: data.to_vec(),
+        filename: None,
+        download_path: body.download_path,
+        category: body.category,
+        paused: body.paused,
+    };
+
+    match client.add_torrent(request).await {
+        Ok(result) => {
+            state.audit().try_emit(AuditEvent::TorrentAdded {
+                user_id: "anonymous".to_string(),
+                hash: result.hash.clone(),
+                name: result.name.clone(),
+                source: "url".to_string(),
+                ticket_id: body.ticket_id,
             });
 
             Ok(Json(AddTorrentResponse {

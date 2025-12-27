@@ -8,6 +8,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   copyMagnet: [magnet: string]
+  download: [options: { magnet?: string; torrentUrl?: string; title: string }]
 }>()
 
 type SortField = 'title' | 'seeders' | 'size' | 'date'
@@ -67,16 +68,41 @@ function formatDate(dateStr: string | undefined): string {
 }
 
 function getMagnet(candidate: TorrentCandidate): string | undefined {
+  // First check if any source has a magnet URI
   for (const source of candidate.sources) {
     if (source.magnet_uri) return source.magnet_uri
   }
+  // Fallback: construct magnet from info_hash (DHT will find peers)
+  if (candidate.info_hash) {
+    const encodedTitle = encodeURIComponent(candidate.title)
+    return `magnet:?xt=urn:btih:${candidate.info_hash}&dn=${encodedTitle}`
+  }
   return undefined
+}
+
+function getTorrentUrl(candidate: TorrentCandidate): string | undefined {
+  for (const source of candidate.sources) {
+    if (source.torrent_url) return source.torrent_url
+  }
+  return undefined
+}
+
+function canDownload(candidate: TorrentCandidate): boolean {
+  return !!getMagnet(candidate) || !!getTorrentUrl(candidate)
 }
 
 function handleCopyMagnet(candidate: TorrentCandidate) {
   const magnet = getMagnet(candidate)
   if (magnet) {
     emit('copyMagnet', magnet)
+  }
+}
+
+function handleDownload(candidate: TorrentCandidate) {
+  const magnet = getMagnet(candidate)
+  const torrentUrl = getTorrentUrl(candidate)
+  if (magnet || torrentUrl) {
+    emit('download', { magnet, torrentUrl, title: candidate.title })
   }
 }
 
@@ -187,14 +213,23 @@ function getSortIcon(field: SortField): string {
               </span>
             </td>
             <td class="p-3 text-center">
-              <button
-                v-if="getMagnet(candidate)"
-                @click="handleCopyMagnet(candidate)"
-                class="text-primary hover:text-primary-dark transition-colors"
-                title="Copy Magnet Link"
-              >
-                <span class="i-carbon-copy"></span>
-              </button>
+              <div v-if="canDownload(candidate)" class="flex items-center justify-center gap-2">
+                <button
+                  @click="handleDownload(candidate)"
+                  class="text-green-600 hover:text-green-700 transition-colors"
+                  title="Download"
+                >
+                  <span class="i-carbon-download text-lg inline-block"></span>
+                </button>
+                <button
+                  v-if="getMagnet(candidate)"
+                  @click="handleCopyMagnet(candidate)"
+                  class="text-gray-500 hover:text-gray-700 transition-colors"
+                  title="Copy Magnet Link"
+                >
+                  <span class="i-carbon-copy"></span>
+                </button>
+              </div>
               <span v-else class="text-gray-300">-</span>
             </td>
           </tr>

@@ -199,6 +199,14 @@ export interface AddMagnetRequest {
   ticket_id?: string
 }
 
+export interface AddFromUrlRequest {
+  url: string
+  download_path?: string
+  category?: string
+  paused?: boolean
+  ticket_id?: string
+}
+
 export interface AddTorrentResponse {
   hash: string
   name?: string

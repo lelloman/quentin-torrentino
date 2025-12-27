@@ -20,9 +20,9 @@ tracing-subscriber = { workspace = true }
 anyhow = { workspace = true }
 sha2 = { workspace = true }
 chrono = { workspace = true }
+reqwest = { version = "0.12", features = ["json"] }
 
 [dev-dependencies]
 tokio-test = { workspace = true }
-reqwest = { version = "0.12", features = ["json"] }
 tempfile = "3"
 serde_json = { workspace = true }

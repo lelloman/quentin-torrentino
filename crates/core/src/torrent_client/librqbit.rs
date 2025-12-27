@@ -256,10 +256,11 @@ impl TorrentClient for LibrqbitClient {
             None
         };
 
-        let response = self
-            .session
-            .add_torrent(add_torrent, opts)
+        // Add timeout for magnet links - DHT lookup can take forever for rare torrents
+        let add_future = self.session.add_torrent(add_torrent, opts);
+        let response = tokio::time::timeout(std::time::Duration::from_secs(60), add_future)
             .await
+            .map_err(|_| TorrentClientError::ApiError("Timed out waiting for torrent metadata (60s). The torrent may still be added in the background.".to_string()))?
             .map_err(|e| TorrentClientError::ApiError(format!("Failed to add torrent: {}", e)))?;
 
         match response {

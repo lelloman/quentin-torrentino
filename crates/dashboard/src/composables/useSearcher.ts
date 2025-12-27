@@ -6,13 +6,15 @@ import {
   getIndexers as apiGetIndexers,
 } from '../api/searcher'
 
+// Shared state - persists across component mounts/unmounts
+const searchResult = ref<SearchResponse | null>(null)
+const indexers = ref<IndexerStatus[]>([])
+const status = ref<SearcherStatusResponse | null>(null)
+const isSearching = ref(false)
+const isLoading = ref(false)
+const error = ref<string | null>(null)
+
 export function useSearcher() {
-  const searchResult = ref<SearchResponse | null>(null)
-  const indexers = ref<IndexerStatus[]>([])
-  const status = ref<SearcherStatusResponse | null>(null)
-  const isSearching = ref(false)
-  const isLoading = ref(false)
-  const error = ref<string | null>(null)
 
   async function search(request: SearchRequest) {
     isSearching.value = true
