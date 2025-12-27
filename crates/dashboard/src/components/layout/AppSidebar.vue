@@ -8,6 +8,7 @@ const navItems = [
   { to: '/tickets', label: 'Tickets', icon: 'i-carbon-ticket' },
   { to: '/search', label: 'Search', icon: 'i-carbon-search' },
   { to: '/torrents', label: 'Torrents', icon: 'i-carbon-download' },
+  { to: '/audit', label: 'Audit Log', icon: 'i-carbon-list' },
   { to: '/settings', label: 'Settings', icon: 'i-carbon-settings-adjust' },
   { to: '/health', label: 'Health', icon: 'i-carbon-activity' },
   { to: '/config', label: 'Config', icon: 'i-carbon-settings' },

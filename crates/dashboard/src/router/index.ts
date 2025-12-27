@@ -48,6 +48,11 @@ const router = createRouter({
           name: 'settings',
           component: () => import('../views/SettingsView.vue'),
         },
+        {
+          path: 'audit',
+          name: 'audit',
+          component: () => import('../views/AuditLogView.vue'),
+        },
       ],
     },
   ],

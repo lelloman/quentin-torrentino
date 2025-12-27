@@ -10,7 +10,6 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use torrentino_core::{
     AnthropicClient, AuditEvent, CompletionRequest, LlmClient, LlmUsage, SearchQuery,
-    TorrentCandidate,
 };
 
 use crate::state::AppState;
