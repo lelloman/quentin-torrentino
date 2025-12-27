@@ -1476,7 +1476,13 @@ Each phase includes corresponding admin dashboard work. The dashboard evolves al
 - [x] **Dashboard**: Catalog browser
 
 **Phase 3: TextBrain (Query Building + Matching)** ⬅️ CURRENT
-- [ ] `LlmClient` trait with implementations (Anthropic, OpenAI, Ollama, custom HTTP)
+- [x] `LlmClient` trait with Anthropic implementation
+- [x] Experimental TextBrain API endpoints (`/textbrain/complete`, `/textbrain/process/{ticket_id}`)
+- [x] LLM-powered query generation from ticket description/tags
+- [x] LLM-powered candidate scoring with reasoning
+- [x] Audit events: `queries_generated`, `candidates_scored`, `candidate_selected`
+- [x] Claude CLI proxy script for local LLM testing (`scripts/claude_proxy.py`)
+- [x] **Dashboard**: Audit log view with filtering by ticket, event type, user, date range
 - [ ] `TextBrain` coordinator with configurable modes:
   - `dumb-only`: No LLM, heuristics only
   - `dumb-first`: Try heuristics, enhance with LLM if low confidence
@@ -1484,10 +1490,8 @@ Each phase includes corresponding admin dashboard work. The dashboard evolves al
   - `llm-only`: Require LLM (fail if unavailable)
 - [ ] `DumbQueryBuilder`: Generate search queries from ticket using templates/heuristics
 - [ ] `DumbMatcher`: Score candidates using fuzzy matching, format detection, seeder heuristics
-- [ ] LLM-enhanced query building (search term variations, transliterations)
-- [ ] LLM-enhanced matching (semantic understanding, edge cases)
+- [ ] Additional LLM providers (OpenAI, Ollama, custom HTTP)
 - [ ] File-to-track mapping (which torrent files match which ticket items)
-- [ ] Audit: track which method (dumb/LLM) produced each result
 - [ ] Training data collection: log prompts + results for fine-tuning
 - [ ] **Dashboard**: Query preview, candidate scoring view, file mapping UI
 
