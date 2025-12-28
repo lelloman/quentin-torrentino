@@ -1484,7 +1484,7 @@ Each phase includes corresponding admin dashboard work. The dashboard evolves al
 - [x] Auto-caching of search results
 - [x] **Dashboard**: Catalog browser
 
-**Phase 3: TextBrain (Query Building + Matching)** ⬅️ CURRENT
+**Phase 3: TextBrain (Query Building + Matching)** ✅
 - [x] `LlmClient` trait with Anthropic implementation
 - [x] Experimental TextBrain API endpoints (`/textbrain/complete`, `/textbrain/process/{ticket_id}`, `/textbrain/acquire`)
 - [x] LLM-powered query generation from ticket description/tags
@@ -1503,11 +1503,11 @@ Each phase includes corresponding admin dashboard work. The dashboard evolves al
 - [x] `DumbMatcher`: Score candidates using fuzzy matching, format detection, seeder heuristics
 - [x] `OllamaClient`: Local LLM testing via Ollama API
 - [x] `ExpectedContent` types: Album, Track, Movie, TvEpisode for file validation
-- [ ] File-to-track mapping (which torrent files match which ticket items)
-- [ ] Training data collection: log prompts + results for fine-tuning
-- [ ] **Dashboard**: Query preview, candidate scoring view, file mapping UI
+- [x] File-to-track mapping (`DumbFileMapper`): Match torrent files to expected tracks/episodes
+- [x] Training data collection: `TrainingQueryContext`, `TrainingScoringContext`, `UserCorrection` audit events
+- [x] **Dashboard**: Query preview, candidate scoring view, file mapping UI (`/textbrain`)
 
-**Phase 4: Processing Pipeline**
+**Phase 4: Processing Pipeline** ⬅️ CURRENT
 - [ ] ffmpeg wrapper (audio first, then video)
 - [ ] Placer with rollback
 - [ ] Processing pools fully wired (search → match → download → convert → place)
