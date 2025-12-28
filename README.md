@@ -540,39 +540,30 @@ All processing pools use priority queues, so high-priority tickets are processed
        │
        ▼
 ┌─────────────┐
-│  SEARCHING  │ ← Querying torrent search backend for candidates
+│  ACQUIRING  │ ← TextBrain: query building + search + scoring loop
 └──────┬──────┘
        │
        ├─────────────────────────────────┐
-       │ candidates found               │ no candidates after all strategies
-       ▼                                 ▼
-┌─────────────┐                  ┌───────────────┐
-│  MATCHING   │                  │ SEARCH_FAILED │ ← Awaits manual intervention
-└──────┬──────┘                  └───────────────┘
+       │ match found                     │ exhausted, no suitable match
+       │                                 ▼
+       │                    ┌──────────────────────┐
+       │                    │  ACQUISITION_FAILED  │ ← Awaits manual intervention
+       │                    └──────────────────────┘
        │                                 │
        │                      force-search / force-magnet
        │                                 │
-       │                                 ▼
-       │                         (back to SEARCHING or DOWNLOADING)
+       ├─────────────────────────────────┘
        │
-       ├────────────────────────────────────────────────────────┐
-       │                                                        │
-       │ (if dry_run)                                          │
-       ▼                                                        │
-┌──────────────────┐                                           │
-│  DRY_RUN_COMPLETE│ (terminal)                                │
-└──────────────────┘                                           │
-                                                               │
-       ├─────────────────────────────────┐                     │
+       ├─────────────────────────────────┐
        │ confidence >= threshold         │ confidence < threshold
        ▼                                 ▼
 ┌───────────────┐               ┌────────────────────┐
-│ AUTO_APPROVED │               │  NEEDS_APPROVAL    │ ← Admin must review
+│ AUTO_APPROVED │               │  NEEDS_APPROVAL    │ ← User must review
 └───────┬───────┘               └─────────┬──────────┘
         │                                 │
         │                      ┌──────────┴──────────┐
         │                      │                     │
-        │               admin approves          admin rejects
+        │                user approves          user rejects
         │                      │                     │
         │                      ▼                     ▼
         │               ┌──────────────┐    ┌────────────┐
@@ -583,7 +574,7 @@ All processing pools use priority queues, so high-priority tickets are processed
                    │
                    ▼
           ┌───────────────┐
-          │  DOWNLOADING  │ ← Torrent downloading via qBittorrent
+          │  DOWNLOADING  │ ← Torrent downloading via torrent client
           └───────┬───────┘
                   │
                   ▼
@@ -603,10 +594,10 @@ All processing pools use priority queues, so high-priority tickets are processed
 
           (any non-terminal state)
                   │
-               on error
+            on error / user cancels
                   ▼
           ┌───────────────┐
-          │    FAILED     │ (terminal, may be retryable)
+          │ FAILED/CANCEL │ (terminal, may be retryable)
           └───────────────┘
 ```
 
@@ -614,110 +605,125 @@ All processing pools use priority queues, so high-priority tickets are processed
 
 ```rust
 enum TicketState {
+    /// Ticket created, waiting to be processed.
     Pending,
 
-    Searching {
-        strategy_idx: usize,
-        strategies_tried: Vec<String>,
+    /// TextBrain is acquiring a torrent (building queries, searching, scoring).
+    /// This is a combined phase that handles the full query -> search -> score loop.
+    Acquiring {
         started_at: DateTime<Utc>,
+        queries_tried: Vec<String>,
+        candidates_found: u32,
+        phase: AcquisitionPhase,
     },
 
-    SearchFailed {
-        strategies_tried: Vec<String>,
+    /// Acquisition failed - no suitable torrent found after exhausting all strategies.
+    AcquisitionFailed {
+        queries_tried: Vec<String>,
+        candidates_seen: u32,
+        reason: String,
         failed_at: DateTime<Utc>,
     },
 
-    Matching {
-        candidates: Vec<TorrentCandidate>,
-        started_at: DateTime<Utc>,
-    },
-
-    DryRunComplete {
-        candidates: Vec<ScoredCandidate>,
-        recommended_idx: usize,
-        completed_at: DateTime<Utc>,
-    },
-
+    /// Candidates found but confidence is below threshold - needs manual approval.
     NeedsApproval {
-        candidates: Vec<ScoredCandidate>,
+        candidates: Vec<ScoredCandidateSummary>,
         recommended_idx: usize,
         confidence: f32,
-        reason: ApprovalReason,
         waiting_since: DateTime<Utc>,
     },
 
+    /// Automatically approved (confidence >= threshold).
     AutoApproved {
-        selected: ScoredCandidate,
+        selected: SelectedCandidate,
         confidence: f32,
+        approved_at: DateTime<Utc>,
     },
 
+    /// Manually approved by user.
     Approved {
-        selected: ScoredCandidate,
+        selected: SelectedCandidate,
         approved_by: String,
         approved_at: DateTime<Utc>,
     },
 
+    /// Torrent is being downloaded.
     Downloading {
-        torrent_hash: String,
+        info_hash: String,
         progress_pct: f32,
-        download_speed_bps: u64,
+        speed_bps: u64,
         eta_secs: Option<u32>,
         started_at: DateTime<Utc>,
     },
 
+    /// Converting downloaded files (transcoding, metadata embedding).
     Converting {
-        current_track_idx: usize,
-        total_tracks: usize,
-        current_track_name: String,
+        current_idx: usize,
+        total: usize,
+        current_name: String,
         started_at: DateTime<Utc>,
     },
 
+    /// Placing converted files to their final destinations.
     Placing {
         files_placed: usize,
         total_files: usize,
         started_at: DateTime<Utc>,
     },
 
+    /// Ticket completed successfully (terminal).
     Completed {
         completed_at: DateTime<Utc>,
         stats: CompletionStats,
     },
 
+    /// Rejected by user (terminal).
     Rejected {
         rejected_by: String,
         reason: Option<String>,
         rejected_at: DateTime<Utc>,
     },
 
+    /// Ticket failed (terminal, may be retryable).
     Failed {
-        failed_at_state: String,
         error: String,
         retryable: bool,
         retry_count: u32,
         failed_at: DateTime<Utc>,
     },
+
+    /// Ticket was cancelled by user (terminal).
+    Cancelled {
+        cancelled_by: String,
+        reason: Option<String>,
+        cancelled_at: DateTime<Utc>,
+    },
 }
 
-enum ApprovalReason {
-    LowConfidence { score: f32, threshold: f32 },
-    TrackCountMismatch { expected: usize, found: usize },
-    DurationMismatch { expected_secs: u32, found_secs: u32 },
-    NameSimilarityLow { similarity: f32 },
-    MultipleGoodMatches { top_scores: Vec<f32> },
-    NoExactMatch,
+/// Current phase within the Acquiring state.
+enum AcquisitionPhase {
+    QueryBuilding,
+    Searching { query: String },
+    Scoring { candidates_count: u32 },
 }
 
-struct ScoredCandidate {
-    torrent: TorrentCandidate,
+/// Summary of a scored candidate for storage in ticket state.
+struct ScoredCandidateSummary {
+    title: String,
+    info_hash: String,
+    size_bytes: u64,
+    seeders: u32,
     score: f32,
-    track_mapping: Vec<TrackMapping>,
     reasoning: String,
 }
 
-struct TrackMapping {
-    catalog_track_id: String,
-    torrent_file_path: String,
-    confidence: f32,
+/// Summary of the selected candidate for approved states.
+struct SelectedCandidate {
+    title: String,
+    info_hash: String,
+    magnet_uri: String,
+    size_bytes: u64,
+    score: f32,
 }
 
 struct CompletionStats {
@@ -725,6 +731,7 @@ struct CompletionStats {
     download_duration_secs: u32,
     conversion_duration_secs: u32,
     final_size_bytes: u64,
+    files_placed: u32,
 }
 ```
 
@@ -925,26 +932,28 @@ Tickets flow through a series of processing pools. Each pool handles one stage o
 
 ```rust
 struct ProcessorPools {
-    searcher: Pool<SearchJob>,      // Respects per-indexer rate limits
-    matcher: Pool<MatchJob>,        // 1 worker for dumb, N for LLM (latency hiding)
-    downloader: Pool<DownloadJob>,  // max_parallel_downloads workers
-    converter: Pool<ConvertJob>,    // max_parallel_conversions workers
-    placer: Pool<PlaceJob>,         // Generous, I/O bound
+    acquisition: Pool<AcquisitionJob>,  // TextBrain: query + search + score loop
+    downloader: Pool<DownloadJob>,      // max_parallel_downloads workers
+    converter: Pool<ConvertJob>,        // max_parallel_conversions workers
+    placer: Pool<PlaceJob>,             // Generous, I/O bound
 }
 ```
+
+The **Acquisition pool** combines what was previously Search + Match into a single coordinated operation. TextBrain owns the full query building → search → scoring loop, iterating until a match is found or all strategies are exhausted.
 
 Each pool is a priority queue - tickets with higher priority are processed first within each stage.
 
 ```
-┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐
-│ Searcher │───▶│ Matcher  │───▶│Downloader│───▶│Converter │───▶│  Placer  │
-│   Pool   │    │   Pool   │    │   Pool   │    │   Pool   │    │   Pool   │
-└──────────┘    └──────────┘    └──────────┘    └──────────┘    └──────────┘
-   PENDING      SEARCHING       APPROVED/       DOWNLOADING      CONVERTING
-      ▼          MATCHING      AUTO_APPROVED     COMPLETE           ▼
-  SEARCHING        ▼               ▼               ▼            PLACING
-               MATCHING/       DOWNLOADING     CONVERTING          ▼
-              NEEDS_APPROVAL                                   COMPLETED
+┌────────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐
+│ Acquisition│───▶│Downloader│───▶│Converter │───▶│  Placer  │
+│    Pool    │    │   Pool   │    │   Pool   │    │   Pool   │
+└────────────┘    └──────────┘    └──────────┘    └──────────┘
+    PENDING        APPROVED/       DOWNLOADING      CONVERTING
+       ▼          AUTO_APPROVED     COMPLETE           ▼
+   ACQUIRING          ▼               ▼            PLACING
+       ▼          DOWNLOADING     CONVERTING          ▼
+ NEEDS_APPROVAL/                                   COMPLETED
+ AUTO_APPROVED
 ```
 
 ### 6. Searcher (`searcher/`)
@@ -1483,11 +1492,13 @@ Each phase includes corresponding admin dashboard work. The dashboard evolves al
 - [x] Audit events: `queries_generated`, `candidates_scored`, `candidate_selected`
 - [x] Claude CLI proxy script for local LLM testing (`scripts/claude_proxy.py`)
 - [x] **Dashboard**: Audit log view with filtering by ticket, event type, user, date range
-- [ ] `TextBrain` coordinator with configurable modes:
+- [x] `TextBrain` coordinator with configurable modes:
   - `dumb-only`: No LLM, heuristics only
   - `dumb-first`: Try heuristics, enhance with LLM if low confidence
   - `llm-first`: Use LLM, fall back to heuristics on failure
   - `llm-only`: Require LLM (fail if unavailable)
+- [x] Combined Acquiring state (merges Search + Match into single coordinated phase)
+- [x] Full pipeline state machine: Pending → Acquiring → NeedsApproval/AutoApproved → Downloading → Converting → Placing → Completed
 - [ ] `DumbQueryBuilder`: Generate search queries from ticket using templates/heuristics
 - [ ] `DumbMatcher`: Score candidates using fuzzy matching, format detection, seeder heuristics
 - [ ] Additional LLM providers (OpenAI, Ollama, custom HTTP)
