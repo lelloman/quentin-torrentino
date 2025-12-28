@@ -555,7 +555,153 @@ pub async fn acquire(
     State(state): State<Arc<AppState>>,
     Json(body): Json<AcquireRequest>,
 ) -> Result<Json<AcquireResponse>, impl IntoResponse> {
-    // Get searcher
+    use std::time::Instant;
+    use torrentino_core::{CatalogSearchQuery, TorrentCandidate, TorrentFile, TorrentSource};
+
+    let start = Instant::now();
+
+    // Build QueryContext
+    let mut context = QueryContext::new(body.tags, &body.description);
+    if let Some(expected) = body.expected {
+        context = context.with_expected(expected.into());
+    }
+
+    // If cache_only, we handle search differently
+    if body.cache_only {
+        // Build queries using DumbQueryBuilder
+        let query_builder = DumbQueryBuilder::new();
+        let query_result = match query_builder.build_queries(&context).await {
+            Ok(r) => r,
+            Err(e) => {
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: format!("Query building failed: {}", e),
+                    }),
+                ))
+            }
+        };
+
+        if query_result.queries.is_empty() {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "No queries could be generated".to_string(),
+                }),
+            ));
+        }
+
+        // Search cache with each query
+        let catalog = state.catalog();
+        let mut all_candidates: Vec<TorrentCandidate> = Vec::new();
+        let mut queries_tried: Vec<String> = Vec::new();
+        let mut seen_hashes = std::collections::HashSet::new();
+
+        for query_str in query_result.queries.iter().take(5) {
+            queries_tried.push(query_str.clone());
+
+            let catalog_query = CatalogSearchQuery {
+                query: query_str.clone(),
+                limit: 50,
+            };
+
+            if let Ok(cached) = catalog.search(&catalog_query) {
+                for ct in cached {
+                    if seen_hashes.insert(ct.info_hash.clone()) {
+                        all_candidates.push(TorrentCandidate {
+                            title: ct.title,
+                            info_hash: ct.info_hash,
+                            size_bytes: ct.size_bytes,
+                            seeders: ct.sources.iter().map(|s| s.seeders).sum(),
+                            leechers: ct.sources.iter().map(|s| s.leechers).sum(),
+                            category: ct.category,
+                            publish_date: None,
+                            files: ct.files.map(|files| {
+                                files
+                                    .into_iter()
+                                    .map(|f| TorrentFile {
+                                        path: f.path,
+                                        size_bytes: f.size_bytes,
+                                    })
+                                    .collect()
+                            }),
+                            sources: ct
+                                .sources
+                                .into_iter()
+                                .map(|s| TorrentSource {
+                                    indexer: s.indexer,
+                                    magnet_uri: s.magnet_uri,
+                                    torrent_url: s.torrent_url,
+                                    seeders: s.seeders,
+                                    leechers: s.leechers,
+                                    details_url: s.details_url,
+                                })
+                                .collect(),
+                            from_cache: true,
+                        });
+                    }
+                }
+            }
+        }
+
+        let candidates_evaluated = all_candidates.len() as u32;
+
+        // Score candidates using DumbMatcher
+        let matcher = DumbMatcher::new();
+        let match_result = match matcher.score_candidates(&context, &all_candidates).await {
+            Ok(r) => r,
+            Err(e) => {
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: format!("Scoring failed: {}", e),
+                    }),
+                ))
+            }
+        };
+
+        let duration_ms = start.elapsed().as_millis() as u64;
+
+        let candidates: Vec<AcquireCandidateResponse> = match_result
+            .candidates
+            .iter()
+            .map(|c| AcquireCandidateResponse {
+                title: c.candidate.title.clone(),
+                info_hash: c.candidate.info_hash.clone(),
+                size_bytes: c.candidate.size_bytes,
+                seeders: c.candidate.seeders,
+                score: c.score,
+                reasoning: c.reasoning.clone(),
+            })
+            .collect();
+
+        let best_candidate = match_result.candidates.first().map(|c| AcquireCandidateResponse {
+            title: c.candidate.title.clone(),
+            info_hash: c.candidate.info_hash.clone(),
+            size_bytes: c.candidate.size_bytes,
+            seeders: c.candidate.seeders,
+            score: c.score,
+            reasoning: c.reasoning.clone(),
+        });
+
+        let auto_approved = best_candidate
+            .as_ref()
+            .map(|c| c.score >= body.auto_approve_threshold)
+            .unwrap_or(false);
+
+        return Ok(Json(AcquireResponse {
+            queries_tried,
+            candidates_evaluated,
+            candidates,
+            best_candidate,
+            auto_approved,
+            query_method: query_result.method,
+            score_method: match_result.method,
+            duration_ms,
+        }));
+    }
+
+    // Normal flow: use TextBrain with live searcher
     let searcher = match state.searcher() {
         Some(s) => s,
         None => {
@@ -567,12 +713,6 @@ pub async fn acquire(
             ))
         }
     };
-
-    // Build QueryContext
-    let mut context = QueryContext::new(body.tags, &body.description);
-    if let Some(expected) = body.expected {
-        context = context.with_expected(expected.into());
-    }
 
     // Create TextBrain with dumb implementations
     let config = TextBrainConfig {

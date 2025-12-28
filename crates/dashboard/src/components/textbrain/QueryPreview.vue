@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { useTextBrain, formatConfidence } from '../../composables/useTextBrain'
+import { useTextBrain, formatConfidence, formatFileSize, getScoreColorClass } from '../../composables/useTextBrain'
+import { addMagnet } from '../../api/torrents'
 import type { QueryContextWithExpected, ExpectedContent } from '../../api/types'
 import LoadingSpinner from '../common/LoadingSpinner.vue'
 import Badge from '../common/Badge.vue'
@@ -11,8 +12,20 @@ const emit = defineEmits<{
 }>()
 
 const router = useRouter()
-const { loading, error, buildQueries, acquire, queryResult, generatedQueries, queryConfidence, queryMethod } =
-  useTextBrain()
+const {
+  loading,
+  error,
+  buildQueries,
+  acquire,
+  queryResult,
+  generatedQueries,
+  queryConfidence,
+  queryMethod,
+  acquisitionResult,
+  bestCandidate,
+  allCandidates,
+  isAutoApproved,
+} = useTextBrain()
 
 function useQuery(query: string) {
   router.push({ name: 'search', query: { q: query } })
@@ -20,6 +33,28 @@ function useQuery(query: string) {
 
 // Track which mode we're in
 const isAcquiring = ref(false)
+const downloadingHash = ref<string | null>(null)
+const downloadStatus = ref<{ type: 'success' | 'error'; message: string } | null>(null)
+
+async function handleDownload(infoHash: string, title: string) {
+  downloadingHash.value = infoHash
+  downloadStatus.value = null
+  try {
+    // Find the candidate to get magnet URI
+    const candidate = allCandidates.value.find(c => c.candidate.info_hash === infoHash)
+    if (!candidate) {
+      throw new Error('Candidate not found')
+    }
+    // For now, construct a basic magnet URI from info_hash
+    const magnetUri = `magnet:?xt=urn:btih:${infoHash}&dn=${encodeURIComponent(title)}`
+    await addMagnet({ uri: magnetUri })
+    downloadStatus.value = { type: 'success', message: `Added to downloads: ${title}` }
+  } catch (e) {
+    downloadStatus.value = { type: 'error', message: e instanceof Error ? e.message : 'Download failed' }
+  } finally {
+    downloadingHash.value = null
+  }
+}
 
 // Form state
 const tags = ref<string>('')
@@ -381,6 +416,105 @@ const confidenceColor = computed(() => {
         LLM: {{ queryResult.llm_usage.model }} ({{ queryResult.llm_usage.input_tokens }}+{{
           queryResult.llm_usage.output_tokens
         }} tokens)
+      </div>
+    </div>
+
+    <!-- Acquisition Results -->
+    <div v-if="acquisitionResult" class="mt-6 space-y-4">
+      <div class="border-t pt-4">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="font-medium text-lg">Acquisition Results</h3>
+          <div class="flex items-center gap-2 text-sm text-gray-500">
+            <span>{{ acquisitionResult.candidates_evaluated }} candidates</span>
+            <span>·</span>
+            <span>{{ acquisitionResult.duration_ms }}ms</span>
+            <Badge v-if="isAutoApproved" class="bg-green-100 text-green-800">Auto-approved</Badge>
+          </div>
+        </div>
+
+        <!-- Queries Tried -->
+        <div class="mb-4">
+          <h4 class="text-sm font-medium text-gray-700 mb-2">Queries Tried</h4>
+          <div class="flex flex-wrap gap-2">
+            <code
+              v-for="(query, idx) in acquisitionResult.queries_tried"
+              :key="idx"
+              class="px-2 py-1 bg-gray-100 rounded text-xs"
+            >
+              {{ query }}
+            </code>
+          </div>
+        </div>
+
+        <!-- Best Match -->
+        <div v-if="bestCandidate" class="mb-4 p-4 bg-green-50 border border-green-200 rounded-lg">
+          <div class="flex items-start justify-between">
+            <div class="flex-1">
+              <div class="flex items-center gap-2 mb-1">
+                <span class="font-medium text-green-800">Best Match</span>
+                <span :class="getScoreColorClass(bestCandidate.score)" class="font-bold">
+                  {{ formatConfidence(bestCandidate.score) }}
+                </span>
+              </div>
+              <p class="text-sm font-medium text-gray-900">{{ bestCandidate.candidate.title }}</p>
+              <p class="text-xs text-gray-600 mt-1">
+                {{ formatFileSize(bestCandidate.candidate.size_bytes) }} · {{ bestCandidate.candidate.seeders }} seeders
+              </p>
+              <p class="text-xs text-gray-500 mt-1 italic">{{ bestCandidate.reasoning }}</p>
+            </div>
+            <button
+              @click="handleDownload(bestCandidate.candidate.info_hash, bestCandidate.candidate.title)"
+              :disabled="downloadingHash === bestCandidate.candidate.info_hash"
+              class="px-3 py-1.5 bg-green-600 text-white text-sm rounded hover:bg-green-700 disabled:opacity-50"
+            >
+              {{ downloadingHash === bestCandidate.candidate.info_hash ? 'Adding...' : 'Download' }}
+            </button>
+          </div>
+        </div>
+
+        <!-- Download Status Toast -->
+        <div
+          v-if="downloadStatus"
+          class="mb-4 p-3 rounded-lg flex items-center gap-2"
+          :class="downloadStatus.type === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'"
+        >
+          <span>{{ downloadStatus.message }}</span>
+          <button @click="downloadStatus = null" class="ml-auto text-gray-500 hover:text-gray-700">×</button>
+        </div>
+
+        <!-- All Candidates -->
+        <div>
+          <h4 class="text-sm font-medium text-gray-700 mb-2">All Candidates ({{ allCandidates.length }})</h4>
+          <div class="space-y-2 max-h-96 overflow-y-auto">
+            <div
+              v-for="(scored, idx) in allCandidates"
+              :key="scored.candidate.info_hash"
+              class="flex items-center gap-3 p-3 bg-gray-50 rounded-lg hover:bg-gray-100"
+              :class="{ 'ring-2 ring-green-500': idx === 0 }"
+            >
+              <span class="text-gray-400 text-sm w-6">{{ idx + 1 }}.</span>
+              <div class="flex-1 min-w-0">
+                <p class="text-sm font-medium truncate">{{ scored.candidate.title }}</p>
+                <p class="text-xs text-gray-500">
+                  {{ formatFileSize(scored.candidate.size_bytes) }} · {{ scored.candidate.seeders }} seeders
+                </p>
+                <p class="text-xs text-gray-400 italic truncate">{{ scored.reasoning }}</p>
+              </div>
+              <div class="flex items-center gap-2">
+                <span :class="getScoreColorClass(scored.score)" class="font-bold text-sm">
+                  {{ formatConfidence(scored.score) }}
+                </span>
+                <button
+                  @click="handleDownload(scored.candidate.info_hash, scored.candidate.title)"
+                  :disabled="downloadingHash === scored.candidate.info_hash"
+                  class="px-2 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {{ downloadingHash === scored.candidate.info_hash ? '...' : 'DL' }}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </div>

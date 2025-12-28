@@ -210,28 +210,109 @@ impl DumbMatcher {
         }
 
         let title_lower = title.to_lowercase();
-        let matches = quality_tags
-            .iter()
-            .filter(|tag| title_lower.contains(&tag.to_lowercase()))
-            .count();
+        let mut match_count = 0;
+        let mut conflict_penalty = 0.0f32;
 
-        matches as f32 / quality_tags.len() as f32
+        for tag in &quality_tags {
+            let tag_lower = tag.to_lowercase();
+
+            // Check for direct match or alias match
+            if self.quality_matches_in_title(&tag_lower, &title_lower) {
+                match_count += 1;
+            } else {
+                // Check for conflicts (e.g., user wants FLAC but title has MP3)
+                if let Some(penalty) = self.quality_conflict_penalty(&tag_lower, &title_lower) {
+                    conflict_penalty += penalty;
+                }
+            }
+        }
+
+        let base_score = match_count as f32 / quality_tags.len() as f32;
+        (base_score - conflict_penalty).max(0.0)
+    }
+
+    /// Check if a quality tag matches in title, considering aliases.
+    fn quality_matches_in_title(&self, tag: &str, title: &str) -> bool {
+        // Direct match
+        if title.contains(tag) {
+            return true;
+        }
+
+        // Check aliases
+        let aliases: &[&[&str]] = &[
+            // Video codecs
+            &["x265", "hevc", "h265", "h.265"],
+            &["x264", "h264", "h.264", "avc"],
+            // Resolutions
+            &["4k", "2160p", "uhd"],
+            &["bluray", "blu-ray", "bdrip", "brrip"],
+            &["web-dl", "webdl"],
+            &["webrip", "web-rip"],
+            // Audio
+            &["lossless", "flac", "alac", "wav"],
+            &["truehd", "true-hd"],
+        ];
+
+        for alias_group in aliases {
+            if alias_group.contains(&tag) {
+                // Tag is in this alias group - check if any alias is in title
+                return alias_group.iter().any(|alias| title.contains(alias));
+            }
+        }
+
+        false
+    }
+
+    /// Check for conflicting quality indicators.
+    /// Returns a penalty value (0.0-0.3) if conflicts are found.
+    fn quality_conflict_penalty(&self, wanted_tag: &str, title: &str) -> Option<f32> {
+        // Audio format conflicts
+        let audio_formats = &["flac", "mp3", "aac", "opus", "ogg", "wav", "alac"];
+        if audio_formats.contains(&wanted_tag) {
+            // User wants a specific audio format - check for different format
+            for format in audio_formats {
+                if *format != wanted_tag && title.contains(format) {
+                    // Found a different audio format - that's a conflict
+                    return Some(0.2);
+                }
+            }
+        }
+
+        // Resolution conflicts
+        let resolutions = &[
+            ("2160p", 2160), ("4k", 2160), ("uhd", 2160),
+            ("1080p", 1080), ("1080i", 1080),
+            ("720p", 720),
+            ("480p", 480), ("sd", 480),
+        ];
+
+        if let Some((_, wanted_res)) = resolutions.iter().find(|(r, _)| *r == wanted_tag) {
+            for (res_tag, res_val) in resolutions {
+                if title.contains(res_tag) && *res_val < *wanted_res {
+                    // Found a lower resolution - penalize
+                    return Some(0.15);
+                }
+            }
+        }
+
+        None
     }
 
     /// Check if a tag is quality-related.
     fn is_quality_tag(&self, tag: &str) -> bool {
         let quality_patterns = [
             // Audio formats
-            "flac", "mp3", "aac", "opus", "wav", "alac", "dsd", "ape",
-            "320", "v0", "v2", "lossless",
+            "flac", "mp3", "aac", "opus", "wav", "alac", "dsd", "ape", "ogg",
+            "320", "v0", "v2", "lossless", "24bit", "24-bit", "hi-res",
             // Video resolution
-            "1080p", "720p", "2160p", "4k", "uhd", "hdr", "hdr10", "dolby",
+            "1080p", "1080i", "720p", "2160p", "4k", "uhd", "hdr", "hdr10", "dolby",
             // Video codec
-            "x264", "x265", "hevc", "h264", "h265", "av1", "xvid",
+            "x264", "x265", "hevc", "h264", "h265", "h.264", "h.265", "av1", "xvid", "avc",
             // Source
-            "bluray", "blu-ray", "remux", "web-dl", "webrip", "hdtv", "dvdrip",
+            "bluray", "blu-ray", "bdrip", "brrip", "remux", "web-dl", "webdl",
+            "webrip", "web-rip", "hdtv", "dvdrip", "dvd",
             // Audio for video
-            "dts", "atmos", "truehd", "dd5.1", "aac5.1",
+            "dts", "atmos", "truehd", "dd5.1", "aac5.1", "5.1", "7.1",
         ];
 
         let lower = tag.to_lowercase();
@@ -284,30 +365,68 @@ impl DumbMatcher {
         health_score: f32,
         _size_score: f32,
         candidate: &TorrentCandidate,
+        context: &QueryContext,
     ) -> String {
         let mut parts: Vec<String> = Vec::new();
 
-        // Title match
-        if title_score >= 0.8 {
-            parts.push("strong title match".to_string());
+        // Title match - be more descriptive
+        if title_score >= 0.9 {
+            parts.push("excellent title match".to_string());
+        } else if title_score >= 0.7 {
+            parts.push("good title match".to_string());
         } else if title_score >= 0.5 {
             parts.push("partial title match".to_string());
-        } else if title_score < 0.3 {
+        } else if title_score >= 0.3 {
             parts.push("weak title match".to_string());
+        } else {
+            parts.push("title doesn't match well".to_string());
         }
 
-        // Quality
-        if quality_score >= 0.8 {
-            parts.push("quality tags present".to_string());
-        } else if quality_score < 0.5 && quality_score > 0.0 {
-            parts.push("missing some quality tags".to_string());
+        // Quality - show what was matched/missing
+        let quality_tags: Vec<&str> = context
+            .tags
+            .iter()
+            .filter(|t| self.is_quality_tag(t))
+            .map(|s| s.as_str())
+            .collect();
+
+        if !quality_tags.is_empty() {
+            let title_lower = candidate.title.to_lowercase();
+            let matched: Vec<&str> = quality_tags
+                .iter()
+                .filter(|t| self.quality_matches_in_title(&t.to_lowercase(), &title_lower))
+                .copied()
+                .collect();
+
+            if matched.len() == quality_tags.len() {
+                parts.push(format!("has {}", matched.join("+")));
+            } else if !matched.is_empty() {
+                let missing: Vec<&str> = quality_tags
+                    .iter()
+                    .filter(|t| !matched.contains(t))
+                    .copied()
+                    .collect();
+                parts.push(format!("has {} (missing {})", matched.join("+"), missing.join("+")));
+            } else if quality_score < 0.3 {
+                // Check for conflicts
+                let has_conflict = quality_tags.iter().any(|t| {
+                    self.quality_conflict_penalty(&t.to_lowercase(), &title_lower).is_some()
+                });
+                if has_conflict {
+                    parts.push("wrong format/quality".to_string());
+                } else {
+                    parts.push(format!("missing {}", quality_tags.join("+")));
+                }
+            }
         }
 
         // Health
-        if health_score >= 0.8 {
-            parts.push(format!("well-seeded ({})", candidate.seeders));
+        if candidate.seeders == 0 {
+            parts.push("dead (0 seeders)".to_string());
+        } else if health_score >= 0.8 {
+            parts.push(format!("{} seeders", candidate.seeders));
         } else if health_score < 0.3 {
-            parts.push("low seeders".to_string());
+            parts.push(format!("low seeders ({})", candidate.seeders));
         }
 
         if parts.is_empty() {
@@ -347,6 +466,7 @@ impl DumbMatcher {
             health_score,
             size_score,
             candidate,
+            context,
         );
 
         // Add file mapping info to reasoning
@@ -670,5 +790,65 @@ mod tests {
 
         // Even with poor health/size, good title should win with 0.7 weight
         assert!(good_score.score > bad_score.score);
+    }
+
+    #[test]
+    fn test_quality_alias_matching() {
+        let matcher = DumbMatcher::new();
+
+        // x265 should match hevc
+        assert!(matcher.quality_matches_in_title("x265", "movie [hevc]"));
+        assert!(matcher.quality_matches_in_title("hevc", "movie [x265]"));
+        assert!(matcher.quality_matches_in_title("h265", "movie [x265]"));
+
+        // 4k should match 2160p
+        assert!(matcher.quality_matches_in_title("4k", "movie 2160p"));
+        assert!(matcher.quality_matches_in_title("2160p", "movie 4k"));
+
+        // bluray variants
+        assert!(matcher.quality_matches_in_title("bluray", "movie [blu-ray]"));
+        assert!(matcher.quality_matches_in_title("blu-ray", "movie bluray"));
+
+        // lossless matches flac
+        assert!(matcher.quality_matches_in_title("lossless", "album [flac]"));
+    }
+
+    #[test]
+    fn test_quality_conflict_detection() {
+        let matcher = DumbMatcher::new();
+
+        // User wants FLAC but title has MP3
+        let penalty = matcher.quality_conflict_penalty("flac", "album [mp3 320]");
+        assert!(penalty.is_some());
+
+        // User wants 1080p but title has 720p
+        let penalty = matcher.quality_conflict_penalty("1080p", "movie 720p");
+        assert!(penalty.is_some());
+
+        // No conflict when format matches
+        let penalty = matcher.quality_conflict_penalty("flac", "album [flac]");
+        assert!(penalty.is_none());
+
+        // No conflict when no other format present
+        let penalty = matcher.quality_conflict_penalty("flac", "album lossless");
+        assert!(penalty.is_none());
+    }
+
+    #[test]
+    fn test_quality_match_with_conflict_penalty() {
+        let matcher = DumbMatcher::new();
+        let context = make_context(&["flac"], "Abbey Road");
+
+        // FLAC present - high score
+        let flac_score = matcher.quality_match("Abbey Road [FLAC]", &context);
+        assert!(flac_score >= 0.9, "FLAC should match, got {}", flac_score);
+
+        // MP3 instead of FLAC - penalized
+        let mp3_score = matcher.quality_match("Abbey Road [MP3 320]", &context);
+        assert!(mp3_score < 0.5, "MP3 should be penalized when FLAC wanted, got {}", mp3_score);
+
+        // No format specified - neutral
+        let no_format_score = matcher.quality_match("Abbey Road", &context);
+        assert!(no_format_score < flac_score, "No format should score less than matching FLAC");
     }
 }
