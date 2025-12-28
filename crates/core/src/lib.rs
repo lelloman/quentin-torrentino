@@ -43,7 +43,7 @@ pub use textbrain::{
     // Traits
     CandidateMatcher, QueryBuilder, TextBrainError,
     // Dumb implementations
-    DumbQueryBuilder, DumbQueryBuilderConfig,
+    DumbMatcher, DumbMatcherConfig, DumbQueryBuilder, DumbQueryBuilderConfig,
     // Result types
     AcquisitionResult, FileMapping, MatchResult, QueryBuildResult, ScoredCandidate,
     ScoredCandidateSummary,

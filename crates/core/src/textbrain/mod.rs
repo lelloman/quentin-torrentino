@@ -63,6 +63,7 @@
 
 mod config;
 mod coordinator;
+mod dumb_matcher;
 mod dumb_query_builder;
 mod llm;
 mod traits;
@@ -80,6 +81,7 @@ pub use config::{LlmConfig, LlmProvider, TextBrainConfig, TextBrainMode};
 pub use traits::{CandidateMatcher, QueryBuilder, TextBrainError};
 
 // Dumb implementations
+pub use dumb_matcher::{DumbMatcher, DumbMatcherConfig};
 pub use dumb_query_builder::{DumbQueryBuilder, DumbQueryBuilderConfig};
 
 // Result types
