@@ -7,5 +7,6 @@ mod types;
 pub use sqlite_store::SqliteTicketStore;
 pub use store::{CreateTicketRequest, TicketError, TicketFilter, TicketStore};
 pub use types::{
-    AcquisitionPhase, CompletionStats, QueryContext, SelectedCandidate, Ticket, TicketState,
+    AcquisitionPhase, CompletionStats, ExpectedContent, ExpectedTrack, QueryContext,
+    SelectedCandidate, Ticket, TicketState,
 };

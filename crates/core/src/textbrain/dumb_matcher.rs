@@ -334,10 +334,10 @@ mod tests {
     }
 
     fn make_context(tags: &[&str], description: &str) -> QueryContext {
-        QueryContext {
-            tags: tags.iter().map(|s| s.to_string()).collect(),
-            description: description.to_string(),
-        }
+        QueryContext::new(
+            tags.iter().map(|s| s.to_string()).collect(),
+            description,
+        )
     }
 
     #[test]

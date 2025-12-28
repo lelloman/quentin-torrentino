@@ -18,6 +18,11 @@ pub struct QueryContext {
     /// Freeform description for LLM-based matching.
     /// Example: "Abbey Road by The Beatles, prefer 2019 remaster"
     pub description: String,
+
+    /// Expected content structure for file validation.
+    /// Used to verify torrent files match what we're looking for.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected: Option<ExpectedContent>,
 }
 
 impl QueryContext {
@@ -26,6 +31,169 @@ impl QueryContext {
         Self {
             tags,
             description: description.into(),
+            expected: None,
+        }
+    }
+
+    /// Create a query context with expected content.
+    pub fn with_expected(mut self, expected: ExpectedContent) -> Self {
+        self.expected = Some(expected);
+        self
+    }
+}
+
+/// Expected content structure for file validation.
+///
+/// Defines what files we expect to find in a torrent.
+/// Used during scoring to validate the torrent matches our requirements.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ExpectedContent {
+    /// Music album with expected tracks.
+    Album {
+        /// Artist name (optional, for matching).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        artist: Option<String>,
+        /// Album title.
+        title: String,
+        /// Expected tracks in order.
+        tracks: Vec<ExpectedTrack>,
+    },
+
+    /// Single music track.
+    Track {
+        /// Artist name (optional).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        artist: Option<String>,
+        /// Track title.
+        title: String,
+    },
+
+    /// Movie file.
+    Movie {
+        /// Movie title.
+        title: String,
+        /// Release year (optional, for disambiguation).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        year: Option<u32>,
+    },
+
+    /// TV episode(s).
+    TvEpisode {
+        /// Series name.
+        series: String,
+        /// Season number.
+        season: u32,
+        /// Episode numbers (e.g., [1, 2, 3] for S01E01-03).
+        episodes: Vec<u32>,
+    },
+}
+
+/// Expected track in an album.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ExpectedTrack {
+    /// Track number (1-indexed).
+    pub number: u32,
+    /// Track title.
+    pub title: String,
+    /// Expected duration in seconds (optional, for validation).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_secs: Option<u32>,
+}
+
+impl ExpectedTrack {
+    /// Create a new expected track.
+    pub fn new(number: u32, title: impl Into<String>) -> Self {
+        Self {
+            number,
+            title: title.into(),
+            duration_secs: None,
+        }
+    }
+
+    /// Set expected duration.
+    pub fn with_duration(mut self, secs: u32) -> Self {
+        self.duration_secs = Some(secs);
+        self
+    }
+}
+
+impl ExpectedContent {
+    /// Create an album expectation.
+    pub fn album(title: impl Into<String>, tracks: Vec<ExpectedTrack>) -> Self {
+        Self::Album {
+            artist: None,
+            title: title.into(),
+            tracks,
+        }
+    }
+
+    /// Create an album expectation with artist.
+    pub fn album_by(artist: impl Into<String>, title: impl Into<String>, tracks: Vec<ExpectedTrack>) -> Self {
+        Self::Album {
+            artist: Some(artist.into()),
+            title: title.into(),
+            tracks,
+        }
+    }
+
+    /// Create a single track expectation.
+    pub fn track(title: impl Into<String>) -> Self {
+        Self::Track {
+            artist: None,
+            title: title.into(),
+        }
+    }
+
+    /// Create a single track expectation with artist.
+    pub fn track_by(artist: impl Into<String>, title: impl Into<String>) -> Self {
+        Self::Track {
+            artist: Some(artist.into()),
+            title: title.into(),
+        }
+    }
+
+    /// Create a movie expectation.
+    pub fn movie(title: impl Into<String>) -> Self {
+        Self::Movie {
+            title: title.into(),
+            year: None,
+        }
+    }
+
+    /// Create a movie expectation with year.
+    pub fn movie_year(title: impl Into<String>, year: u32) -> Self {
+        Self::Movie {
+            title: title.into(),
+            year: Some(year),
+        }
+    }
+
+    /// Create a TV episode expectation.
+    pub fn tv_episode(series: impl Into<String>, season: u32, episode: u32) -> Self {
+        Self::TvEpisode {
+            series: series.into(),
+            season,
+            episodes: vec![episode],
+        }
+    }
+
+    /// Create a TV episode range expectation.
+    pub fn tv_episodes(series: impl Into<String>, season: u32, episodes: Vec<u32>) -> Self {
+        Self::TvEpisode {
+            series: series.into(),
+            season,
+            episodes,
+        }
+    }
+
+    /// Get the expected file count.
+    pub fn expected_file_count(&self) -> usize {
+        match self {
+            ExpectedContent::Album { tracks, .. } => tracks.len(),
+            ExpectedContent::Track { .. } => 1,
+            ExpectedContent::Movie { .. } => 1,
+            ExpectedContent::TvEpisode { episodes, .. } => episodes.len(),
         }
     }
 }
@@ -521,5 +689,163 @@ mod tests {
 
         let deserialized: AcquisitionPhase = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized, phase);
+    }
+
+    // ========================================================================
+    // ExpectedContent tests
+    // ========================================================================
+
+    #[test]
+    fn test_expected_track_creation() {
+        let track = ExpectedTrack::new(1, "Come Together");
+        assert_eq!(track.number, 1);
+        assert_eq!(track.title, "Come Together");
+        assert!(track.duration_secs.is_none());
+
+        let track_with_duration = ExpectedTrack::new(2, "Something").with_duration(180);
+        assert_eq!(track_with_duration.duration_secs, Some(180));
+    }
+
+    #[test]
+    fn test_expected_content_album() {
+        let tracks = vec![
+            ExpectedTrack::new(1, "Come Together"),
+            ExpectedTrack::new(2, "Something"),
+        ];
+        let album = ExpectedContent::album("Abbey Road", tracks);
+
+        if let ExpectedContent::Album { artist, title, tracks } = album {
+            assert!(artist.is_none());
+            assert_eq!(title, "Abbey Road");
+            assert_eq!(tracks.len(), 2);
+        } else {
+            panic!("Expected Album variant");
+        }
+    }
+
+    #[test]
+    fn test_expected_content_album_with_artist() {
+        let tracks = vec![ExpectedTrack::new(1, "Track 1")];
+        let album = ExpectedContent::album_by("The Beatles", "Abbey Road", tracks);
+
+        if let ExpectedContent::Album { artist, title, .. } = album {
+            assert_eq!(artist, Some("The Beatles".to_string()));
+            assert_eq!(title, "Abbey Road");
+        } else {
+            panic!("Expected Album variant");
+        }
+    }
+
+    #[test]
+    fn test_expected_content_track() {
+        let track = ExpectedContent::track("Yesterday");
+        if let ExpectedContent::Track { artist, title } = track {
+            assert!(artist.is_none());
+            assert_eq!(title, "Yesterday");
+        } else {
+            panic!("Expected Track variant");
+        }
+    }
+
+    #[test]
+    fn test_expected_content_movie() {
+        let movie = ExpectedContent::movie_year("The Matrix", 1999);
+        if let ExpectedContent::Movie { title, year } = movie {
+            assert_eq!(title, "The Matrix");
+            assert_eq!(year, Some(1999));
+        } else {
+            panic!("Expected Movie variant");
+        }
+    }
+
+    #[test]
+    fn test_expected_content_tv_episode() {
+        let ep = ExpectedContent::tv_episode("Breaking Bad", 1, 1);
+        if let ExpectedContent::TvEpisode { series, season, episodes } = ep {
+            assert_eq!(series, "Breaking Bad");
+            assert_eq!(season, 1);
+            assert_eq!(episodes, vec![1]);
+        } else {
+            panic!("Expected TvEpisode variant");
+        }
+    }
+
+    #[test]
+    fn test_expected_content_tv_episodes_range() {
+        let eps = ExpectedContent::tv_episodes("Breaking Bad", 1, vec![1, 2, 3]);
+        if let ExpectedContent::TvEpisode { episodes, .. } = eps {
+            assert_eq!(episodes, vec![1, 2, 3]);
+        } else {
+            panic!("Expected TvEpisode variant");
+        }
+    }
+
+    #[test]
+    fn test_expected_file_count() {
+        let album = ExpectedContent::album("Test", vec![
+            ExpectedTrack::new(1, "T1"),
+            ExpectedTrack::new(2, "T2"),
+            ExpectedTrack::new(3, "T3"),
+        ]);
+        assert_eq!(album.expected_file_count(), 3);
+
+        let track = ExpectedContent::track("Single");
+        assert_eq!(track.expected_file_count(), 1);
+
+        let movie = ExpectedContent::movie("Film");
+        assert_eq!(movie.expected_file_count(), 1);
+
+        let episodes = ExpectedContent::tv_episodes("Show", 1, vec![1, 2, 3, 4]);
+        assert_eq!(episodes.expected_file_count(), 4);
+    }
+
+    #[test]
+    fn test_expected_content_serialization() {
+        let album = ExpectedContent::album_by("The Beatles", "Abbey Road", vec![
+            ExpectedTrack::new(1, "Come Together"),
+            ExpectedTrack::new(2, "Something"),
+        ]);
+
+        let json = serde_json::to_string(&album).unwrap();
+        assert!(json.contains("\"type\":\"album\""));
+        assert!(json.contains("\"artist\":\"The Beatles\""));
+        assert!(json.contains("Abbey Road"));
+
+        let deserialized: ExpectedContent = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized, album);
+    }
+
+    #[test]
+    fn test_query_context_with_expected() {
+        let ctx = QueryContext::new(
+            vec!["music".to_string(), "album".to_string(), "flac".to_string()],
+            "Abbey Road by The Beatles",
+        ).with_expected(ExpectedContent::album("Abbey Road", vec![
+            ExpectedTrack::new(1, "Come Together"),
+        ]));
+
+        assert!(ctx.expected.is_some());
+        assert_eq!(ctx.expected.as_ref().unwrap().expected_file_count(), 1);
+    }
+
+    #[test]
+    fn test_query_context_expected_serialization() {
+        let ctx = QueryContext::new(vec!["movie".to_string()], "The Matrix")
+            .with_expected(ExpectedContent::movie_year("The Matrix", 1999));
+
+        let json = serde_json::to_string(&ctx).unwrap();
+        assert!(json.contains("\"expected\""));
+        assert!(json.contains("\"type\":\"movie\""));
+
+        let deserialized: QueryContext = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized, ctx);
+    }
+
+    #[test]
+    fn test_query_context_no_expected_skips_serialization() {
+        let ctx = QueryContext::new(vec!["test".to_string()], "description");
+        let json = serde_json::to_string(&ctx).unwrap();
+        // expected should be skipped when None
+        assert!(!json.contains("expected"));
     }
 }
