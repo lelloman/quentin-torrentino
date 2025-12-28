@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 use std::net::IpAddr;
 use std::path::PathBuf;
 
+use crate::textbrain::TextBrainConfig;
+
 /// Root configuration
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Config {
@@ -14,6 +16,8 @@ pub struct Config {
     pub searcher: Option<SearcherConfig>,
     #[serde(default)]
     pub torrent_client: Option<TorrentClientConfig>,
+    #[serde(default)]
+    pub textbrain: TextBrainConfig,
 }
 
 /// Server configuration
@@ -178,6 +182,7 @@ pub struct SanitizedConfig {
     pub searcher: Option<SanitizedSearcherConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub torrent_client: Option<SanitizedTorrentClientConfig>,
+    pub textbrain: SanitizedTextBrainConfig,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -233,6 +238,20 @@ pub struct SanitizedLibrqbitConfig {
     pub persistence_path: Option<String>,
 }
 
+/// Sanitized TextBrain config (API keys hidden)
+#[derive(Debug, Clone, Serialize)]
+pub struct SanitizedTextBrainConfig {
+    pub mode: String,
+    pub auto_approve_threshold: f32,
+    pub confidence_threshold: f32,
+    pub max_queries: u32,
+    pub llm_configured: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub llm_provider: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub llm_model: Option<String>,
+}
+
 impl From<&Config> for SanitizedConfig {
     fn from(config: &Config) -> Self {
         Self {
@@ -278,6 +297,15 @@ impl From<&Config> for SanitizedConfig {
                     }),
                 }
             }),
+            textbrain: SanitizedTextBrainConfig {
+                mode: format!("{:?}", config.textbrain.mode).to_lowercase(),
+                auto_approve_threshold: config.textbrain.auto_approve_threshold,
+                confidence_threshold: config.textbrain.confidence_threshold,
+                max_queries: config.textbrain.max_queries,
+                llm_configured: config.textbrain.llm.is_some(),
+                llm_provider: config.textbrain.llm.as_ref().map(|l| format!("{:?}", l.provider).to_lowercase()),
+                llm_model: config.textbrain.llm.as_ref().map(|l| l.model.clone()),
+            },
         }
     }
 }
@@ -334,6 +362,7 @@ port = 8080
             database: DatabaseConfig::default(),
             searcher: None,
             torrent_client: None,
+            textbrain: TextBrainConfig::default(),
         };
         let sanitized = SanitizedConfig::from(&config);
         assert_eq!(sanitized.auth.method, "none");
@@ -406,6 +435,7 @@ api_key = "test-api-key"
                 }),
             }),
             torrent_client: None,
+            textbrain: TextBrainConfig::default(),
         };
 
         let sanitized = SanitizedConfig::from(&config);
@@ -486,6 +516,7 @@ timeout_secs = 60
                 }),
                 librqbit: None,
             }),
+            textbrain: TextBrainConfig::default(),
         };
 
         let sanitized = SanitizedConfig::from(&config);

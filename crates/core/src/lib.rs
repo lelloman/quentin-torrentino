@@ -36,5 +36,15 @@ pub use catalog::{
     CatalogStats, SearchMode, SqliteCatalog, TorrentCatalog,
 };
 pub use textbrain::{
+    // LLM client types
     AnthropicClient, CompletionRequest, CompletionResponse, LlmClient, LlmError, LlmUsage,
+    // Configuration
+    LlmConfig, LlmProvider, TextBrainConfig, TextBrainMode,
+    // Traits
+    CandidateMatcher, QueryBuilder, TextBrainError,
+    // Result types
+    AcquisitionResult, FileMapping, MatchResult, QueryBuildResult, ScoredCandidate,
+    ScoredCandidateSummary,
+    // Coordinator
+    TextBrain,
 };
