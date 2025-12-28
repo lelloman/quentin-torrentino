@@ -533,13 +533,37 @@ export interface TextBrainScoreResponse {
 }
 
 export interface TextBrainAcquireRequest {
-  context: QueryContextWithExpected
-  max_candidates?: number
+  description: string
+  tags: string[]
+  expected?: ExpectedContent
+  auto_approve_threshold?: number
   cache_only?: boolean
 }
 
+// Backend response structure (different from AcquisitionResult)
 export interface TextBrainAcquireResponse {
-  result: AcquisitionResult
+  queries_tried: string[]
+  candidates_evaluated: number
+  candidates: {
+    title: string
+    info_hash: string
+    size_bytes: number
+    seeders: number
+    score: number
+    reasoning: string
+  }[]
+  best_candidate?: {
+    title: string
+    info_hash: string
+    size_bytes: number
+    seeders: number
+    score: number
+    reasoning: string
+  }
+  auto_approved: boolean
+  query_method: string
+  score_method: string
+  duration_ms: number
 }
 
 export interface TextBrainConfigResponse {

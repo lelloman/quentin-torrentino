@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
 import { useSearcher } from '../composables/useSearcher'
 import { addMagnet, addTorrentFromUrl } from '../api/torrents'
 import { getCatalogStats } from '../api/catalog'
@@ -7,6 +8,8 @@ import SearchForm from '../components/search/SearchForm.vue'
 import SearchResults from '../components/search/SearchResults.vue'
 import ErrorAlert from '../components/common/ErrorAlert.vue'
 import type { SearchRequest, CatalogStats } from '../api/types'
+
+const route = useRoute()
 
 const {
   searchResult,
@@ -20,6 +23,12 @@ const {
 
 const downloadStatus = ref<{ type: 'success' | 'error'; message: string } | null>(null)
 const catalogStats = ref<CatalogStats | null>(null)
+
+// Get initial query from route
+const initialQuery = computed(() => {
+  const q = route.query.q
+  return typeof q === 'string' ? q : undefined
+})
 
 function formatSize(bytes: number): string {
   if (bytes === 0) return '0 B'
@@ -107,6 +116,7 @@ function clearDownloadStatus() {
     <SearchForm
       :indexers="enabledIndexers"
       :is-searching="isSearching"
+      :initial-query="initialQuery"
       @search="handleSearch"
     />
 

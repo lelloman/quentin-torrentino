@@ -10,15 +10,15 @@ import type {
   ExpectedContent,
 } from '../api/types'
 
-export function useTextBrain() {
-  const loading = ref(false)
-  const error = ref<string | null>(null)
+// Module-level state (persists across component mounts)
+const loading = ref(false)
+const error = ref<string | null>(null)
+const config = ref<TextBrainConfigResponse | null>(null)
+const queryResult = ref<QueryBuildResult | null>(null)
+const scoreResult = ref<MatchResult | null>(null)
+const acquisitionResult = ref<AcquisitionResult | null>(null)
 
-  // State
-  const config = ref<TextBrainConfigResponse | null>(null)
-  const queryResult = ref<QueryBuildResult | null>(null)
-  const scoreResult = ref<MatchResult | null>(null)
-  const acquisitionResult = ref<AcquisitionResult | null>(null)
+export function useTextBrain() {
 
   // Computed
   const isLlmConfigured = computed(() => config.value?.llm_configured ?? false)
@@ -87,14 +87,49 @@ export function useTextBrain() {
 
   async function acquire(
     context: QueryContextWithExpected,
-    maxCandidates?: number,
     cacheOnly?: boolean
   ) {
     loading.value = true
     error.value = null
     try {
-      const response = await textbrainApi.acquire(context, maxCandidates, cacheOnly)
-      acquisitionResult.value = response.result
+      const response = await textbrainApi.acquire(context, cacheOnly)
+      // Transform API response to AcquisitionResult format
+      acquisitionResult.value = {
+        best_candidate: response.best_candidate ? {
+          candidate: {
+            title: response.best_candidate.title,
+            info_hash: response.best_candidate.info_hash,
+            size_bytes: response.best_candidate.size_bytes,
+            seeders: response.best_candidate.seeders,
+            leechers: 0,
+            sources: [],
+            from_cache: false,
+          },
+          score: response.best_candidate.score,
+          reasoning: response.best_candidate.reasoning,
+          file_mappings: [],
+        } : undefined,
+        all_candidates: response.candidates.map(c => ({
+          candidate: {
+            title: c.title,
+            info_hash: c.info_hash,
+            size_bytes: c.size_bytes,
+            seeders: c.seeders,
+            leechers: 0,
+            sources: [],
+            from_cache: false,
+          },
+          score: c.score,
+          reasoning: c.reasoning,
+          file_mappings: [],
+        })),
+        queries_tried: response.queries_tried,
+        candidates_evaluated: response.candidates_evaluated,
+        query_method: response.query_method,
+        score_method: response.score_method,
+        auto_approved: response.auto_approved,
+        duration_ms: response.duration_ms,
+      }
       return response
     } catch (e) {
       error.value = e instanceof Error ? e.message : 'Failed to acquire'
@@ -109,7 +144,43 @@ export function useTextBrain() {
     error.value = null
     try {
       const response = await textbrainApi.acquireForTicket(ticketId)
-      acquisitionResult.value = response.result
+      // Transform API response to AcquisitionResult format
+      acquisitionResult.value = {
+        best_candidate: response.best_candidate ? {
+          candidate: {
+            title: response.best_candidate.title,
+            info_hash: response.best_candidate.info_hash,
+            size_bytes: response.best_candidate.size_bytes,
+            seeders: response.best_candidate.seeders,
+            leechers: 0,
+            sources: [],
+            from_cache: false,
+          },
+          score: response.best_candidate.score,
+          reasoning: response.best_candidate.reasoning,
+          file_mappings: [],
+        } : undefined,
+        all_candidates: response.candidates.map(c => ({
+          candidate: {
+            title: c.title,
+            info_hash: c.info_hash,
+            size_bytes: c.size_bytes,
+            seeders: c.seeders,
+            leechers: 0,
+            sources: [],
+            from_cache: false,
+          },
+          score: c.score,
+          reasoning: c.reasoning,
+          file_mappings: [],
+        })),
+        queries_tried: response.queries_tried,
+        candidates_evaluated: response.candidates_evaluated,
+        query_method: response.query_method,
+        score_method: response.score_method,
+        auto_approved: response.auto_approved,
+        duration_ms: response.duration_ms,
+      }
       return response
     } catch (e) {
       error.value = e instanceof Error ? e.message : 'Failed to acquire for ticket'

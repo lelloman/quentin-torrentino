@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import type { IndexerStatus, SearchCategory, SearchMode, SearchRequest } from '../../api/types'
 
-defineProps<{
+const props = defineProps<{
   indexers: IndexerStatus[]
   isSearching?: boolean
+  initialQuery?: string
 }>()
 
 const emit = defineEmits<{
@@ -12,6 +13,14 @@ const emit = defineEmits<{
 }>()
 
 const query = ref('')
+
+// Set initial query if provided
+watch(() => props.initialQuery, (newQuery) => {
+  if (newQuery) {
+    query.value = newQuery
+  }
+}, { immediate: true })
+
 const selectedIndexers = ref<string[]>([])
 const selectedCategories = ref<SearchCategory[]>([])
 const limit = ref<number | undefined>(undefined)

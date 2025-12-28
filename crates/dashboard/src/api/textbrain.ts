@@ -53,12 +53,12 @@ export async function acquireForTicket(
  */
 export async function acquire(
   context: QueryContextWithExpected,
-  maxCandidates?: number,
   cacheOnly?: boolean
 ): Promise<TextBrainAcquireResponse> {
   const request: TextBrainAcquireRequest = {
-    context,
-    max_candidates: maxCandidates,
+    description: context.description,
+    tags: context.tags,
+    expected: context.expected,
     cache_only: cacheOnly,
   }
   return post<TextBrainAcquireResponse, TextBrainAcquireRequest>('/textbrain/acquire', request)

@@ -26,10 +26,17 @@ impl Default for DumbQueryBuilderConfig {
             max_queries: 5,
             include_tags: true,
             stop_words: vec![
+                // Articles and conjunctions
                 "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with",
                 "by", "from", "as", "is", "was", "are", "were", "been", "be", "have", "has", "had",
+                // Modal verbs
                 "do", "does", "did", "will", "would", "could", "should", "may", "might", "must",
+                // Request phrases
                 "prefer", "preferably", "preferred", "please", "want", "wanted", "looking",
+                // Common action verbs that don't appear in torrent titles
+                "plays", "playing", "performed", "performs", "performing", "sings", "singing",
+                "featuring", "features", "recorded", "records", "recording", "live",
+                "conducted", "conducts", "conducting",
             ]
             .into_iter()
             .map(String::from)
@@ -134,7 +141,13 @@ impl DumbQueryBuilder {
             queries.push(main_terms.join(" "));
         }
 
-        // Query 4: If we have year-like numbers, try without them
+        // Query 4: First 2 terms only (often just artist/name - very broad but catches more)
+        if key_terms.len() >= 2 {
+            let core_terms: Vec<_> = key_terms.iter().take(2).cloned().collect();
+            queries.push(core_terms.join(" "));
+        }
+
+        // Query 5: If we have year-like numbers, try without them
         let without_years: Vec<_> = key_terms
             .iter()
             .filter(|t| !self.looks_like_year(t))

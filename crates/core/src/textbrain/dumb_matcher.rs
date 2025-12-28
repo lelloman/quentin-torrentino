@@ -36,14 +36,18 @@ pub struct DumbMatcherConfig {
 impl Default for DumbMatcherConfig {
     fn default() -> Self {
         Self {
-            title_weight: 0.50,
-            quality_weight: 0.20,
-            health_weight: 0.20,
-            size_weight: 0.10,
+            // Title match is the primary factor - content relevance matters most
+            title_weight: 0.75,
+            quality_weight: 0.15,
+            // Health (seeders) as a tiebreaker
+            health_weight: 0.10,
+            // Size weight disabled - too crude without category-aware thresholds
+            // (50GB is small for a TV series collection, huge for a single album)
+            size_weight: 0.0,
             min_seeders: 1,
             ideal_seeders: 20,
-            min_size_bytes: 1024 * 1024,        // 1 MB
-            max_size_bytes: 50 * 1024 * 1024 * 1024, // 50 GB
+            min_size_bytes: 1024 * 1024,        // 1 MB (unused when weight is 0)
+            max_size_bytes: 50 * 1024 * 1024 * 1024, // 50 GB (unused when weight is 0)
         }
     }
 }
@@ -110,7 +114,7 @@ impl DumbMatcher {
             .filter(|kw| title_keywords.contains(*kw))
             .count();
 
-        // Also check for partial matches (substring)
+        // Check for partial matches (substring)
         let partial_matches = desc_keywords
             .iter()
             .filter(|kw| {
@@ -119,10 +123,77 @@ impl DumbMatcher {
             })
             .count();
 
-        let total_score = matches as f32 + (partial_matches as f32 * 0.5);
+        // Check for fuzzy matches (spelling variations like Rachmaninov/Rahmaninov)
+        let fuzzy_matches = desc_keywords
+            .iter()
+            .filter(|kw| {
+                !title_keywords.contains(*kw)
+                    && !title_keywords.iter().any(|tk| tk.contains(kw.as_str()) || kw.contains(tk.as_str()))
+                    && title_keywords.iter().any(|tk| Self::is_fuzzy_match(kw, tk))
+            })
+            .count();
+
+        let total_score = matches as f32 + (partial_matches as f32 * 0.5) + (fuzzy_matches as f32 * 0.8);
         let max_score = desc_keywords.len() as f32;
 
         (total_score / max_score).min(1.0)
+    }
+
+    /// Check if two strings are fuzzy matches (small edit distance).
+    /// Useful for spelling variations like Rachmaninov/Rahmaninov.
+    fn is_fuzzy_match(a: &str, b: &str) -> bool {
+        // Only check words of similar length (within 2 chars)
+        let len_diff = (a.len() as i32 - b.len() as i32).abs();
+        if len_diff > 2 {
+            return false;
+        }
+
+        // Only check words that are at least 4 chars (avoid false positives on short words)
+        if a.len() < 4 || b.len() < 4 {
+            return false;
+        }
+
+        // Calculate Levenshtein distance
+        let distance = Self::levenshtein_distance(a, b);
+
+        // Allow 1-2 character differences for longer words
+        let threshold = if a.len() >= 8 { 2 } else { 1 };
+        distance <= threshold
+    }
+
+    /// Calculate Levenshtein edit distance between two strings.
+    fn levenshtein_distance(a: &str, b: &str) -> usize {
+        let a_chars: Vec<char> = a.chars().collect();
+        let b_chars: Vec<char> = b.chars().collect();
+        let a_len = a_chars.len();
+        let b_len = b_chars.len();
+
+        if a_len == 0 {
+            return b_len;
+        }
+        if b_len == 0 {
+            return a_len;
+        }
+
+        let mut matrix = vec![vec![0usize; b_len + 1]; a_len + 1];
+
+        for i in 0..=a_len {
+            matrix[i][0] = i;
+        }
+        for j in 0..=b_len {
+            matrix[0][j] = j;
+        }
+
+        for i in 1..=a_len {
+            for j in 1..=b_len {
+                let cost = if a_chars[i - 1] == b_chars[j - 1] { 0 } else { 1 };
+                matrix[i][j] = (matrix[i - 1][j] + 1)
+                    .min(matrix[i][j - 1] + 1)
+                    .min(matrix[i - 1][j - 1] + cost);
+            }
+        }
+
+        matrix[a_len][b_len]
     }
 
     /// Calculate quality tag match score (0.0-1.0).
@@ -211,7 +282,7 @@ impl DumbMatcher {
         title_score: f32,
         quality_score: f32,
         health_score: f32,
-        size_score: f32,
+        _size_score: f32,
         candidate: &TorrentCandidate,
     ) -> String {
         let mut parts: Vec<String> = Vec::new();
@@ -237,11 +308,6 @@ impl DumbMatcher {
             parts.push(format!("well-seeded ({})", candidate.seeders));
         } else if health_score < 0.3 {
             parts.push("low seeders".to_string());
-        }
-
-        // Size
-        if size_score < 0.5 {
-            parts.push("suspicious size".to_string());
         }
 
         if parts.is_empty() {

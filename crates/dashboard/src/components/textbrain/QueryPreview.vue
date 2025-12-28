@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { useTextBrain, formatConfidence } from '../../composables/useTextBrain'
 import type { QueryContextWithExpected, ExpectedContent } from '../../api/types'
 import LoadingSpinner from '../common/LoadingSpinner.vue'
@@ -9,8 +10,16 @@ const emit = defineEmits<{
   queriesGenerated: [queries: string[]]
 }>()
 
-const { loading, error, buildQueries, queryResult, generatedQueries, queryConfidence, queryMethod } =
+const router = useRouter()
+const { loading, error, buildQueries, acquire, queryResult, generatedQueries, queryConfidence, queryMethod } =
   useTextBrain()
+
+function useQuery(query: string) {
+  router.push({ name: 'search', query: { q: query } })
+}
+
+// Track which mode we're in
+const isAcquiring = ref(false)
 
 // Form state
 const tags = ref<string>('')
@@ -94,8 +103,8 @@ function buildExpectedContent(): ExpectedContent | undefined {
   }
 }
 
-async function handleSubmit() {
-  const context: QueryContextWithExpected = {
+function buildContext(): QueryContextWithExpected {
+  return {
     tags: tags.value
       .split(',')
       .map((t) => t.trim())
@@ -103,12 +112,27 @@ async function handleSubmit() {
     description: description.value,
     expected: buildExpectedContent(),
   }
+}
 
+async function handleSubmit() {
+  const context = buildContext()
   try {
     await buildQueries(context)
     emit('queriesGenerated', generatedQueries.value)
   } catch (e) {
     // Error is handled by composable
+  }
+}
+
+async function handleAcquire() {
+  const context = buildContext()
+  isAcquiring.value = true
+  try {
+    await acquire(context)
+  } catch (e) {
+    // Error is handled by composable
+  } finally {
+    isAcquiring.value = false
   }
 }
 
@@ -298,14 +322,25 @@ const confidenceColor = computed(() => {
         </div>
       </div>
 
-      <button
-        type="submit"
-        :disabled="loading || !description"
-        class="w-full px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-      >
-        <LoadingSpinner v-if="loading" size="sm" />
-        <span>{{ loading ? 'Generating...' : 'Generate Queries' }}</span>
-      </button>
+      <div class="flex gap-3">
+        <button
+          type="submit"
+          :disabled="loading || !description"
+          class="flex-1 px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+        >
+          <LoadingSpinner v-if="loading && !isAcquiring" size="sm" />
+          <span>{{ loading && !isAcquiring ? 'Generating...' : 'Generate Queries' }}</span>
+        </button>
+        <button
+          type="button"
+          @click="handleAcquire"
+          :disabled="loading || !description"
+          class="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+        >
+          <LoadingSpinner v-if="isAcquiring" size="sm" />
+          <span>{{ isAcquiring ? 'Searching & Matching...' : 'Search & Match' }}</span>
+        </button>
+      </div>
     </form>
 
     <!-- Error -->
@@ -334,10 +369,10 @@ const confidenceColor = computed(() => {
           <span class="text-gray-400 text-sm">{{ index + 1 }}.</span>
           <code class="flex-1 text-sm">{{ query }}</code>
           <button
-            @click="$emit('queriesGenerated', [query])"
+            @click="useQuery(query)"
             class="text-sm text-blue-600 hover:text-blue-800"
           >
-            Use
+            Search
           </button>
         </li>
       </ul>
