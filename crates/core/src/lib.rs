@@ -42,6 +42,8 @@ pub use textbrain::{
     LlmConfig, LlmProvider, TextBrainConfig, TextBrainMode,
     // Traits
     CandidateMatcher, QueryBuilder, TextBrainError,
+    // Dumb implementations
+    DumbQueryBuilder, DumbQueryBuilderConfig,
     // Result types
     AcquisitionResult, FileMapping, MatchResult, QueryBuildResult, ScoredCandidate,
     ScoredCandidateSummary,

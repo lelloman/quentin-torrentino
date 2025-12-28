@@ -63,6 +63,7 @@
 
 mod config;
 mod coordinator;
+mod dumb_query_builder;
 mod llm;
 mod traits;
 mod types;
@@ -77,6 +78,9 @@ pub use config::{LlmConfig, LlmProvider, TextBrainConfig, TextBrainMode};
 
 // Core traits
 pub use traits::{CandidateMatcher, QueryBuilder, TextBrainError};
+
+// Dumb implementations
+pub use dumb_query_builder::{DumbQueryBuilder, DumbQueryBuilderConfig};
 
 // Result types
 pub use types::{
