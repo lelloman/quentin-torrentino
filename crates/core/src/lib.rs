@@ -2,6 +2,9 @@ pub mod audit;
 pub mod auth;
 pub mod catalog;
 pub mod config;
+pub mod converter;
+pub mod placer;
+pub mod processor;
 pub mod searcher;
 pub mod textbrain;
 pub mod ticket;
@@ -51,4 +54,42 @@ pub use textbrain::{
     ScoredCandidateSummary,
     // Coordinator
     TextBrain,
+};
+pub use converter::{
+    // Traits
+    Converter,
+    // Configuration
+    ConverterConfig,
+    // Error types
+    ConverterError,
+    // Implementations
+    FfmpegConverter,
+    // Types
+    AudioConstraints, AudioFormat, ContainerFormat, ConversionConstraints, ConversionJob,
+    ConversionProgress, ConversionResult, EmbeddedMetadata, MediaInfo, VideoConstraints,
+    VideoFormat,
+};
+pub use placer::{
+    // Traits
+    Placer,
+    // Configuration
+    PlacerConfig,
+    // Error types
+    PlacerError,
+    // Implementations
+    FsPlacer,
+    // Types
+    ChecksumType, FilePlacement, PlacedFile, PlacementJob, PlacementProgress, PlacementResult,
+    RollbackFile, RollbackPlan, RollbackResult,
+};
+pub use processor::{
+    // Configuration
+    ProcessorConfig, RetryConfig,
+    // Error types
+    PipelineError,
+    // Pipeline
+    PipelineProcessor,
+    // Types
+    PipelineJob, PipelineMetadata, PipelineProgress, PipelineResult, PipelineStatus,
+    PlacedFileInfo, PoolStatus, SourceFile,
 };

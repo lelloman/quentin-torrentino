@@ -302,6 +302,157 @@ pub enum AuditEvent {
         /// User ID who made the correction
         user_id: String,
     },
+
+    // ==========================================================================
+    // Phase 4: Conversion events
+    // ==========================================================================
+
+    /// Conversion job started.
+    ConversionStarted {
+        /// Associated ticket
+        ticket_id: String,
+        /// Conversion job ID
+        job_id: String,
+        /// Input file path
+        input_path: String,
+        /// Output file path
+        output_path: String,
+        /// Target format
+        target_format: String,
+        /// Number of files to convert in this job
+        total_files: usize,
+    },
+
+    /// Conversion progress update (periodic).
+    ConversionProgress {
+        /// Associated ticket
+        ticket_id: String,
+        /// Conversion job ID
+        job_id: String,
+        /// Current file index (0-based)
+        current_idx: usize,
+        /// Total files
+        total_files: usize,
+        /// Current file name
+        current_file: String,
+        /// Progress percentage (0-100)
+        percent: u8,
+    },
+
+    /// Conversion completed successfully.
+    ConversionCompleted {
+        /// Associated ticket
+        ticket_id: String,
+        /// Conversion job ID
+        job_id: String,
+        /// Number of files converted
+        files_converted: usize,
+        /// Total output size in bytes
+        output_bytes: u64,
+        /// Duration in milliseconds
+        duration_ms: u64,
+        /// Input format
+        input_format: String,
+        /// Output format
+        output_format: String,
+    },
+
+    /// Conversion failed.
+    ConversionFailed {
+        /// Associated ticket
+        ticket_id: String,
+        /// Conversion job ID
+        job_id: String,
+        /// File that failed (if applicable)
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        failed_file: Option<String>,
+        /// Error message
+        error: String,
+        /// Files completed before failure
+        files_completed: usize,
+        /// Whether the error is retryable
+        retryable: bool,
+    },
+
+    // ==========================================================================
+    // Phase 4: Placement events
+    // ==========================================================================
+
+    /// Placement job started.
+    PlacementStarted {
+        /// Associated ticket
+        ticket_id: String,
+        /// Placement job ID
+        job_id: String,
+        /// Number of files to place
+        total_files: usize,
+        /// Total bytes to place
+        total_bytes: u64,
+    },
+
+    /// Placement progress update (periodic).
+    PlacementProgress {
+        /// Associated ticket
+        ticket_id: String,
+        /// Placement job ID
+        job_id: String,
+        /// Files placed so far
+        files_placed: usize,
+        /// Total files
+        total_files: usize,
+        /// Bytes copied so far
+        bytes_placed: u64,
+        /// Current file being placed
+        current_file: String,
+    },
+
+    /// Placement completed successfully.
+    PlacementCompleted {
+        /// Associated ticket
+        ticket_id: String,
+        /// Placement job ID
+        job_id: String,
+        /// Number of files placed
+        files_placed: usize,
+        /// Total bytes placed
+        total_bytes: u64,
+        /// Duration in milliseconds
+        duration_ms: u64,
+        /// Destination directory
+        dest_dir: String,
+    },
+
+    /// Placement failed.
+    PlacementFailed {
+        /// Associated ticket
+        ticket_id: String,
+        /// Placement job ID
+        job_id: String,
+        /// File that failed (if applicable)
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        failed_file: Option<String>,
+        /// Error message
+        error: String,
+        /// Files completed before failure
+        files_completed: usize,
+    },
+
+    /// Placement was rolled back after a failure.
+    PlacementRolledBack {
+        /// Associated ticket
+        ticket_id: String,
+        /// Placement job ID
+        job_id: String,
+        /// Files that were rolled back (removed)
+        files_removed: usize,
+        /// Directories that were rolled back (removed)
+        directories_removed: usize,
+        /// Whether rollback was successful
+        success: bool,
+        /// Any errors during rollback
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        errors: Vec<String>,
+    },
 }
 
 impl AuditEvent {
@@ -329,6 +480,16 @@ impl AuditEvent {
             Self::TrainingScoringContext { .. } => "training_scoring_context",
             Self::TrainingFileMappingContext { .. } => "training_file_mapping_context",
             Self::UserCorrection { .. } => "user_correction",
+            // Phase 4 events
+            Self::ConversionStarted { .. } => "conversion_started",
+            Self::ConversionProgress { .. } => "conversion_progress",
+            Self::ConversionCompleted { .. } => "conversion_completed",
+            Self::ConversionFailed { .. } => "conversion_failed",
+            Self::PlacementStarted { .. } => "placement_started",
+            Self::PlacementProgress { .. } => "placement_progress",
+            Self::PlacementCompleted { .. } => "placement_completed",
+            Self::PlacementFailed { .. } => "placement_failed",
+            Self::PlacementRolledBack { .. } => "placement_rolled_back",
         }
     }
 
@@ -344,7 +505,17 @@ impl AuditEvent {
             | Self::TrainingQueryContext { ticket_id, .. }
             | Self::TrainingScoringContext { ticket_id, .. }
             | Self::TrainingFileMappingContext { ticket_id, .. }
-            | Self::UserCorrection { ticket_id, .. } => Some(ticket_id),
+            | Self::UserCorrection { ticket_id, .. }
+            // Phase 4 events
+            | Self::ConversionStarted { ticket_id, .. }
+            | Self::ConversionProgress { ticket_id, .. }
+            | Self::ConversionCompleted { ticket_id, .. }
+            | Self::ConversionFailed { ticket_id, .. }
+            | Self::PlacementStarted { ticket_id, .. }
+            | Self::PlacementProgress { ticket_id, .. }
+            | Self::PlacementCompleted { ticket_id, .. }
+            | Self::PlacementFailed { ticket_id, .. }
+            | Self::PlacementRolledBack { ticket_id, .. } => Some(ticket_id),
             Self::TorrentAdded { ticket_id, .. } => ticket_id.as_deref(),
             _ => None,
         }

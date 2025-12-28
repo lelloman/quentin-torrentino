@@ -9,6 +9,7 @@ const navItems = [
   { to: '/search', label: 'Search', icon: 'i-carbon-search' },
   { to: '/textbrain', label: 'TextBrain', icon: 'i-carbon-machine-learning-model' },
   { to: '/torrents', label: 'Torrents', icon: 'i-carbon-download' },
+  { to: '/pipeline', label: 'Pipeline', icon: 'i-carbon-flow' },
   { to: '/audit', label: 'Audit Log', icon: 'i-carbon-list' },
   { to: '/settings', label: 'Settings', icon: 'i-carbon-settings-adjust' },
   { to: '/health', label: 'Health', icon: 'i-carbon-activity' },

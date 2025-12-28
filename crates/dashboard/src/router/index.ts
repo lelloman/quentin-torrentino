@@ -58,6 +58,11 @@ const router = createRouter({
           name: 'textbrain',
           component: () => import('../views/TextBrainView.vue'),
         },
+        {
+          path: 'pipeline',
+          name: 'pipeline',
+          component: () => import('../views/PipelineView.vue'),
+        },
       ],
     },
   ],

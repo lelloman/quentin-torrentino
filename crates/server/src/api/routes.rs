@@ -5,7 +5,7 @@ use axum::{
 use std::sync::Arc;
 use tower_http::services::{ServeDir, ServeFile};
 
-use super::{audit, catalog, handlers, searcher, textbrain, tickets, torrents};
+use super::{audit, catalog, handlers, pipeline, searcher, textbrain, tickets, torrents};
 use crate::state::AppState;
 
 pub fn create_router(state: Arc<AppState>) -> Router {
@@ -55,6 +55,11 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/textbrain/complete", post(textbrain::complete))
         .route("/textbrain/process/{ticket_id}", post(textbrain::process_ticket))
         .route("/textbrain/acquire", post(textbrain::acquire))
+        // Pipeline (Phase 4 - conversion & placement)
+        .route("/pipeline/status", get(pipeline::get_status))
+        .route("/pipeline/converter", get(pipeline::get_converter_info))
+        .route("/pipeline/placer", get(pipeline::get_placer_info))
+        .route("/pipeline/validate", get(pipeline::validate_ffmpeg))
         .with_state(state);
 
     // Serve dashboard with SPA fallback
