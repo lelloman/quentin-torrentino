@@ -8,8 +8,9 @@ use std::collections::HashSet;
 
 use crate::searcher::TorrentCandidate;
 use crate::ticket::QueryContext;
+use crate::textbrain::file_mapper::{DumbFileMapper, calculate_mapping_quality};
 use crate::textbrain::traits::{CandidateMatcher, TextBrainError};
-use crate::textbrain::types::{MatchResult, ScoredCandidate};
+use crate::textbrain::types::{FileMapping, MatchResult, ScoredCandidate};
 
 /// Configuration for the dumb matcher.
 #[derive(Debug, Clone)]
@@ -54,8 +55,10 @@ impl Default for DumbMatcherConfig {
 /// 2. Quality tag presence (flac, 1080p, etc.)
 /// 3. Torrent health (seeder count)
 /// 4. Size reasonableness
+/// 5. File mapping quality (when expected content is specified)
 pub struct DumbMatcher {
     config: DumbMatcherConfig,
+    file_mapper: DumbFileMapper,
 }
 
 impl DumbMatcher {
@@ -63,12 +66,16 @@ impl DumbMatcher {
     pub fn new() -> Self {
         Self {
             config: DumbMatcherConfig::default(),
+            file_mapper: DumbFileMapper::new(),
         }
     }
 
     /// Create a new dumb matcher with custom config.
     pub fn with_config(config: DumbMatcherConfig) -> Self {
-        Self { config }
+        Self {
+            config,
+            file_mapper: DumbFileMapper::new(),
+        }
     }
 
     /// Extract keywords from text for matching.
@@ -251,12 +258,24 @@ impl DumbMatcher {
         let health_score = self.health_score(candidate);
         let size_score = self.size_score(candidate);
 
-        let weighted_score = (title_score * self.config.title_weight)
+        // Calculate file mapping if expected content and files are available
+        let (file_mappings, mapping_quality) = self.calculate_file_mappings(candidate, context);
+
+        // Base weighted score
+        let base_score = (title_score * self.config.title_weight)
             + (quality_score * self.config.quality_weight)
             + (health_score * self.config.health_weight)
             + (size_score * self.config.size_weight);
 
-        let reasoning = self.generate_reasoning(
+        // If we have expected content and files, factor in mapping quality
+        let weighted_score = if mapping_quality > 0.0 {
+            // Blend base score with mapping quality (mapping is important!)
+            base_score * 0.6 + mapping_quality * 0.4
+        } else {
+            base_score
+        };
+
+        let mut reasoning = self.generate_reasoning(
             title_score,
             quality_score,
             health_score,
@@ -264,12 +283,48 @@ impl DumbMatcher {
             candidate,
         );
 
+        // Add file mapping info to reasoning
+        if !file_mappings.is_empty() {
+            reasoning.push_str(&format!(
+                ", {} file(s) mapped ({:.0}% quality)",
+                file_mappings.len(),
+                mapping_quality * 100.0
+            ));
+        } else if context.expected.is_some() && candidate.files.is_some() {
+            reasoning.push_str(", no files matched expected content");
+        }
+
         ScoredCandidate {
             candidate: candidate.clone(),
             score: weighted_score,
             reasoning,
-            file_mappings: Vec::new(), // Not implemented in dumb matcher
+            file_mappings,
         }
+    }
+
+    /// Calculate file mappings for a candidate.
+    ///
+    /// Returns (mappings, quality_score).
+    fn calculate_file_mappings(
+        &self,
+        candidate: &TorrentCandidate,
+        context: &QueryContext,
+    ) -> (Vec<FileMapping>, f32) {
+        // Need both expected content and files to map
+        let expected = match &context.expected {
+            Some(e) => e,
+            None => return (Vec::new(), 0.0),
+        };
+
+        let files = match &candidate.files {
+            Some(f) if !f.is_empty() => f,
+            _ => return (Vec::new(), 0.0),
+        };
+
+        let mappings = self.file_mapper.map_files(files, expected);
+        let quality = calculate_mapping_quality(&mappings, expected);
+
+        (mappings, quality)
     }
 }
 

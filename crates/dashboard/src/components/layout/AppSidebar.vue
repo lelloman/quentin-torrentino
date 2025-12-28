@@ -7,6 +7,7 @@ const navItems = [
   { to: '/', label: 'Dashboard', icon: 'i-carbon-dashboard' },
   { to: '/tickets', label: 'Tickets', icon: 'i-carbon-ticket' },
   { to: '/search', label: 'Search', icon: 'i-carbon-search' },
+  { to: '/textbrain', label: 'TextBrain', icon: 'i-carbon-machine-learning-model' },
   { to: '/torrents', label: 'Torrents', icon: 'i-carbon-download' },
   { to: '/audit', label: 'Audit Log', icon: 'i-carbon-list' },
   { to: '/settings', label: 'Settings', icon: 'i-carbon-settings-adjust' },

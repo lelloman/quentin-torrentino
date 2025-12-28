@@ -65,8 +65,10 @@ mod config;
 mod coordinator;
 mod dumb_matcher;
 mod dumb_query_builder;
+mod file_mapper;
 mod llm;
 mod traits;
+pub mod training;
 mod types;
 
 // LLM client types
@@ -84,6 +86,7 @@ pub use traits::{CandidateMatcher, QueryBuilder, TextBrainError};
 // Dumb implementations
 pub use dumb_matcher::{DumbMatcher, DumbMatcherConfig};
 pub use dumb_query_builder::{DumbQueryBuilder, DumbQueryBuilderConfig};
+pub use file_mapper::{DumbFileMapper, DumbFileMapperConfig, calculate_mapping_quality};
 
 // Result types
 pub use types::{

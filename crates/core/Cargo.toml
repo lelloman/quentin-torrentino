@@ -20,6 +20,7 @@ uuid = { workspace = true }
 reqwest = { workspace = true }
 urlencoding = { workspace = true }
 futures = { workspace = true }
+regex-lite = { workspace = true }
 librqbit = { workspace = true }
 librqbit-core = { workspace = true }
 

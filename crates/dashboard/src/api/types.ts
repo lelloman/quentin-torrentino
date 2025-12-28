@@ -410,3 +410,141 @@ export interface AuditQueryResponse {
   limit: number
   offset: number
 }
+
+// TextBrain types
+
+export interface ExpectedTrack {
+  number: number
+  title: string
+  duration_secs?: number
+}
+
+export type ExpectedContent =
+  | {
+      type: 'album'
+      artist?: string
+      title: string
+      tracks: ExpectedTrack[]
+    }
+  | {
+      type: 'track'
+      artist?: string
+      title: string
+    }
+  | {
+      type: 'movie'
+      title: string
+      year?: number
+    }
+  | {
+      type: 'tv_episode'
+      series: string
+      season: number
+      episodes: number[]
+    }
+
+export interface QueryContextWithExpected extends QueryContext {
+  expected?: ExpectedContent
+}
+
+export interface LlmUsage {
+  input_tokens: number
+  output_tokens: number
+  model: string
+}
+
+export interface QueryBuildResult {
+  queries: string[]
+  method: string
+  confidence: number
+  llm_usage?: LlmUsage
+}
+
+export interface FileMapping {
+  torrent_file_path: string
+  ticket_item_id: string
+  confidence: number
+}
+
+export interface ScoredCandidate {
+  candidate: TorrentCandidate
+  score: number
+  reasoning: string
+  file_mappings: FileMapping[]
+}
+
+export interface ScoredCandidateSummary {
+  title: string
+  info_hash: string
+  score: number
+  reasoning: string
+  file_mapping_count: number
+}
+
+export interface MatchResult {
+  candidates: ScoredCandidate[]
+  method: string
+  llm_usage?: LlmUsage
+}
+
+export interface AcquisitionResult {
+  best_candidate?: ScoredCandidate
+  all_candidates: ScoredCandidate[]
+  queries_tried: string[]
+  candidates_evaluated: number
+  query_method: string
+  score_method: string
+  auto_approved: boolean
+  llm_usage?: LlmUsage
+  duration_ms: number
+}
+
+// TextBrain API request/response types
+
+export interface TextBrainCompleteRequest {
+  prompt: string
+  max_tokens?: number
+  temperature?: number
+}
+
+export interface TextBrainCompleteResponse {
+  text: string
+  usage: LlmUsage
+  duration_ms: number
+}
+
+export interface TextBrainBuildQueriesRequest {
+  context: QueryContextWithExpected
+}
+
+export interface TextBrainBuildQueriesResponse {
+  result: QueryBuildResult
+  duration_ms: number
+}
+
+export interface TextBrainScoreRequest {
+  context: QueryContextWithExpected
+  candidates: TorrentCandidate[]
+}
+
+export interface TextBrainScoreResponse {
+  result: MatchResult
+  duration_ms: number
+}
+
+export interface TextBrainAcquireRequest {
+  context: QueryContextWithExpected
+  max_candidates?: number
+  cache_only?: boolean
+}
+
+export interface TextBrainAcquireResponse {
+  result: AcquisitionResult
+}
+
+export interface TextBrainConfigResponse {
+  mode: string
+  auto_approve_threshold: number
+  llm_configured: boolean
+  llm_provider?: string
+}

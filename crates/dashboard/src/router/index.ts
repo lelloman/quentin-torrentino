@@ -53,6 +53,11 @@ const router = createRouter({
           name: 'audit',
           component: () => import('../views/AuditLogView.vue'),
         },
+        {
+          path: 'textbrain',
+          name: 'textbrain',
+          component: () => import('../views/TextBrainView.vue'),
+        },
       ],
     },
   ],

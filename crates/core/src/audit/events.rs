@@ -2,6 +2,42 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// Candidate info for training data
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrainingCandidate {
+    /// Torrent title
+    pub title: String,
+    /// Info hash
+    pub hash: String,
+    /// Size in bytes
+    pub size_bytes: u64,
+    /// Seeder count
+    pub seeders: u32,
+    /// Category (if known)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+}
+
+/// File info for training data
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrainingFile {
+    /// File path within torrent
+    pub path: String,
+    /// Size in bytes
+    pub size_bytes: u64,
+}
+
+/// File mapping for training data
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrainingFileMapping {
+    /// Torrent file path
+    pub file_path: String,
+    /// Matched item ID
+    pub item_id: String,
+    /// Confidence score
+    pub confidence: f32,
+}
+
 /// Audit event types
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -181,6 +217,91 @@ pub enum AuditEvent {
         /// Whether this was auto-selected (high confidence) or manual
         auto_selected: bool,
     },
+
+    // ==========================================================================
+    // Training data events (for LLM fine-tuning)
+    // ==========================================================================
+
+    /// Full context for query building - used for training query generation models.
+    TrainingQueryContext {
+        /// Unique training sample ID
+        sample_id: String,
+        /// Associated ticket
+        ticket_id: String,
+        /// Input: structured tags
+        input_tags: Vec<String>,
+        /// Input: freeform description
+        input_description: String,
+        /// Input: expected content (serialized JSON)
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        input_expected: Option<String>,
+        /// Output: generated queries
+        output_queries: Vec<String>,
+        /// Method that generated these queries
+        method: String,
+        /// Confidence score
+        confidence: f32,
+        /// Whether these queries led to a successful match (filled in later)
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        success: Option<bool>,
+    },
+
+    /// Full context for candidate scoring - used for training ranking models.
+    TrainingScoringContext {
+        /// Unique training sample ID
+        sample_id: String,
+        /// Associated ticket
+        ticket_id: String,
+        /// Input: query context description
+        input_description: String,
+        /// Input: expected content (serialized JSON)
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        input_expected: Option<String>,
+        /// Input: candidate titles
+        input_candidates: Vec<TrainingCandidate>,
+        /// Output: recommended index
+        output_recommended_idx: usize,
+        /// Output: scores for each candidate
+        output_scores: Vec<f32>,
+        /// Method used for scoring
+        method: String,
+    },
+
+    /// File mapping result - used for training file matching models.
+    TrainingFileMappingContext {
+        /// Unique training sample ID
+        sample_id: String,
+        /// Associated ticket
+        ticket_id: String,
+        /// Input: expected content (serialized JSON)
+        input_expected: String,
+        /// Input: torrent files
+        input_files: Vec<TrainingFile>,
+        /// Output: file mappings
+        output_mappings: Vec<TrainingFileMapping>,
+        /// Mapping quality score
+        quality: f32,
+    },
+
+    /// User correction - when user selects different candidate than recommended.
+    /// This is valuable training data for improving ranking.
+    UserCorrection {
+        /// Associated ticket
+        ticket_id: String,
+        /// Original recommended index
+        recommended_idx: usize,
+        /// User-selected index
+        selected_idx: usize,
+        /// Query context description
+        context_description: String,
+        /// Expected content (serialized JSON)
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expected_content: Option<String>,
+        /// Candidates that were presented
+        candidates: Vec<TrainingCandidate>,
+        /// User ID who made the correction
+        user_id: String,
+    },
 }
 
 impl AuditEvent {
@@ -204,6 +325,10 @@ impl AuditEvent {
             Self::QueriesGenerated { .. } => "queries_generated",
             Self::CandidatesScored { .. } => "candidates_scored",
             Self::CandidateSelected { .. } => "candidate_selected",
+            Self::TrainingQueryContext { .. } => "training_query_context",
+            Self::TrainingScoringContext { .. } => "training_scoring_context",
+            Self::TrainingFileMappingContext { .. } => "training_file_mapping_context",
+            Self::UserCorrection { .. } => "user_correction",
         }
     }
 
@@ -215,7 +340,11 @@ impl AuditEvent {
             | Self::TicketCancelled { ticket_id, .. }
             | Self::QueriesGenerated { ticket_id, .. }
             | Self::CandidatesScored { ticket_id, .. }
-            | Self::CandidateSelected { ticket_id, .. } => Some(ticket_id),
+            | Self::CandidateSelected { ticket_id, .. }
+            | Self::TrainingQueryContext { ticket_id, .. }
+            | Self::TrainingScoringContext { ticket_id, .. }
+            | Self::TrainingFileMappingContext { ticket_id, .. }
+            | Self::UserCorrection { ticket_id, .. } => Some(ticket_id),
             Self::TorrentAdded { ticket_id, .. } => ticket_id.as_deref(),
             _ => None,
         }
@@ -235,7 +364,8 @@ impl AuditEvent {
             | Self::TorrentPaused { user_id, .. }
             | Self::TorrentResumed { user_id, .. }
             | Self::TorrentLimitChanged { user_id, .. }
-            | Self::TorrentRechecked { user_id, .. } => Some(user_id),
+            | Self::TorrentRechecked { user_id, .. }
+            | Self::UserCorrection { user_id, .. } => Some(user_id),
             _ => None,
         }
     }

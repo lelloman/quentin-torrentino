@@ -60,6 +60,9 @@ urlencoding = "2"
 # Futures utilities
 futures = "0.3"
 
+# Regex (lightweight)
+regex-lite = "0.1"
+
 # BitTorrent
 librqbit = "8.1"
 librqbit-core = "5.0"

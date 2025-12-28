@@ -9,9 +9,9 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use torrentino_core::{
-    AnthropicClient, AuditEvent, CompletionRequest, DumbMatcher, DumbQueryBuilder,
-    ExpectedContent, ExpectedTrack, LlmClient, LlmUsage, QueryContext, SearchQuery, TextBrain,
-    TextBrainConfig, TextBrainMode,
+    AnthropicClient, AuditEvent, CandidateMatcher, CompletionRequest, DumbMatcher, DumbQueryBuilder,
+    ExpectedContent, ExpectedTrack, LlmClient, LlmUsage, QueryBuilder, QueryContext, SearchQuery,
+    TextBrain, TextBrainConfig, TextBrainMode,
 };
 
 use crate::state::AppState;
@@ -625,6 +625,270 @@ pub async fn acquire(
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
                 error: format!("Acquisition failed: {}", e),
+            }),
+        )),
+    }
+}
+
+// ============================================================================
+// Config endpoint
+// ============================================================================
+
+#[derive(Debug, Serialize)]
+pub struct ConfigResponse {
+    pub mode: String,
+    pub auto_approve_threshold: f32,
+    pub llm_configured: bool,
+    pub llm_provider: Option<String>,
+}
+
+/// GET /api/v1/textbrain/config
+///
+/// Get TextBrain configuration status.
+pub async fn get_config() -> Json<ConfigResponse> {
+    // For now, return default dumb-only config
+    // In the future, this would read from actual config
+    Json(ConfigResponse {
+        mode: "dumb_only".to_string(),
+        auto_approve_threshold: 0.85,
+        llm_configured: false,
+        llm_provider: None,
+    })
+}
+
+// ============================================================================
+// Query building endpoint
+// ============================================================================
+
+#[derive(Debug, Deserialize)]
+pub struct BuildQueriesRequest {
+    pub context: ContextRequest,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ContextRequest {
+    pub tags: Vec<String>,
+    pub description: String,
+    #[serde(default)]
+    pub expected: Option<ExpectedContentRequest>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct BuildQueriesResponse {
+    pub result: QueryBuildResultResponse,
+    pub duration_ms: u64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct QueryBuildResultResponse {
+    pub queries: Vec<String>,
+    pub method: String,
+    pub confidence: f32,
+    pub llm_usage: Option<LlmUsage>,
+}
+
+/// POST /api/v1/textbrain/queries
+///
+/// Build search queries from context.
+pub async fn build_queries(
+    Json(body): Json<BuildQueriesRequest>,
+) -> Result<Json<BuildQueriesResponse>, impl IntoResponse> {
+    use std::time::Instant;
+
+    let start = Instant::now();
+
+    // Build QueryContext
+    let mut context = QueryContext::new(body.context.tags, &body.context.description);
+    if let Some(expected) = body.context.expected {
+        context = context.with_expected(expected.into());
+    }
+
+    // Use DumbQueryBuilder
+    let builder = DumbQueryBuilder::new();
+    match builder.build_queries(&context).await {
+        Ok(result) => {
+            let duration_ms = start.elapsed().as_millis() as u64;
+            Ok(Json(BuildQueriesResponse {
+                result: QueryBuildResultResponse {
+                    queries: result.queries,
+                    method: result.method,
+                    confidence: result.confidence,
+                    llm_usage: result.llm_usage,
+                },
+                duration_ms,
+            }))
+        }
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("Query building failed: {}", e),
+            }),
+        )),
+    }
+}
+
+// ============================================================================
+// Scoring endpoint
+// ============================================================================
+
+#[derive(Debug, Deserialize)]
+pub struct ScoreRequest {
+    pub context: ContextRequest,
+    pub candidates: Vec<CandidateRequest>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CandidateRequest {
+    pub title: String,
+    pub info_hash: String,
+    pub size_bytes: u64,
+    pub seeders: u32,
+    pub leechers: u32,
+    #[serde(default)]
+    pub category: Option<String>,
+    #[serde(default)]
+    pub files: Option<Vec<FileRequest>>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct FileRequest {
+    pub path: String,
+    pub size_bytes: u64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ScoreResponse {
+    pub result: MatchResultResponse,
+    pub duration_ms: u64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MatchResultResponse {
+    pub candidates: Vec<ScoredCandidateResponse>,
+    pub method: String,
+    pub llm_usage: Option<LlmUsage>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ScoredCandidateResponse {
+    pub candidate: CandidateResponse,
+    pub score: f32,
+    pub reasoning: String,
+    pub file_mappings: Vec<FileMappingResponse>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CandidateResponse {
+    pub title: String,
+    pub info_hash: String,
+    pub size_bytes: u64,
+    pub seeders: u32,
+    pub leechers: u32,
+    pub category: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct FileMappingResponse {
+    pub torrent_file_path: String,
+    pub ticket_item_id: String,
+    pub confidence: f32,
+}
+
+/// POST /api/v1/textbrain/score
+///
+/// Score candidates against context.
+pub async fn score_candidates(
+    Json(body): Json<ScoreRequest>,
+) -> Result<Json<ScoreResponse>, impl IntoResponse> {
+    use std::time::Instant;
+    use torrentino_core::{TorrentCandidate, TorrentFile, TorrentSource};
+
+    let start = Instant::now();
+
+    // Build QueryContext
+    let mut context = QueryContext::new(body.context.tags, &body.context.description);
+    if let Some(expected) = body.context.expected {
+        context = context.with_expected(expected.into());
+    }
+
+    // Convert candidates
+    let candidates: Vec<TorrentCandidate> = body
+        .candidates
+        .into_iter()
+        .map(|c| TorrentCandidate {
+            title: c.title,
+            info_hash: c.info_hash,
+            size_bytes: c.size_bytes,
+            seeders: c.seeders,
+            leechers: c.leechers,
+            category: c.category,
+            publish_date: None,
+            files: c.files.map(|files| {
+                files
+                    .into_iter()
+                    .map(|f| TorrentFile {
+                        path: f.path,
+                        size_bytes: f.size_bytes,
+                    })
+                    .collect()
+            }),
+            sources: vec![TorrentSource {
+                indexer: "manual".to_string(),
+                magnet_uri: None,
+                torrent_url: None,
+                seeders: 0,
+                leechers: 0,
+                details_url: None,
+            }],
+            from_cache: false,
+        })
+        .collect();
+
+    // Use DumbMatcher
+    let matcher = DumbMatcher::new();
+    match matcher.score_candidates(&context, &candidates).await {
+        Ok(result) => {
+            let duration_ms = start.elapsed().as_millis() as u64;
+
+            let scored_candidates: Vec<ScoredCandidateResponse> = result
+                .candidates
+                .into_iter()
+                .map(|sc| ScoredCandidateResponse {
+                    candidate: CandidateResponse {
+                        title: sc.candidate.title,
+                        info_hash: sc.candidate.info_hash,
+                        size_bytes: sc.candidate.size_bytes,
+                        seeders: sc.candidate.seeders,
+                        leechers: sc.candidate.leechers,
+                        category: sc.candidate.category,
+                    },
+                    score: sc.score,
+                    reasoning: sc.reasoning,
+                    file_mappings: sc
+                        .file_mappings
+                        .into_iter()
+                        .map(|fm| FileMappingResponse {
+                            torrent_file_path: fm.torrent_file_path,
+                            ticket_item_id: fm.ticket_item_id,
+                            confidence: fm.confidence,
+                        })
+                        .collect(),
+                })
+                .collect();
+
+            Ok(Json(ScoreResponse {
+                result: MatchResultResponse {
+                    candidates: scored_candidates,
+                    method: result.method,
+                    llm_usage: result.llm_usage,
+                },
+                duration_ms,
+            }))
+        }
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("Scoring failed: {}", e),
             }),
         )),
     }
