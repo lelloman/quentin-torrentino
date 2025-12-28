@@ -9,7 +9,9 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use torrentino_core::{
-    AnthropicClient, AuditEvent, CompletionRequest, LlmClient, LlmUsage, SearchQuery,
+    AnthropicClient, AuditEvent, CompletionRequest, DumbMatcher, DumbQueryBuilder,
+    ExpectedContent, ExpectedTrack, LlmClient, LlmUsage, QueryContext, SearchQuery, TextBrain,
+    TextBrainConfig, TextBrainMode,
 };
 
 use crate::state::AppState;
@@ -407,4 +409,223 @@ pub async fn process_ticket(
         scored_candidates: scored,
         llm_usage: total_usage,
     }))
+}
+
+// ============================================================================
+// Acquire - Test TextBrain with DumbQueryBuilder/DumbMatcher
+// ============================================================================
+
+/// Expected track for album expectations.
+#[derive(Debug, Deserialize)]
+pub struct ExpectedTrackRequest {
+    pub number: u32,
+    pub title: String,
+    #[serde(default)]
+    pub duration_secs: Option<u32>,
+}
+
+/// Expected content structure for file validation.
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ExpectedContentRequest {
+    Album {
+        #[serde(default)]
+        artist: Option<String>,
+        title: String,
+        tracks: Vec<ExpectedTrackRequest>,
+    },
+    Track {
+        #[serde(default)]
+        artist: Option<String>,
+        title: String,
+    },
+    Movie {
+        title: String,
+        #[serde(default)]
+        year: Option<u32>,
+    },
+    TvEpisode {
+        series: String,
+        season: u32,
+        episodes: Vec<u32>,
+    },
+}
+
+impl From<ExpectedContentRequest> for ExpectedContent {
+    fn from(req: ExpectedContentRequest) -> Self {
+        match req {
+            ExpectedContentRequest::Album { artist, title, tracks } => {
+                let tracks: Vec<ExpectedTrack> = tracks
+                    .into_iter()
+                    .map(|t| {
+                        let mut track = ExpectedTrack::new(t.number, t.title);
+                        if let Some(d) = t.duration_secs {
+                            track = track.with_duration(d);
+                        }
+                        track
+                    })
+                    .collect();
+                if let Some(artist) = artist {
+                    ExpectedContent::album_by(artist, title, tracks)
+                } else {
+                    ExpectedContent::album(title, tracks)
+                }
+            }
+            ExpectedContentRequest::Track { artist, title } => {
+                if let Some(artist) = artist {
+                    ExpectedContent::track_by(artist, title)
+                } else {
+                    ExpectedContent::track(title)
+                }
+            }
+            ExpectedContentRequest::Movie { title, year } => {
+                if let Some(year) = year {
+                    ExpectedContent::movie_year(title, year)
+                } else {
+                    ExpectedContent::movie(title)
+                }
+            }
+            ExpectedContentRequest::TvEpisode { series, season, episodes } => {
+                ExpectedContent::tv_episodes(series, season, episodes)
+            }
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AcquireRequest {
+    /// Freeform description of what to find.
+    pub description: String,
+    /// Tags for categorization (e.g., ["music", "album", "flac"]).
+    #[serde(default)]
+    pub tags: Vec<String>,
+    /// Expected content structure (optional).
+    #[serde(default)]
+    pub expected: Option<ExpectedContentRequest>,
+    /// Auto-approve threshold (default: 0.85).
+    #[serde(default = "default_threshold")]
+    pub auto_approve_threshold: f32,
+    /// Use cache-only search (no live search).
+    #[serde(default)]
+    pub cache_only: bool,
+}
+
+fn default_threshold() -> f32 {
+    0.85
+}
+
+#[derive(Debug, Serialize)]
+pub struct AcquireCandidateResponse {
+    pub title: String,
+    pub info_hash: String,
+    pub size_bytes: u64,
+    pub seeders: u32,
+    pub score: f32,
+    pub reasoning: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AcquireResponse {
+    /// Queries that were tried.
+    pub queries_tried: Vec<String>,
+    /// Total candidates evaluated.
+    pub candidates_evaluated: u32,
+    /// All scored candidates (sorted by score).
+    pub candidates: Vec<AcquireCandidateResponse>,
+    /// Best candidate (if any).
+    pub best_candidate: Option<AcquireCandidateResponse>,
+    /// Whether the best candidate was auto-approved.
+    pub auto_approved: bool,
+    /// Method used for query building.
+    pub query_method: String,
+    /// Method used for scoring.
+    pub score_method: String,
+    /// Duration in milliseconds.
+    pub duration_ms: u64,
+}
+
+/// POST /api/v1/textbrain/acquire
+///
+/// Test the full TextBrain acquisition flow:
+/// 1. Build queries using DumbQueryBuilder
+/// 2. Search (live or cache-only)
+/// 3. Score candidates using DumbMatcher
+/// 4. Return scored results
+pub async fn acquire(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<AcquireRequest>,
+) -> Result<Json<AcquireResponse>, impl IntoResponse> {
+    // Get searcher
+    let searcher = match state.searcher() {
+        Some(s) => s,
+        None => {
+            return Err((
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(ErrorResponse {
+                    error: "Search backend not configured".to_string(),
+                }),
+            ))
+        }
+    };
+
+    // Build QueryContext
+    let mut context = QueryContext::new(body.tags, &body.description);
+    if let Some(expected) = body.expected {
+        context = context.with_expected(expected.into());
+    }
+
+    // Create TextBrain with dumb implementations
+    let config = TextBrainConfig {
+        mode: TextBrainMode::DumbOnly,
+        auto_approve_threshold: body.auto_approve_threshold,
+        ..Default::default()
+    };
+
+    let brain = TextBrain::new(config)
+        .with_dumb_query_builder(Arc::new(DumbQueryBuilder::new()))
+        .with_dumb_matcher(Arc::new(DumbMatcher::new()));
+
+    // Run acquisition
+    match brain.acquire(&context, searcher.as_ref()).await {
+        Ok(result) => {
+            let candidates: Vec<AcquireCandidateResponse> = result
+                .all_candidates
+                .iter()
+                .map(|c| AcquireCandidateResponse {
+                    title: c.candidate.title.clone(),
+                    info_hash: c.candidate.info_hash.clone(),
+                    size_bytes: c.candidate.size_bytes,
+                    seeders: c.candidate.seeders,
+                    score: c.score,
+                    reasoning: c.reasoning.clone(),
+                })
+                .collect();
+
+            let best_candidate = result.best_candidate.map(|c| AcquireCandidateResponse {
+                title: c.candidate.title.clone(),
+                info_hash: c.candidate.info_hash.clone(),
+                size_bytes: c.candidate.size_bytes,
+                seeders: c.candidate.seeders,
+                score: c.score,
+                reasoning: c.reasoning.clone(),
+            });
+
+            Ok(Json(AcquireResponse {
+                queries_tried: result.queries_tried,
+                candidates_evaluated: result.candidates_evaluated,
+                candidates,
+                best_candidate,
+                auto_approved: result.auto_approved,
+                query_method: result.query_method,
+                score_method: result.score_method,
+                duration_ms: result.duration_ms,
+            }))
+        }
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("Acquisition failed: {}", e),
+            }),
+        )),
+    }
 }

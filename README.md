@@ -1486,7 +1486,7 @@ Each phase includes corresponding admin dashboard work. The dashboard evolves al
 
 **Phase 3: TextBrain (Query Building + Matching)** ⬅️ CURRENT
 - [x] `LlmClient` trait with Anthropic implementation
-- [x] Experimental TextBrain API endpoints (`/textbrain/complete`, `/textbrain/process/{ticket_id}`)
+- [x] Experimental TextBrain API endpoints (`/textbrain/complete`, `/textbrain/process/{ticket_id}`, `/textbrain/acquire`)
 - [x] LLM-powered query generation from ticket description/tags
 - [x] LLM-powered candidate scoring with reasoning
 - [x] Audit events: `queries_generated`, `candidates_scored`, `candidate_selected`
@@ -1499,9 +1499,10 @@ Each phase includes corresponding admin dashboard work. The dashboard evolves al
   - `llm-only`: Require LLM (fail if unavailable)
 - [x] Combined Acquiring state (merges Search + Match into single coordinated phase)
 - [x] Full pipeline state machine: Pending → Acquiring → NeedsApproval/AutoApproved → Downloading → Converting → Placing → Completed
-- [ ] `DumbQueryBuilder`: Generate search queries from ticket using templates/heuristics
-- [ ] `DumbMatcher`: Score candidates using fuzzy matching, format detection, seeder heuristics
-- [ ] Additional LLM providers (OpenAI, Ollama, custom HTTP)
+- [x] `DumbQueryBuilder`: Generate search queries from ticket using templates/heuristics
+- [x] `DumbMatcher`: Score candidates using fuzzy matching, format detection, seeder heuristics
+- [x] `OllamaClient`: Local LLM testing via Ollama API
+- [x] `ExpectedContent` types: Album, Track, Movie, TvEpisode for file validation
 - [ ] File-to-track mapping (which torrent files match which ticket items)
 - [ ] Training data collection: log prompts + results for fine-tuning
 - [ ] **Dashboard**: Query preview, candidate scoring view, file mapping UI

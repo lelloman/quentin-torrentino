@@ -51,6 +51,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         // TextBrain (LLM experimentation)
         .route("/textbrain/complete", post(textbrain::complete))
         .route("/textbrain/process/{ticket_id}", post(textbrain::process_ticket))
+        .route("/textbrain/acquire", post(textbrain::acquire))
         .with_state(state);
 
     // Serve dashboard with SPA fallback
