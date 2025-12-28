@@ -72,6 +72,7 @@ mod types;
 // LLM client types
 pub use llm::{
     AnthropicClient, CompletionRequest, CompletionResponse, LlmClient, LlmError, LlmUsage,
+    OllamaClient,
 };
 
 // Configuration types

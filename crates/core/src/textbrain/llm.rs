@@ -250,6 +250,140 @@ impl LlmClient for AnthropicClient {
     }
 }
 
+// ============================================================================
+// Ollama Implementation
+// ============================================================================
+
+/// Ollama API client for local LLM inference.
+///
+/// Connects to a local Ollama server (default: http://localhost:11434).
+/// No API key required.
+pub struct OllamaClient {
+    client: reqwest::Client,
+    model: String,
+    api_base: String,
+}
+
+impl OllamaClient {
+    /// Create a new Ollama client with the specified model.
+    ///
+    /// # Arguments
+    /// * `model` - Model name (e.g., "llama3", "mistral", "codellama")
+    pub fn new(model: impl Into<String>) -> Self {
+        Self {
+            client: reqwest::Client::new(),
+            model: model.into(),
+            api_base: "http://localhost:11434".to_string(),
+        }
+    }
+
+    /// Set a custom API base URL.
+    pub fn with_api_base(mut self, api_base: impl Into<String>) -> Self {
+        self.api_base = api_base.into();
+        self
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct OllamaRequest {
+    model: String,
+    prompt: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    system: Option<String>,
+    stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    options: Option<OllamaOptions>,
+}
+
+#[derive(Debug, Serialize)]
+struct OllamaOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    temperature: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    num_predict: Option<u32>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OllamaResponse {
+    model: String,
+    response: String,
+    #[serde(default)]
+    #[allow(dead_code)]
+    done: bool,
+    /// Number of tokens in the response
+    #[serde(default)]
+    eval_count: u32,
+    /// Number of tokens in the prompt
+    #[serde(default)]
+    prompt_eval_count: u32,
+}
+
+#[derive(Debug, Deserialize)]
+struct OllamaErrorResponse {
+    error: String,
+}
+
+#[async_trait]
+impl LlmClient for OllamaClient {
+    fn provider(&self) -> &str {
+        "ollama"
+    }
+
+    fn model(&self) -> &str {
+        &self.model
+    }
+
+    async fn complete(&self, request: CompletionRequest) -> Result<CompletionResponse, LlmError> {
+        let ollama_request = OllamaRequest {
+            model: self.model.clone(),
+            prompt: request.prompt,
+            system: request.system,
+            stream: false,
+            options: Some(OllamaOptions {
+                temperature: if request.temperature == 0.0 {
+                    Some(0.0) // Ollama needs explicit 0 for deterministic
+                } else {
+                    Some(request.temperature)
+                },
+                num_predict: Some(request.max_tokens),
+            }),
+        };
+
+        let response = self
+            .client
+            .post(format!("{}/api/generate", self.api_base))
+            .header("content-type", "application/json")
+            .json(&ollama_request)
+            .send()
+            .await
+            .map_err(|e| LlmError::Http(e.to_string()))?;
+
+        let status = response.status().as_u16();
+
+        if status != 200 {
+            let error_text = response.text().await.unwrap_or_default();
+            let message = serde_json::from_str::<OllamaErrorResponse>(&error_text)
+                .map(|e| e.error)
+                .unwrap_or(error_text);
+            return Err(LlmError::Api { status, message });
+        }
+
+        let ollama_response: OllamaResponse = response
+            .json()
+            .await
+            .map_err(|e| LlmError::Json(e.to_string()))?;
+
+        Ok(CompletionResponse {
+            text: ollama_response.response,
+            usage: LlmUsage {
+                input_tokens: ollama_response.prompt_eval_count,
+                output_tokens: ollama_response.eval_count,
+            },
+            model: ollama_response.model,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -265,5 +399,38 @@ mod tests {
         assert_eq!(request.system, Some("You are helpful".to_string()));
         assert_eq!(request.max_tokens, 100);
         assert_eq!(request.temperature, 0.5);
+    }
+
+    #[test]
+    fn test_ollama_client_creation() {
+        let client = OllamaClient::new("llama3");
+        assert_eq!(client.provider(), "ollama");
+        assert_eq!(client.model(), "llama3");
+    }
+
+    #[test]
+    fn test_ollama_client_custom_base() {
+        let client = OllamaClient::new("mistral")
+            .with_api_base("http://remote-server:11434");
+        assert_eq!(client.api_base, "http://remote-server:11434");
+    }
+
+    #[test]
+    fn test_ollama_request_serialization() {
+        let request = OllamaRequest {
+            model: "llama3".to_string(),
+            prompt: "Hello".to_string(),
+            system: Some("Be helpful".to_string()),
+            stream: false,
+            options: Some(OllamaOptions {
+                temperature: Some(0.7),
+                num_predict: Some(100),
+            }),
+        };
+
+        let json = serde_json::to_string(&request).unwrap();
+        assert!(json.contains("\"model\":\"llama3\""));
+        assert!(json.contains("\"stream\":false"));
+        assert!(json.contains("\"temperature\":0.7"));
     }
 }

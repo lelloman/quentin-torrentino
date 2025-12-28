@@ -38,6 +38,7 @@ pub use catalog::{
 pub use textbrain::{
     // LLM client types
     AnthropicClient, CompletionRequest, CompletionResponse, LlmClient, LlmError, LlmUsage,
+    OllamaClient,
     // Configuration
     LlmConfig, LlmProvider, TextBrainConfig, TextBrainMode,
     // Traits
