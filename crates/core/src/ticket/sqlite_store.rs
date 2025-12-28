@@ -552,6 +552,8 @@ mod tests {
 
     #[test]
     fn test_update_state_to_completed() {
+        use crate::ticket::CompletionStats;
+
         let store = create_test_store();
         let ticket = store.create(create_test_request()).unwrap();
 
@@ -560,6 +562,13 @@ mod tests {
                 &ticket.id,
                 TicketState::Completed {
                     completed_at: Utc::now(),
+                    stats: CompletionStats {
+                        total_download_bytes: 1_000_000,
+                        download_duration_secs: 60,
+                        conversion_duration_secs: 30,
+                        final_size_bytes: 500_000,
+                        files_placed: 5,
+                    },
                 },
             )
             .unwrap();
@@ -577,6 +586,8 @@ mod tests {
                 &ticket.id,
                 TicketState::Failed {
                     error: "Something went wrong".to_string(),
+                    retryable: true,
+                    retry_count: 0,
                     failed_at: Utc::now(),
                 },
             )

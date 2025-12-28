@@ -24,8 +24,8 @@ pub use searcher::{
     SearchError, SearchQuery, SearchResult, Searcher, TorrentCandidate, TorrentFile, TorrentSource,
 };
 pub use ticket::{
-    CreateTicketRequest, QueryContext, SqliteTicketStore, Ticket, TicketError, TicketFilter,
-    TicketState, TicketStore,
+    AcquisitionPhase, CompletionStats, CreateTicketRequest, QueryContext, SelectedCandidate,
+    SqliteTicketStore, Ticket, TicketError, TicketFilter, TicketState, TicketStore,
 };
 pub use torrent_client::{
     AddTorrentRequest, AddTorrentResult, LibrqbitClient, QBittorrentClient, TorrentClient,
