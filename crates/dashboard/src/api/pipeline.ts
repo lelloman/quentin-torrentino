@@ -1,6 +1,6 @@
 // Pipeline API client
 
-import { get } from './client'
+import { get, post } from './client'
 
 // Types
 
@@ -15,11 +15,47 @@ export interface PoolStatus {
 
 export interface PipelineStatus {
   available: boolean
+  running: boolean
   message: string
   conversion_pool?: PoolStatus
   placement_pool?: PoolStatus
   converting_tickets: string[]
   placing_tickets: string[]
+}
+
+// Progress types
+export interface ProgressDetails {
+  current_file: number
+  total_files: number
+  current_file_name: string
+  percent: number
+}
+
+export interface TicketProgress {
+  ticket_id: string
+  phase: string
+  progress?: ProgressDetails
+  error?: string
+}
+
+// Process request types
+export interface SourceFileRequest {
+  path: string
+  item_id: string
+  dest_filename: string
+}
+
+export interface ProcessTicketRequest {
+  source_files: SourceFileRequest[]
+  dest_dir: string
+  output_format?: string
+  bitrate_kbps?: number
+}
+
+export interface ProcessTicketResponse {
+  success: boolean
+  message: string
+  ticket_id: string
 }
 
 export interface ConverterConfig {
@@ -71,4 +107,15 @@ export async function getPlacerInfo(): Promise<PlacerInfo> {
 
 export async function validateFfmpeg(): Promise<FfmpegValidation> {
   return get<FfmpegValidation>('/pipeline/validate')
+}
+
+export async function processTicket(
+  ticketId: string,
+  request: ProcessTicketRequest
+): Promise<ProcessTicketResponse> {
+  return post<ProcessTicketResponse>(`/pipeline/process/${ticketId}`, request)
+}
+
+export async function getTicketProgress(ticketId: string): Promise<TicketProgress> {
+  return get<TicketProgress>(`/pipeline/progress/${ticketId}`)
 }

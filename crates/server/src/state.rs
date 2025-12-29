@@ -1,8 +1,11 @@
 use std::sync::Arc;
 use torrentino_core::{
-    AuditHandle, AuditStore, Authenticator, Config, SanitizedConfig, Searcher, TicketStore,
-    TorrentCatalog, TorrentClient,
+    AuditHandle, AuditStore, Authenticator, Config, FfmpegConverter, FsPlacer,
+    PipelineProcessor, SanitizedConfig, Searcher, TicketStore, TorrentCatalog, TorrentClient,
 };
+
+/// Type alias for the concrete pipeline processor we use
+pub type AppPipelineProcessor = PipelineProcessor<FfmpegConverter, FsPlacer>;
 
 /// Shared application state
 pub struct AppState {
@@ -14,6 +17,7 @@ pub struct AppState {
     searcher: Option<Arc<dyn Searcher>>,
     torrent_client: Option<Arc<dyn TorrentClient>>,
     catalog: Arc<dyn TorrentCatalog>,
+    pipeline: Option<Arc<AppPipelineProcessor>>,
 }
 
 impl AppState {
@@ -26,6 +30,7 @@ impl AppState {
         searcher: Option<Arc<dyn Searcher>>,
         torrent_client: Option<Arc<dyn TorrentClient>>,
         catalog: Arc<dyn TorrentCatalog>,
+        pipeline: Option<Arc<AppPipelineProcessor>>,
     ) -> Self {
         Self {
             config,
@@ -36,6 +41,7 @@ impl AppState {
             searcher,
             torrent_client,
             catalog,
+            pipeline,
         }
     }
 
@@ -76,5 +82,10 @@ impl AppState {
     /// Get the torrent catalog
     pub fn catalog(&self) -> &Arc<dyn TorrentCatalog> {
         &self.catalog
+    }
+
+    /// Get the pipeline processor (if initialized)
+    pub fn pipeline(&self) -> Option<&Arc<AppPipelineProcessor>> {
+        self.pipeline.as_ref()
     }
 }

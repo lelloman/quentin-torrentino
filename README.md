@@ -1507,13 +1507,14 @@ Each phase includes corresponding admin dashboard work. The dashboard evolves al
 - [x] Training data collection: `TrainingQueryContext`, `TrainingScoringContext`, `UserCorrection` audit events
 - [x] **Dashboard**: Query preview, candidate scoring view, file mapping UI (`/textbrain`)
 
-**Phase 4: Processing Pipeline** ⬅️ CURRENT
-- [ ] ffmpeg wrapper (audio first, then video)
-- [ ] Placer with rollback
-- [ ] Processing pools fully wired (search → match → download → convert → place)
-- [ ] **Dashboard**: Pipeline visualization, pool status, job progress
+**Phase 4: Processing Pipeline** ✅
+- [x] FFmpeg converter (audio + video formats, metadata embedding, cover art)
+- [x] FsPlacer with atomic moves and rollback support
+- [x] PipelineProcessor with concurrent pools (conversion + placement)
+- [x] Ticket state transitions (Converting → Placing → Completed/Failed)
+- [x] **Dashboard**: Pipeline visualization, pool status, job progress (`/pipeline`)
 
-**Phase 5: Content Modules**
+**Phase 5: Content Modules** ⬅️ CURRENT
 
 *Phase 5a: Music Module*
 - [ ] MusicTicket implementation

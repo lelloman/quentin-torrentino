@@ -9,6 +9,7 @@ use tokio::sync::{mpsc, RwLock, Semaphore};
 use crate::audit::{AuditEvent, AuditHandle};
 use crate::converter::{ConversionConstraints, ConversionJob, Converter, EmbeddedMetadata};
 use crate::placer::{FilePlacement, PlacementJob, Placer};
+use crate::ticket::{CompletionStats, TicketState, TicketStore};
 
 use super::config::ProcessorConfig;
 use super::types::{
@@ -77,6 +78,7 @@ pub struct PipelineProcessor<C: Converter, P: Placer> {
     converter: Arc<C>,
     placer: Arc<P>,
     audit: Option<AuditHandle>,
+    ticket_store: Option<Arc<dyn TicketStore>>,
     conversion_semaphore: Arc<Semaphore>,
     placement_semaphore: Arc<Semaphore>,
     conversion_stats: Arc<PoolStats>,
@@ -87,6 +89,7 @@ pub struct PipelineProcessor<C: Converter, P: Placer> {
 
 /// State of an active job.
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // Fields used for tracking/debugging
 enum JobState {
     Converting {
         started_at: Instant,
@@ -111,6 +114,7 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
             converter: Arc::new(converter),
             placer: Arc::new(placer),
             audit: None,
+            ticket_store: None,
             conversion_semaphore,
             placement_semaphore,
             conversion_stats: Arc::new(PoolStats::default()),
@@ -123,6 +127,12 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
     /// Sets the audit handle for logging events.
     pub fn with_audit(mut self, audit: AuditHandle) -> Self {
         self.audit = Some(audit);
+        self
+    }
+
+    /// Sets the ticket store for updating ticket state.
+    pub fn with_ticket_store(mut self, store: Arc<dyn TicketStore>) -> Self {
+        self.ticket_store = Some(store);
         self
     }
 
@@ -194,6 +204,7 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
         let placer = Arc::clone(&self.placer);
         let config = self.config.clone();
         let audit = self.audit.clone();
+        let ticket_store = self.ticket_store.clone();
         let conversion_semaphore = Arc::clone(&self.conversion_semaphore);
         let placement_semaphore = Arc::clone(&self.placement_semaphore);
         let conversion_stats = Arc::clone(&self.conversion_stats);
@@ -207,6 +218,7 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
                 placer,
                 config,
                 audit.clone(),
+                ticket_store.clone(),
                 conversion_semaphore,
                 placement_semaphore,
                 conversion_stats,
@@ -255,6 +267,7 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
         placer: Arc<P>,
         config: ProcessorConfig,
         audit: Option<AuditHandle>,
+        ticket_store: Option<Arc<dyn TicketStore>>,
         conversion_semaphore: Arc<Semaphore>,
         placement_semaphore: Arc<Semaphore>,
         conversion_stats: Arc<PoolStats>,
@@ -262,9 +275,29 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
         active_jobs: Arc<RwLock<HashMap<String, JobState>>>,
         progress_tx: Option<mpsc::Sender<PipelineProgress>>,
     ) -> Result<PipelineResult, PipelineError> {
-        let start = Instant::now();
+        let _start = Instant::now();
         let ticket_id = job.ticket_id.clone();
         let total_files = job.source_files.len();
+
+        // Helper to update ticket state
+        let update_ticket_state = |store: &Arc<dyn TicketStore>, state: TicketState| {
+            if let Err(e) = store.update_state(&ticket_id, state) {
+                tracing::warn!("Failed to update ticket state for {}: {}", ticket_id, e);
+            }
+        };
+
+        // Set initial Converting state
+        if let Some(ref store) = ticket_store {
+            update_ticket_state(
+                store,
+                TicketState::Converting {
+                    started_at: chrono::Utc::now(),
+                    current_idx: 0,
+                    total: total_files,
+                    current_name: "Starting...".to_string(),
+                },
+            );
+        }
 
         // Emit conversion started event
         if let Some(ref audit) = audit {
@@ -316,6 +349,12 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
         }
 
         for (idx, source_file) in job.source_files.iter().enumerate() {
+            let current_file_name = source_file
+                .path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+
             // Update job state
             {
                 let mut jobs = active_jobs.write().await;
@@ -328,6 +367,19 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
                 }
             }
 
+            // Update ticket state
+            if let Some(ref store) = ticket_store {
+                update_ticket_state(
+                    store,
+                    TicketState::Converting {
+                        started_at: chrono::Utc::now(),
+                        current_idx: idx,
+                        total: total_files,
+                        current_name: current_file_name.clone(),
+                    },
+                );
+            }
+
             // Send progress
             if let Some(ref tx) = progress_tx {
                 let _ = tx
@@ -335,9 +387,7 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
                         ticket_id: ticket_id.clone(),
                         current_file: idx,
                         total_files,
-                        current_file_name: source_file.path.file_name()
-                            .map(|n| n.to_string_lossy().to_string())
-                            .unwrap_or_default(),
+                        current_file_name: current_file_name.clone(),
                         percent: (idx as f32 / total_files as f32) * 100.0,
                     })
                     .await;
@@ -383,6 +433,19 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
                     conversion_stats.active.fetch_sub(1, Ordering::Relaxed);
                     conversion_stats.total_failed.fetch_add(1, Ordering::Relaxed);
 
+                    // Update ticket state to Failed
+                    if let Some(ref store) = ticket_store {
+                        update_ticket_state(
+                            store,
+                            TicketState::Failed {
+                                error: format!("Conversion failed: {}", e),
+                                retryable: e.is_retryable(),
+                                retry_count: 0,
+                                failed_at: chrono::Utc::now(),
+                            },
+                        );
+                    }
+
                     if let Some(ref audit) = audit {
                         audit.emit(AuditEvent::ConversionFailed {
                             ticket_id: ticket_id.clone(),
@@ -422,6 +485,8 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
         // Phase 2: Placement
         placement_stats.queued.fetch_add(1, Ordering::Relaxed);
 
+        let total_converted = converted_files.len();
+
         // Update job state
         {
             let mut jobs = active_jobs.write().await;
@@ -429,9 +494,21 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
                 *state = JobState::Placing {
                     started_at: Instant::now(),
                     files_placed: 0,
-                    total_files: converted_files.len(),
+                    total_files: total_converted,
                 };
             }
+        }
+
+        // Update ticket state to Placing
+        if let Some(ref store) = ticket_store {
+            update_ticket_state(
+                store,
+                TicketState::Placing {
+                    started_at: chrono::Utc::now(),
+                    files_placed: 0,
+                    total_files: total_converted,
+                },
+            );
         }
 
         let _permit = placement_semaphore
@@ -507,6 +584,23 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
                     })
                     .collect();
 
+                // Update ticket state to Completed
+                if let Some(ref store) = ticket_store {
+                    update_ticket_state(
+                        store,
+                        TicketState::Completed {
+                            completed_at: chrono::Utc::now(),
+                            stats: CompletionStats {
+                                total_download_bytes: 0, // Not tracked in pipeline
+                                download_duration_secs: 0,
+                                conversion_duration_secs: conversion_duration.as_secs() as u32,
+                                final_size_bytes: result.total_bytes,
+                                files_placed: files_placed.len() as u32,
+                            },
+                        },
+                    );
+                }
+
                 Ok(PipelineResult {
                     ticket_id,
                     success: true,
@@ -520,6 +614,19 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
             Err(e) => {
                 placement_stats.active.fetch_sub(1, Ordering::Relaxed);
                 placement_stats.total_failed.fetch_add(1, Ordering::Relaxed);
+
+                // Update ticket state to Failed
+                if let Some(ref store) = ticket_store {
+                    update_ticket_state(
+                        store,
+                        TicketState::Failed {
+                            error: format!("Placement failed: {}", e),
+                            retryable: e.is_retryable(),
+                            retry_count: 0,
+                            failed_at: chrono::Utc::now(),
+                        },
+                    );
+                }
 
                 // Emit placement failed event
                 if let Some(ref audit) = audit {

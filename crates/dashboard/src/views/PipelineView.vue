@@ -12,7 +12,7 @@ const {
   converterInfo,
   placerInfo,
   ffmpegValidation,
-  isAvailable,
+  isRunning,
   conversionPool,
   placementPool,
   activeJobs,
@@ -95,12 +95,12 @@ function getUtilizationColor(percent: number): string {
         <h2 class="text-lg font-semibold mb-4">Pipeline Overview</h2>
         <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div class="text-center p-4 bg-gray-50 rounded-lg">
-            <div class="text-3xl font-bold" :class="isAvailable ? 'text-green-600' : 'text-gray-400'">
-              {{ isAvailable ? '●' : '○' }}
+            <div class="text-3xl font-bold" :class="isRunning ? 'text-green-600' : 'text-gray-400'">
+              {{ isRunning ? '●' : '○' }}
             </div>
             <div class="text-sm text-gray-600 mt-1">Pipeline Status</div>
-            <Badge :variant="isAvailable ? 'success' : 'warning'" class="mt-2">
-              {{ isAvailable ? 'Available' : 'Unavailable' }}
+            <Badge :variant="isRunning ? 'success' : 'warning'" class="mt-2">
+              {{ isRunning ? 'Running' : 'Stopped' }}
             </Badge>
           </div>
           <div class="text-center p-4 bg-gray-50 rounded-lg">

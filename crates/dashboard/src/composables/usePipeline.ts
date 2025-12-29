@@ -7,12 +7,17 @@ import type {
   PlacerInfo,
   FfmpegValidation,
   PoolStatus,
+  TicketProgress,
+  ProcessTicketRequest,
+  ProcessTicketResponse,
 } from '../api/pipeline'
 import {
   getPipelineStatus,
   getConverterInfo,
   getPlacerInfo,
   validateFfmpeg,
+  processTicket as apiProcessTicket,
+  getTicketProgress,
 } from '../api/pipeline'
 
 export function usePipeline() {
@@ -25,6 +30,7 @@ export function usePipeline() {
 
   // Computed properties
   const isAvailable = computed(() => status.value?.available ?? false)
+  const isRunning = computed(() => status.value?.running ?? false)
   const conversionPool = computed(() => status.value?.conversion_pool)
   const placementPool = computed(() => status.value?.placement_pool)
   const activeJobs = computed(() => {
@@ -104,6 +110,31 @@ export function usePipeline() {
     }
   }
 
+  async function processTicket(
+    ticketId: string,
+    request: ProcessTicketRequest
+  ): Promise<ProcessTicketResponse | null> {
+    loading.value = true
+    error.value = null
+    try {
+      return await apiProcessTicket(ticketId, request)
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : 'Failed to submit pipeline job'
+      return null
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function fetchProgress(ticketId: string): Promise<TicketProgress | null> {
+    try {
+      return await getTicketProgress(ticketId)
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : 'Failed to fetch progress'
+      return null
+    }
+  }
+
   return {
     // State
     loading,
@@ -114,6 +145,7 @@ export function usePipeline() {
     ffmpegValidation,
     // Computed
     isAvailable,
+    isRunning,
     conversionPool,
     placementPool,
     activeJobs,
@@ -124,6 +156,8 @@ export function usePipeline() {
     fetchPlacerInfo,
     checkFfmpeg,
     fetchAll,
+    processTicket,
+    fetchProgress,
   }
 }
 

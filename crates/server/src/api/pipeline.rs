@@ -1,8 +1,18 @@
 //! Pipeline API endpoints for Phase 4.
 
-use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
-use serde::Serialize;
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    response::IntoResponse,
+    Json,
+};
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use std::sync::Arc;
+
+use torrentino_core::{
+    AudioConstraints, AudioFormat, ConversionConstraints, PipelineJob, SourceFile, TicketState,
+};
 
 use crate::state::AppState;
 
@@ -11,6 +21,8 @@ use crate::state::AppState;
 pub struct PipelineStatusResponse {
     /// Whether the pipeline is available.
     pub available: bool,
+    /// Whether the pipeline is running.
+    pub running: bool,
     /// Status message.
     pub message: String,
     /// Conversion pool status (if available).
@@ -90,22 +102,101 @@ pub struct PlacerConfigResponse {
     pub max_parallel_operations: usize,
 }
 
+/// Request to process a ticket through the pipeline.
+#[derive(Debug, Deserialize)]
+pub struct ProcessTicketRequest {
+    /// Source files to process (paths from downloaded torrent).
+    pub source_files: Vec<SourceFileRequest>,
+    /// Destination directory for final files.
+    pub dest_dir: String,
+    /// Output format (default: ogg_vorbis).
+    #[serde(default = "default_output_format")]
+    pub output_format: String,
+    /// Output bitrate in kbps (default: 320).
+    #[serde(default = "default_bitrate")]
+    pub bitrate_kbps: u32,
+}
+
+fn default_output_format() -> String {
+    "ogg_vorbis".to_string()
+}
+
+fn default_bitrate() -> u32 {
+    320
+}
+
+/// Source file in request.
+#[derive(Debug, Deserialize)]
+pub struct SourceFileRequest {
+    /// Path to source file.
+    pub path: String,
+    /// Item ID (e.g., track ID).
+    pub item_id: String,
+    /// Destination filename.
+    pub dest_filename: String,
+}
+
+/// Response for process ticket endpoint.
+#[derive(Debug, Serialize)]
+pub struct ProcessTicketResponse {
+    /// Whether the job was submitted successfully.
+    pub success: bool,
+    /// Message.
+    pub message: String,
+    /// Ticket ID.
+    pub ticket_id: String,
+}
+
 /// Get pipeline status.
 ///
 /// Returns the current status of the processing pipeline including
 /// conversion and placement pool statistics.
-pub async fn get_status(State(_state): State<Arc<AppState>>) -> impl IntoResponse {
-    // Pipeline is not yet wired in AppState - return placeholder status
-    let response = PipelineStatusResponse {
-        available: false,
-        message: "Pipeline not yet initialized. Phase 4 components are ready but not wired to server state.".to_string(),
-        conversion_pool: None,
-        placement_pool: None,
-        converting_tickets: vec![],
-        placing_tickets: vec![],
-    };
-
-    Json(response)
+pub async fn get_status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    match state.pipeline() {
+        Some(pipeline) => {
+            let status = pipeline.status().await;
+            let response = PipelineStatusResponse {
+                available: true,
+                running: status.running,
+                message: if status.running {
+                    "Pipeline is running".to_string()
+                } else {
+                    "Pipeline is stopped".to_string()
+                },
+                conversion_pool: Some(PoolStatusResponse {
+                    name: status.conversion_pool.name,
+                    active_jobs: status.conversion_pool.active_jobs,
+                    max_concurrent: status.conversion_pool.max_concurrent,
+                    queued_jobs: status.conversion_pool.queued_jobs,
+                    total_processed: status.conversion_pool.total_processed,
+                    total_failed: status.conversion_pool.total_failed,
+                }),
+                placement_pool: Some(PoolStatusResponse {
+                    name: status.placement_pool.name,
+                    active_jobs: status.placement_pool.active_jobs,
+                    max_concurrent: status.placement_pool.max_concurrent,
+                    queued_jobs: status.placement_pool.queued_jobs,
+                    total_processed: status.placement_pool.total_processed,
+                    total_failed: status.placement_pool.total_failed,
+                }),
+                converting_tickets: status.converting_tickets,
+                placing_tickets: status.placing_tickets,
+            };
+            Json(response)
+        }
+        None => {
+            let response = PipelineStatusResponse {
+                available: false,
+                running: false,
+                message: "Pipeline not initialized".to_string(),
+                conversion_pool: None,
+                placement_pool: None,
+                converting_tickets: vec![],
+                placing_tickets: vec![],
+            };
+            Json(response)
+        }
+    }
 }
 
 /// Get converter information.
@@ -217,4 +308,253 @@ pub async fn validate_ffmpeg(State(_state): State<Arc<AppState>>) -> impl IntoRe
     } else {
         (StatusCode::SERVICE_UNAVAILABLE, Json(response))
     }
+}
+
+/// Process a ticket through the conversion and placement pipeline.
+///
+/// This endpoint submits a ticket for processing. The ticket must be in an
+/// appropriate state (e.g., downloaded, ready for conversion).
+pub async fn process_ticket(
+    State(state): State<Arc<AppState>>,
+    Path(ticket_id): Path<String>,
+    Json(request): Json<ProcessTicketRequest>,
+) -> impl IntoResponse {
+    // Check if pipeline is available
+    let pipeline = match state.pipeline() {
+        Some(p) => p,
+        None => {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(ProcessTicketResponse {
+                    success: false,
+                    message: "Pipeline not initialized".to_string(),
+                    ticket_id,
+                }),
+            );
+        }
+    };
+
+    // Verify ticket exists
+    let ticket_store = state.ticket_store();
+    match ticket_store.get(&ticket_id) {
+        Ok(Some(_)) => {}
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(ProcessTicketResponse {
+                    success: false,
+                    message: format!("Ticket not found: {}", ticket_id),
+                    ticket_id,
+                }),
+            );
+        }
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ProcessTicketResponse {
+                    success: false,
+                    message: format!("Failed to get ticket: {}", e),
+                    ticket_id,
+                }),
+            );
+        }
+    };
+
+    // Parse output format
+    let audio_format = match request.output_format.as_str() {
+        "ogg_vorbis" | "ogg" => AudioFormat::OggVorbis,
+        "mp3" => AudioFormat::Mp3,
+        "flac" => AudioFormat::Flac,
+        "opus" => AudioFormat::Opus,
+        "aac" | "m4a" => AudioFormat::Aac,
+        "wav" => AudioFormat::Wav,
+        other => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ProcessTicketResponse {
+                    success: false,
+                    message: format!("Unsupported output format: {}", other),
+                    ticket_id,
+                }),
+            );
+        }
+    };
+
+    // Build source files
+    let source_files: Vec<SourceFile> = request
+        .source_files
+        .into_iter()
+        .map(|f| SourceFile {
+            path: PathBuf::from(f.path),
+            item_id: f.item_id,
+            dest_filename: f.dest_filename,
+        })
+        .collect();
+
+    // Build pipeline job
+    let job = PipelineJob {
+        ticket_id: ticket_id.clone(),
+        source_files,
+        file_mappings: vec![], // Will be populated from TextBrain results
+        constraints: ConversionConstraints::Audio(AudioConstraints {
+            format: audio_format,
+            bitrate_kbps: Some(request.bitrate_kbps),
+            sample_rate_hz: None,
+            channels: None,
+            compression_level: None,
+        }),
+        dest_dir: PathBuf::from(request.dest_dir),
+        metadata: None, // TODO: Extract from ticket
+    };
+
+    // Submit job to pipeline
+    // The pipeline processor handles state transitions internally
+    match pipeline.process(job, None).await {
+        Ok(()) => (
+            StatusCode::ACCEPTED,
+            Json(ProcessTicketResponse {
+                success: true,
+                message: "Job submitted to pipeline".to_string(),
+                ticket_id,
+            }),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ProcessTicketResponse {
+                success: false,
+                message: format!("Failed to submit job: {}", e),
+                ticket_id,
+            }),
+        ),
+    }
+}
+
+/// Progress response for a ticket.
+#[derive(Debug, Serialize)]
+pub struct TicketProgressResponse {
+    /// Ticket ID.
+    pub ticket_id: String,
+    /// Current phase.
+    pub phase: String,
+    /// Progress details.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub progress: Option<ProgressDetails>,
+    /// Error message if failed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// Progress details.
+#[derive(Debug, Serialize)]
+pub struct ProgressDetails {
+    /// Current file index.
+    pub current_file: usize,
+    /// Total files.
+    pub total_files: usize,
+    /// Current file name.
+    pub current_file_name: String,
+    /// Percent complete.
+    pub percent: f32,
+}
+
+/// Get progress for a ticket being processed.
+pub async fn get_progress(
+    State(state): State<Arc<AppState>>,
+    Path(ticket_id): Path<String>,
+) -> impl IntoResponse {
+    // Get ticket state
+    let ticket_store = state.ticket_store();
+    let ticket = match ticket_store.get(&ticket_id) {
+        Ok(Some(t)) => t,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(TicketProgressResponse {
+                    ticket_id,
+                    phase: "unknown".to_string(),
+                    progress: None,
+                    error: Some("Ticket not found".to_string()),
+                }),
+            );
+        }
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(TicketProgressResponse {
+                    ticket_id,
+                    phase: "error".to_string(),
+                    progress: None,
+                    error: Some(format!("Failed to get ticket: {}", e)),
+                }),
+            );
+        }
+    };
+
+    // Map ticket state to progress response
+    let response = match &ticket.state {
+        TicketState::Converting {
+            current_idx,
+            total,
+            current_name,
+            ..
+        } => TicketProgressResponse {
+            ticket_id,
+            phase: "converting".to_string(),
+            progress: Some(ProgressDetails {
+                current_file: *current_idx,
+                total_files: *total,
+                current_file_name: current_name.clone(),
+                percent: if *total > 0 {
+                    (*current_idx as f32 / *total as f32) * 100.0
+                } else {
+                    0.0
+                },
+            }),
+            error: None,
+        },
+        TicketState::Placing {
+            files_placed,
+            total_files,
+            ..
+        } => TicketProgressResponse {
+            ticket_id,
+            phase: "placing".to_string(),
+            progress: Some(ProgressDetails {
+                current_file: *files_placed,
+                total_files: *total_files,
+                current_file_name: "".to_string(),
+                percent: if *total_files > 0 {
+                    (*files_placed as f32 / *total_files as f32) * 100.0
+                } else {
+                    0.0
+                },
+            }),
+            error: None,
+        },
+        TicketState::Completed { .. } => TicketProgressResponse {
+            ticket_id,
+            phase: "completed".to_string(),
+            progress: Some(ProgressDetails {
+                current_file: 0,
+                total_files: 0,
+                current_file_name: "".to_string(),
+                percent: 100.0,
+            }),
+            error: None,
+        },
+        TicketState::Failed { error, .. } => TicketProgressResponse {
+            ticket_id,
+            phase: "failed".to_string(),
+            progress: None,
+            error: Some(error.clone()),
+        },
+        other => TicketProgressResponse {
+            ticket_id,
+            phase: format!("{:?}", other).to_lowercase(),
+            progress: None,
+            error: None,
+        },
+    };
+
+    (StatusCode::OK, Json(response))
 }

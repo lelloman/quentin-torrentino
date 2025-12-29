@@ -13,7 +13,8 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use torrentino_core::{
     create_audit_system, create_authenticator, load_config, validate_config, AuditEvent,
-    AuditStore, Authenticator, JackettSearcher, LibrqbitClient, QBittorrentClient, Searcher,
+    AuditStore, Authenticator, ConverterConfig, FfmpegConverter, FsPlacer, JackettSearcher,
+    LibrqbitClient, PipelineProcessor, PlacerConfig, ProcessorConfig, QBittorrentClient, Searcher,
     SearcherBackend, SqliteAuditStore, SqliteCatalog, SqliteTicketStore, TicketStore,
     TorrentCatalog, TorrentClient, TorrentClientBackend,
 };
@@ -164,6 +165,26 @@ async fn run() -> Result<()> {
         }
     };
 
+    // Create pipeline processor
+    // The processor is always created with default config for now
+    // Future: Add [processor] config section to config.toml
+    let processor_config = ProcessorConfig::default();
+    let converter_config = ConverterConfig::default();
+    let placer_config = PlacerConfig::default();
+
+    let converter = FfmpegConverter::new(converter_config);
+    let placer = FsPlacer::new(placer_config);
+
+    let pipeline = PipelineProcessor::new(processor_config, converter, placer)
+        .with_audit(audit_handle.clone())
+        .with_ticket_store(Arc::clone(&ticket_store));
+
+    // Start the pipeline processor
+    pipeline.start().await;
+    info!("Pipeline processor started");
+
+    let pipeline = Some(Arc::new(pipeline));
+
     // Create app state
     let state = Arc::new(AppState::new(
         config.clone(),
@@ -174,6 +195,7 @@ async fn run() -> Result<()> {
         searcher,
         torrent_client,
         catalog,
+        pipeline,
     ));
 
     // Create router
