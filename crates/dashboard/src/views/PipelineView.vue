@@ -29,7 +29,7 @@ function startAutoRefresh() {
   if (refreshInterval.value) return
   refreshInterval.value = window.setInterval(() => {
     if (autoRefresh.value) {
-      fetchAll()
+      fetchAll(false) // Don't show loading for background refresh
     }
   }, 5000)
 }

@@ -89,8 +89,10 @@ export function usePipeline() {
     }
   }
 
-  async function fetchAll() {
-    loading.value = true
+  async function fetchAll(showLoading = true) {
+    if (showLoading) {
+      loading.value = true
+    }
     error.value = null
     try {
       const [statusRes, converterRes, placerRes, ffmpegRes] = await Promise.all([
@@ -106,7 +108,9 @@ export function usePipeline() {
     } catch (e) {
       error.value = e instanceof Error ? e.message : 'Failed to fetch pipeline info'
     } finally {
-      loading.value = false
+      if (showLoading) {
+        loading.value = false
+      }
     }
   }
 
