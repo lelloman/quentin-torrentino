@@ -70,10 +70,10 @@ async function handleDownload(options: { magnet?: string; torrentUrl?: string; t
   try {
     downloadStatus.value = { type: 'success', message: `Starting download: ${options.title}...` }
 
-    if (options.magnet) {
-      await addMagnet({ uri: options.magnet })
-    } else if (options.torrentUrl) {
+    if (options.torrentUrl) {
       await addTorrentFromUrl(options.torrentUrl)
+    } else if (options.magnet) {
+      await addMagnet({ uri: options.magnet })
     } else {
       throw new Error('No magnet or torrent URL available')
     }

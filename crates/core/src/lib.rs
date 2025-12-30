@@ -2,6 +2,7 @@ pub mod audit;
 pub mod auth;
 pub mod catalog;
 pub mod config;
+pub mod content;
 pub mod converter;
 pub mod orchestrator;
 pub mod placer;
@@ -101,4 +102,10 @@ pub use orchestrator::{
     TicketOrchestrator,
     // Types
     ActiveDownload, OrchestratorError, OrchestratorStatus,
+};
+pub use content::{
+    // Error types
+    ContentError,
+    // Result types
+    PostProcessResult,
 };
