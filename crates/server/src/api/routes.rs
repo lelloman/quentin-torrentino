@@ -5,7 +5,7 @@ use axum::{
 use std::sync::Arc;
 use tower_http::services::{ServeDir, ServeFile};
 
-use super::{audit, catalog, handlers, pipeline, searcher, textbrain, tickets, torrents};
+use super::{audit, catalog, handlers, orchestrator, pipeline, searcher, textbrain, tickets, torrents};
 use crate::state::AppState;
 
 pub fn create_router(state: Arc<AppState>) -> Router {
@@ -25,6 +25,8 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/tickets", get(tickets::list_tickets))
         .route("/tickets/{id}", get(tickets::get_ticket))
         .route("/tickets/{id}", delete(tickets::cancel_ticket))
+        .route("/tickets/{id}/approve", post(tickets::approve_ticket))
+        .route("/tickets/{id}/reject", post(tickets::reject_ticket))
         // Search (read-only, indexers configured in Jackett)
         .route("/search", post(searcher::search))
         .route("/searcher/status", get(searcher::get_status))
@@ -68,6 +70,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             "/pipeline/progress/{ticket_id}",
             get(pipeline::get_progress),
         )
+        // Orchestrator
+        .route("/orchestrator/status", get(orchestrator::get_status))
+        .route("/orchestrator/start", post(orchestrator::start))
+        .route("/orchestrator/stop", post(orchestrator::stop))
         .with_state(state);
 
     // Serve dashboard with SPA fallback

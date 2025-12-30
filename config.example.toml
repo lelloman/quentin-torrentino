@@ -83,3 +83,74 @@ path = "quentin.db"
 # password = "adminadmin"                 # Web UI password
 # download_path = "/downloads"            # Optional: default download path
 # timeout_secs = 30                       # Request timeout (default: 30)
+
+# ==============================================================================
+# TEXTBRAIN (OPTIONAL)
+# ==============================================================================
+# TextBrain handles intelligent torrent matching using heuristics and/or LLM.
+# Default mode is "dumb_only" which uses fast heuristic matching.
+
+# [textbrain]
+# # Coordination mode:
+# #   - "dumb_only": Heuristics only, no LLM (default, fastest, works offline)
+# #   - "dumb_first": Try heuristics first, use LLM if confidence is low
+# #   - "llm_first": Use LLM first, fall back to heuristics on error
+# #   - "llm_only": Only LLM, fail if unavailable
+# mode = "dumb_only"
+#
+# # Score threshold for auto-approval (0.0-1.0)
+# # Candidates scoring >= this threshold are auto-approved
+# auto_approve_threshold = 0.85
+#
+# # Confidence threshold for LLM fallback (in dumb_first mode)
+# # If heuristic confidence < this, try LLM
+# confidence_threshold = 0.7
+#
+# # Maximum search queries to try before giving up
+# max_queries = 5
+
+# LLM configuration (required for modes that use LLM)
+# Example with local Ollama:
+
+# [textbrain.llm]
+# provider = "ollama"                     # "anthropic", "openai", "ollama", "custom"
+# model = "llama2"                        # Model name
+# # api_key = "sk-..."                    # Required for anthropic/openai
+# # api_base = "http://localhost:11434"   # Optional: custom endpoint
+# timeout_secs = 60                       # Request timeout
+# max_tokens = 1024                       # Max tokens for completions
+
+# ==============================================================================
+# ORCHESTRATOR (OPTIONAL)
+# ==============================================================================
+# The orchestrator automatically processes tickets through the pipeline:
+# Pending -> Acquiring -> Approved/NeedsApproval -> Downloading -> Pipeline
+#
+# Requires: searcher AND torrent_client to be configured.
+
+# [orchestrator]
+# # Enable automatic ticket processing
+# enabled = true
+#
+# # How often to poll for pending tickets (milliseconds)
+# # The acquisition loop processes one ticket at a time
+# acquisition_poll_interval_ms = 5000    # 5 seconds
+#
+# # How often to check download progress (milliseconds)
+# download_poll_interval_ms = 3000       # 3 seconds
+#
+# # Score threshold for auto-approval (0.0-1.0)
+# # Candidates >= this threshold skip manual approval
+# auto_approve_threshold = 0.85
+#
+# # Maximum concurrent downloads (0 = unlimited)
+# max_concurrent_downloads = 3
+#
+# # Stall detection and failover settings
+# # If a download shows no progress for the timeout, try next candidate
+# stall_timeout_round1_secs = 300        # 5 minutes (first pass through candidates)
+# stall_timeout_round2_secs = 1800       # 30 minutes (second pass)
+# stall_timeout_round3_secs = 7200       # 2 hours (final pass, then fail)
+#
+# # How many candidates to retain for failover
+# max_failover_candidates = 5
