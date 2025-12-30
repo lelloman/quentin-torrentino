@@ -104,14 +104,10 @@ impl LibrqbitClient {
         let hash = Self::format_hash(&torrent.info_hash());
         let stats = torrent.stats();
 
-        // Get name from torrent or cache
+        // Get name from torrent or fallback to hash prefix
         let name = torrent
             .name()
             .map(|s| s.to_string())
-            .or_else(|| {
-                // Try to get from cache synchronously by spawning a blocking read
-                None
-            })
             .unwrap_or_else(|| format!("torrent-{}", &hash[..8]));
 
         // Determine state

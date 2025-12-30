@@ -153,7 +153,7 @@ impl TicketStore for SqliteTicketStore {
         let output_constraints_json = request
             .output_constraints
             .as_ref()
-            .map(|c| serde_json::to_string(c))
+            .map(serde_json::to_string)
             .transpose()
             .map_err(|e| TicketError::Database(e.to_string()))?;
 

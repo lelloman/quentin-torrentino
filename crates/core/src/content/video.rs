@@ -651,6 +651,7 @@ impl<'a> VideoScorer<'a> {
     }
 
     /// Generate human-readable reasoning.
+    #[allow(clippy::too_many_arguments)]
     fn generate_reasoning(
         &self,
         title: &str,

@@ -67,6 +67,8 @@ mod dumb_matcher;
 mod dumb_query_builder;
 mod file_mapper;
 mod llm;
+mod llm_matcher;
+mod llm_query_builder;
 mod traits;
 pub mod training;
 mod types;
@@ -87,6 +89,10 @@ pub use traits::{CandidateMatcher, QueryBuilder, TextBrainError};
 pub use dumb_matcher::{DumbMatcher, DumbMatcherConfig};
 pub use dumb_query_builder::{DumbQueryBuilder, DumbQueryBuilderConfig};
 pub use file_mapper::{DumbFileMapper, DumbFileMapperConfig, calculate_mapping_quality};
+
+// LLM implementations
+pub use llm_matcher::{LlmMatcher, LlmMatcherConfig};
+pub use llm_query_builder::{LlmQueryBuilder, LlmQueryBuilderConfig};
 
 // Result types
 pub use types::{

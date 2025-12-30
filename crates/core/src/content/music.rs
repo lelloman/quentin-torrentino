@@ -342,7 +342,7 @@ impl<'a> MusicScorer<'a> {
 
         ScoredCandidate {
             candidate: candidate.clone(),
-            score: final_score.max(0.0).min(1.0),
+            score: final_score.clamp(0.0, 1.0),
             reasoning,
             file_mappings,
         }
@@ -442,14 +442,13 @@ impl<'a> MusicScorer<'a> {
         let mut penalty: f32 = 0.0;
 
         // Compilation/VA when looking for specific artist
-        if self.expected_artist.is_some() {
-            if title.contains("various artist")
+        if self.expected_artist.is_some()
+            && (title.contains("various artist")
                 || title.contains("v.a.")
                 || title.contains("va -")
-                || title.contains("compilation")
-            {
-                penalty += 0.3;
-            }
+                || title.contains("compilation"))
+        {
+            penalty += 0.3;
         }
 
         // Sample/preview releases
@@ -460,11 +459,11 @@ impl<'a> MusicScorer<'a> {
         // Live recordings when studio expected (common mismatch)
         let expected_is_not_live = self
             .expected_title
-            .map_or(true, |t| !t.to_lowercase().contains("live"));
-        if expected_is_not_live {
-            if title.contains("[live]") || title.contains("(live)") || title.contains(" live ") {
-                penalty += 0.2;
-            }
+            .is_none_or(|t| !t.to_lowercase().contains("live"));
+        if expected_is_not_live
+            && (title.contains("[live]") || title.contains("(live)") || title.contains(" live "))
+        {
+            penalty += 0.2;
         }
 
         // Tribute/cover albums

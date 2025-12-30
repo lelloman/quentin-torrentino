@@ -148,10 +148,10 @@ impl DumbFileMapper {
 
             let score = (title_score + artist_bonus).min(1.0);
 
-            if score >= self.config.min_confidence {
-                if best_match.is_none() || score > best_match.unwrap().1 {
-                    best_match = Some((file, score));
-                }
+            if score >= self.config.min_confidence
+                && (best_match.is_none() || score > best_match.unwrap().1)
+            {
+                best_match = Some((file, score));
             }
         }
 
@@ -285,10 +285,10 @@ impl DumbFileMapper {
                 + (title_score * self.config.title_weight);
 
             // Only consider if above threshold
-            if weighted_score >= self.config.min_confidence {
-                if best_match.is_none() || weighted_score > best_match.unwrap().1 {
-                    best_match = Some((file, weighted_score));
-                }
+            if weighted_score >= self.config.min_confidence
+                && (best_match.is_none() || weighted_score > best_match.unwrap().1)
+            {
+                best_match = Some((file, weighted_score));
             }
         }
 
@@ -325,10 +325,10 @@ impl DumbFileMapper {
             let episode_score = if episode_match { 0.5 } else { 0.0 };
             let total_score = (series_score * 0.5 + episode_score).min(1.0);
 
-            if total_score >= self.config.min_confidence {
-                if best_match.is_none() || total_score > best_match.unwrap().1 {
-                    best_match = Some((file, total_score));
-                }
+            if total_score >= self.config.min_confidence
+                && (best_match.is_none() || total_score > best_match.unwrap().1)
+            {
+                best_match = Some((file, total_score));
             }
         }
 
