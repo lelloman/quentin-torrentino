@@ -22,23 +22,121 @@ export interface QueryContext {
   description: string
 }
 
+// Acquisition phase enum
+export type AcquisitionPhase = 'building_queries' | 'searching' | 'scoring'
+
+// Scored candidate summary (for NeedsApproval state)
+export interface ScoredCandidateSummaryState {
+  title: string
+  info_hash: string
+  size_bytes: number
+  seeders: number
+  score: number
+  reasoning: string
+}
+
+// Selected candidate (for Approved/Downloading states)
+export interface SelectedCandidateState {
+  title: string
+  info_hash: string
+  magnet_uri: string
+  size_bytes: number
+  score: number
+}
+
+// Completion stats
+export interface CompletionStats {
+  total_download_bytes: number
+  download_duration_secs: number
+  conversion_duration_secs: number
+  final_size_bytes: number
+  files_placed: number
+}
+
 // TicketState uses discriminated union with 'type' field
 export type TicketState =
   | { type: 'pending' }
+  | {
+      type: 'acquiring'
+      started_at: string
+      queries_tried: string[]
+      candidates_found: number
+      phase: AcquisitionPhase
+    }
+  | {
+      type: 'acquisition_failed'
+      queries_tried: string[]
+      candidates_seen: number
+      reason: string
+      failed_at: string
+    }
+  | {
+      type: 'needs_approval'
+      candidates: ScoredCandidateSummaryState[]
+      recommended_idx: number
+      confidence: number
+      waiting_since: string
+    }
+  | {
+      type: 'auto_approved'
+      selected: SelectedCandidateState
+      candidates: SelectedCandidateState[]
+      confidence: number
+      approved_at: string
+    }
+  | {
+      type: 'approved'
+      selected: SelectedCandidateState
+      candidates: SelectedCandidateState[]
+      approved_by: string
+      approved_at: string
+    }
+  | {
+      type: 'rejected'
+      rejected_by: string
+      reason: string | null
+      rejected_at: string
+    }
+  | {
+      type: 'downloading'
+      info_hash: string
+      progress_pct: number
+      speed_bps: number
+      eta_secs: number | null
+      started_at: string
+      candidate_idx: number
+      failover_round: number
+    }
+  | {
+      type: 'converting'
+      current_idx: number
+      total: number
+      current_name: string
+      started_at: string
+    }
+  | {
+      type: 'placing'
+      files_placed: number
+      total_files: number
+      started_at: string
+    }
+  | {
+      type: 'completed'
+      completed_at: string
+      stats?: CompletionStats
+    }
+  | {
+      type: 'failed'
+      error: string
+      retryable?: boolean
+      retry_count?: number
+      failed_at: string
+    }
   | {
       type: 'cancelled'
       cancelled_by: string
       reason: string | null
       cancelled_at: string
-    }
-  | {
-      type: 'completed'
-      completed_at: string
-    }
-  | {
-      type: 'failed'
-      error: string
-      failed_at: string
     }
 
 export interface Ticket {
@@ -76,7 +174,20 @@ export interface ApiError {
   error: string
 }
 
-export type TicketStateType = 'pending' | 'cancelled' | 'completed' | 'failed'
+export type TicketStateType =
+  | 'pending'
+  | 'acquiring'
+  | 'acquisition_failed'
+  | 'needs_approval'
+  | 'auto_approved'
+  | 'approved'
+  | 'rejected'
+  | 'downloading'
+  | 'converting'
+  | 'placing'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
 
 // Search types
 

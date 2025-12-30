@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, onUnmounted, ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useTickets } from '../composables/useTickets'
 import TicketDetail from '../components/tickets/TicketDetail.vue'
@@ -20,11 +20,43 @@ const {
 
 const cancelReason = ref('')
 const showCancelDialog = ref(false)
+let pollInterval: ReturnType<typeof setInterval> | null = null
+
+// Check if ticket is in an active state that needs polling
+const isActiveState = computed(() => {
+  if (!currentTicket.value) return false
+  const activeStates = ['acquiring', 'downloading', 'converting', 'placing']
+  return activeStates.includes(currentTicket.value.state.type)
+})
+
+// Start/stop polling based on active state
+watch(isActiveState, (active) => {
+  if (active && !pollInterval) {
+    pollInterval = setInterval(() => {
+      const id = route.params.id as string
+      fetchTicket(id)
+    }, 3000)
+  } else if (!active && pollInterval) {
+    clearInterval(pollInterval)
+    pollInterval = null
+  }
+})
 
 onMounted(() => {
   const id = route.params.id as string
   fetchTicket(id)
 })
+
+onUnmounted(() => {
+  if (pollInterval) {
+    clearInterval(pollInterval)
+  }
+})
+
+function handleRefresh() {
+  const id = route.params.id as string
+  fetchTicket(id)
+}
 
 async function handleCancel() {
   if (!currentTicket.value) return
@@ -69,6 +101,7 @@ function goBack() {
       <TicketDetail
         :ticket="currentTicket"
         @cancel="showCancelDialog = true"
+        @refresh="handleRefresh"
       />
 
       <!-- Cancel Dialog -->

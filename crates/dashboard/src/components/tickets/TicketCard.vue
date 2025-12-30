@@ -11,16 +11,35 @@ const props = defineProps<{
 const stateVariant = computed(() => {
   switch (props.ticket.state.type) {
     case 'pending':
+    case 'acquiring':
+    case 'downloading':
+    case 'converting':
+    case 'placing':
       return 'info'
+    case 'needs_approval':
+      return 'warning'
+    case 'auto_approved':
+    case 'approved':
     case 'completed':
       return 'success'
+    case 'rejected':
     case 'cancelled':
       return 'warning'
+    case 'acquisition_failed':
     case 'failed':
       return 'danger'
     default:
       return 'default'
   }
+})
+
+const stateName = computed(() => {
+  return props.ticket.state.type.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+})
+
+const isActive = computed(() => {
+  const type = props.ticket.state.type
+  return ['acquiring', 'downloading', 'converting', 'placing'].includes(type)
 })
 
 const formattedDate = computed(() => {
@@ -48,7 +67,10 @@ const formattedDate = computed(() => {
         </div>
       </div>
       <div class="flex flex-col items-end gap-2">
-        <Badge :variant="stateVariant">{{ ticket.state.type }}</Badge>
+        <div class="flex items-center gap-1">
+          <span v-if="isActive" class="animate-pulse w-2 h-2 bg-blue-500 rounded-full"></span>
+          <Badge :variant="stateVariant">{{ stateName }}</Badge>
+        </div>
         <span class="text-xs text-gray-500">{{ formattedDate }}</span>
       </div>
     </div>

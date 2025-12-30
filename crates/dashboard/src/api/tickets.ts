@@ -39,3 +39,19 @@ export async function createTicket(request: CreateTicketRequest): Promise<Ticket
 export async function cancelTicket(id: string, request?: CancelTicketRequest): Promise<Ticket> {
   return del<Ticket>(`/tickets/${id}`, request)
 }
+
+export interface ApproveTicketRequest {
+  candidate_idx?: number
+}
+
+export interface RejectTicketRequest {
+  reason?: string
+}
+
+export async function approveTicket(id: string, request?: ApproveTicketRequest): Promise<Ticket> {
+  return post<Ticket>(`/tickets/${id}/approve`, request)
+}
+
+export async function rejectTicket(id: string, request?: RejectTicketRequest): Promise<Ticket> {
+  return post<Ticket>(`/tickets/${id}/reject`, request)
+}
