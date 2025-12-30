@@ -5,6 +5,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::textbrain::{FileMapping, ScoredCandidateSummary};
 
+/// Default failover round for backward compatibility.
+fn default_failover_round() -> u8 {
+    1
+}
+
 /// Query context for search and matching.
 ///
 /// Provides both structured tags for routing/categorization and
@@ -311,6 +316,9 @@ pub enum TicketState {
     /// Automatically approved (confidence >= threshold).
     AutoApproved {
         selected: SelectedCandidate,
+        /// All candidates for failover (selected is candidates[0]).
+        #[serde(default)]
+        candidates: Vec<SelectedCandidate>,
         confidence: f32,
         approved_at: DateTime<Utc>,
     },
@@ -318,6 +326,9 @@ pub enum TicketState {
     /// Manually approved by user/admin.
     Approved {
         selected: SelectedCandidate,
+        /// All candidates for failover (selected is candidates[0]).
+        #[serde(default)]
+        candidates: Vec<SelectedCandidate>,
         approved_by: String,
         approved_at: DateTime<Utc>,
     },
@@ -344,6 +355,21 @@ pub enum TicketState {
         /// Estimated time remaining in seconds.
         eta_secs: Option<u32>,
         started_at: DateTime<Utc>,
+        /// Index of current candidate being tried (0-based).
+        #[serde(default)]
+        candidate_idx: usize,
+        /// Current failover round (1, 2, or 3).
+        #[serde(default = "default_failover_round")]
+        failover_round: u8,
+        /// Progress at last check (for stall detection).
+        #[serde(default)]
+        last_progress_pct: f32,
+        /// When progress last changed (for stall detection).
+        #[serde(default = "Utc::now")]
+        last_progress_at: DateTime<Utc>,
+        /// All candidates for failover.
+        #[serde(default)]
+        candidates: Vec<SelectedCandidate>,
     },
 
     /// Converting downloaded files (transcoding, metadata embedding).
@@ -547,12 +573,18 @@ mod tests {
 
     #[test]
     fn test_downloading_state() {
+        let now = Utc::now();
         let state = TicketState::Downloading {
             info_hash: "abc123".to_string(),
             progress_pct: 45.5,
             speed_bps: 1_000_000,
             eta_secs: Some(120),
-            started_at: Utc::now(),
+            started_at: now,
+            candidate_idx: 0,
+            failover_round: 1,
+            last_progress_pct: 45.5,
+            last_progress_at: now,
+            candidates: vec![],
         };
         assert!(!state.is_terminal());
         assert!(state.is_active());

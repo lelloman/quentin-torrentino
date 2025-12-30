@@ -30,6 +30,29 @@ pub struct OrchestratorConfig {
     /// When limit is reached, new downloads wait until slots are free.
     #[serde(default)]
     pub max_concurrent_downloads: usize,
+
+    // ========================================================================
+    // Stall detection and failover
+    // ========================================================================
+
+    /// Round 1 stall timeout in seconds (default: 300 = 5 minutes).
+    /// If no progress for this duration, try next candidate.
+    #[serde(default = "default_stall_timeout_round1")]
+    pub stall_timeout_round1_secs: u64,
+
+    /// Round 2 stall timeout in seconds (default: 1800 = 30 minutes).
+    /// After trying all candidates once, use this longer timeout.
+    #[serde(default = "default_stall_timeout_round2")]
+    pub stall_timeout_round2_secs: u64,
+
+    /// Round 3 stall timeout in seconds (default: 7200 = 2 hours).
+    /// Final round before giving up entirely.
+    #[serde(default = "default_stall_timeout_round3")]
+    pub stall_timeout_round3_secs: u64,
+
+    /// Maximum candidates to retain for failover (default: 5).
+    #[serde(default = "default_max_failover_candidates")]
+    pub max_failover_candidates: usize,
 }
 
 fn default_acquisition_interval() -> u64 {
@@ -44,6 +67,22 @@ fn default_threshold() -> f32 {
     0.85
 }
 
+fn default_stall_timeout_round1() -> u64 {
+    300 // 5 minutes
+}
+
+fn default_stall_timeout_round2() -> u64 {
+    1800 // 30 minutes
+}
+
+fn default_stall_timeout_round3() -> u64 {
+    7200 // 2 hours
+}
+
+fn default_max_failover_candidates() -> usize {
+    5
+}
+
 impl Default for OrchestratorConfig {
     fn default() -> Self {
         Self {
@@ -52,6 +91,10 @@ impl Default for OrchestratorConfig {
             download_poll_interval_ms: default_download_interval(),
             auto_approve_threshold: default_threshold(),
             max_concurrent_downloads: 0,
+            stall_timeout_round1_secs: default_stall_timeout_round1(),
+            stall_timeout_round2_secs: default_stall_timeout_round2(),
+            stall_timeout_round3_secs: default_stall_timeout_round3(),
+            max_failover_candidates: default_max_failover_candidates(),
         }
     }
 }
@@ -68,6 +111,11 @@ mod tests {
         assert_eq!(config.download_poll_interval_ms, 3000);
         assert_eq!(config.auto_approve_threshold, 0.85);
         assert_eq!(config.max_concurrent_downloads, 0);
+        // Stall detection defaults
+        assert_eq!(config.stall_timeout_round1_secs, 300); // 5 min
+        assert_eq!(config.stall_timeout_round2_secs, 1800); // 30 min
+        assert_eq!(config.stall_timeout_round3_secs, 7200); // 2 hours
+        assert_eq!(config.max_failover_candidates, 5);
     }
 
     #[test]

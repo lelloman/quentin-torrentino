@@ -49,6 +49,14 @@ pub struct ActiveDownload {
     pub info_hash: String,
     /// When the download started.
     pub started_at: DateTime<Utc>,
+    /// Index of current candidate being tried (0-based).
+    pub candidate_idx: usize,
+    /// Current failover round (1, 2, or 3).
+    pub failover_round: u8,
+    /// Progress at last check (for stall detection).
+    pub last_progress_pct: f32,
+    /// When progress last changed (for stall detection).
+    pub last_progress_at: DateTime<Utc>,
 }
 
 /// Current status of the orchestrator.
@@ -74,10 +82,15 @@ mod tests {
 
     #[test]
     fn test_active_download_serialization() {
+        let now = Utc::now();
         let download = ActiveDownload {
             ticket_id: "ticket-123".to_string(),
             info_hash: "abc123def456".to_string(),
-            started_at: Utc::now(),
+            started_at: now,
+            candidate_idx: 0,
+            failover_round: 1,
+            last_progress_pct: 0.0,
+            last_progress_at: now,
         };
 
         let json = serde_json::to_string(&download).unwrap();
@@ -85,6 +98,8 @@ mod tests {
 
         assert_eq!(parsed.ticket_id, "ticket-123");
         assert_eq!(parsed.info_hash, "abc123def456");
+        assert_eq!(parsed.candidate_idx, 0);
+        assert_eq!(parsed.failover_round, 1);
     }
 
     #[test]

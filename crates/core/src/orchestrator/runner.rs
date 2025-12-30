@@ -168,6 +168,10 @@ where
                     if let TicketState::Downloading {
                         info_hash,
                         started_at,
+                        candidate_idx,
+                        failover_round,
+                        last_progress_pct,
+                        last_progress_at,
                         ..
                     } = &ticket.state
                     {
@@ -177,6 +181,10 @@ where
                                 ticket_id: ticket.id.clone(),
                                 info_hash: info_hash.clone(),
                                 started_at: *started_at,
+                                candidate_idx: *candidate_idx,
+                                failover_round: *failover_round,
+                                last_progress_pct: *last_progress_pct,
+                                last_progress_at: *last_progress_at,
                             },
                         );
                         info!("Recovered downloading ticket: {}", ticket.id);
@@ -267,6 +275,7 @@ where
                             &torrent_client,
                             &pipeline,
                             &active_downloads,
+                            &config,
                         ).await {
                             warn!("Failed to check downloads: {}", e);
                         }
@@ -320,11 +329,20 @@ where
                 if acq.auto_approved {
                     if let Some(ref candidate) = acq.best_candidate {
                         // Auto-approved - high confidence match
+                        // Build all candidates for failover (up to max_failover_candidates)
+                        let candidates: Vec<SelectedCandidate> = acq
+                            .all_candidates
+                            .iter()
+                            .take(config.max_failover_candidates)
+                            .map(Self::build_selected_candidate)
+                            .collect();
+
                         let selected = Self::build_selected_candidate(candidate);
                         ticket_store.update_state(
                             &ticket.id,
                             TicketState::AutoApproved {
                                 selected,
+                                candidates,
                                 confidence: candidate.score,
                                 approved_at: Utc::now(),
                             },
@@ -428,14 +446,14 @@ where
                     }
                 }
 
-                // Extract magnet URI from state
-                let selected = Self::extract_selected_candidate(&ticket)?;
+                // Extract all candidates from state for failover
+                let (selected, candidates) = Self::extract_candidates(&ticket)?;
 
                 // Add to torrent client
                 let request = AddTorrentRequest::magnet(&selected.magnet_uri);
                 match torrent_client.add_torrent(request).await {
                     Ok(result) => {
-                        // Track active download
+                        // Track active download with failover context
                         let now = Utc::now();
                         {
                             let mut downloads = active_downloads.write().await;
@@ -445,11 +463,15 @@ where
                                     ticket_id: ticket.id.clone(),
                                     info_hash: result.hash.clone(),
                                     started_at: now,
+                                    candidate_idx: 0,
+                                    failover_round: 1,
+                                    last_progress_pct: 0.0,
+                                    last_progress_at: now,
                                 },
                             );
                         }
 
-                        // Update ticket state
+                        // Update ticket state with failover fields
                         ticket_store.update_state(
                             &ticket.id,
                             TicketState::Downloading {
@@ -458,6 +480,11 @@ where
                                 speed_bps: 0,
                                 eta_secs: None,
                                 started_at: now,
+                                candidate_idx: 0,
+                                failover_round: 1,
+                                last_progress_pct: 0.0,
+                                last_progress_at: now,
+                                candidates,
                             },
                         )?;
 
@@ -491,6 +518,7 @@ where
         torrent_client: &Arc<dyn TorrentClient>,
         pipeline: &Arc<PipelineProcessor<C2, P2>>,
         active_downloads: &Arc<RwLock<HashMap<String, ActiveDownload>>>,
+        config: &OrchestratorConfig,
     ) -> Result<(), OrchestratorError>
     where
         C2: crate::converter::Converter + 'static,
@@ -549,17 +577,71 @@ where
                     );
                 }
             } else {
-                // Update progress in ticket state
-                let _ = ticket_store.update_state(
-                    &download.ticket_id,
-                    TicketState::Downloading {
-                        info_hash: download.info_hash.clone(),
-                        progress_pct: (info.progress * 100.0) as f32,
-                        speed_bps: info.download_speed,
-                        eta_secs: info.eta_secs.map(|e| e as u32),
-                        started_at: download.started_at,
-                    },
-                );
+                let now = Utc::now();
+                let current_progress = (info.progress * 100.0) as f32;
+
+                // Check if progress changed
+                let (new_last_pct, new_last_at) = if current_progress > download.last_progress_pct {
+                    (current_progress, now) // Progress! Reset timer
+                } else {
+                    (download.last_progress_pct, download.last_progress_at) // No change
+                };
+
+                // Check for stall
+                let timeout = Self::get_stall_timeout(config, download.failover_round);
+                let stall_duration = now.signed_duration_since(new_last_at);
+
+                if stall_duration > chrono::Duration::seconds(timeout as i64) {
+                    // STALLED - trigger failover
+                    if let Err(e) = Self::handle_stall(
+                        ticket_store,
+                        torrent_client,
+                        active_downloads,
+                        &download,
+                        config,
+                    )
+                    .await
+                    {
+                        warn!(
+                            "Failed to handle stall for ticket {}: {}",
+                            download.ticket_id, e
+                        );
+                    }
+                } else {
+                    // Update progress tracking in active downloads
+                    {
+                        let mut downloads = active_downloads.write().await;
+                        if let Some(d) = downloads.get_mut(&download.ticket_id) {
+                            d.last_progress_pct = new_last_pct;
+                            d.last_progress_at = new_last_at;
+                        }
+                    }
+
+                    // Get ticket to preserve candidates
+                    if let Ok(Some(ticket)) = ticket_store.get(&download.ticket_id) {
+                        let candidates = match &ticket.state {
+                            TicketState::Downloading { candidates, .. } => candidates.clone(),
+                            _ => vec![],
+                        };
+
+                        // Update ticket state with new progress
+                        let _ = ticket_store.update_state(
+                            &download.ticket_id,
+                            TicketState::Downloading {
+                                info_hash: download.info_hash.clone(),
+                                progress_pct: current_progress,
+                                speed_bps: info.download_speed,
+                                eta_secs: info.eta_secs.map(|e| e as u32),
+                                started_at: download.started_at,
+                                candidate_idx: download.candidate_idx,
+                                failover_round: download.failover_round,
+                                last_progress_pct: new_last_pct,
+                                last_progress_at: new_last_at,
+                                candidates,
+                            },
+                        );
+                    }
+                }
             }
         }
 
@@ -652,6 +734,215 @@ where
                 actual: ticket.state.state_type().to_string(),
             }),
         }
+    }
+
+    /// Extract selected candidate and all candidates for failover from ticket state.
+    fn extract_candidates(
+        ticket: &Ticket,
+    ) -> Result<(SelectedCandidate, Vec<SelectedCandidate>), OrchestratorError> {
+        match &ticket.state {
+            TicketState::AutoApproved {
+                selected,
+                candidates,
+                ..
+            } => {
+                // Use stored candidates, or fallback to just the selected one
+                let all_candidates = if candidates.is_empty() {
+                    vec![selected.clone()]
+                } else {
+                    candidates.clone()
+                };
+                Ok((selected.clone(), all_candidates))
+            }
+            TicketState::Approved {
+                selected,
+                candidates,
+                ..
+            } => {
+                let all_candidates = if candidates.is_empty() {
+                    vec![selected.clone()]
+                } else {
+                    candidates.clone()
+                };
+                Ok((selected.clone(), all_candidates))
+            }
+            _ => Err(OrchestratorError::InvalidState {
+                expected: "AutoApproved or Approved".to_string(),
+                actual: ticket.state.state_type().to_string(),
+            }),
+        }
+    }
+
+    /// Get stall timeout for the given failover round.
+    fn get_stall_timeout(config: &OrchestratorConfig, round: u8) -> u64 {
+        match round {
+            1 => config.stall_timeout_round1_secs,
+            2 => config.stall_timeout_round2_secs,
+            _ => config.stall_timeout_round3_secs,
+        }
+    }
+
+    /// Handle a stalled download by trying the next candidate or failing.
+    async fn handle_stall(
+        ticket_store: &Arc<dyn TicketStore>,
+        torrent_client: &Arc<dyn TorrentClient>,
+        active_downloads: &Arc<RwLock<HashMap<String, ActiveDownload>>>,
+        download: &ActiveDownload,
+        config: &OrchestratorConfig,
+    ) -> Result<(), OrchestratorError> {
+        // Get ticket to access candidates
+        let ticket = ticket_store
+            .get(&download.ticket_id)?
+            .ok_or_else(|| OrchestratorError::TicketNotFound(download.ticket_id.clone()))?;
+
+        let candidates = match &ticket.state {
+            TicketState::Downloading { candidates, .. } => candidates.clone(),
+            _ => {
+                return Err(OrchestratorError::InvalidState {
+                    expected: "Downloading".to_string(),
+                    actual: ticket.state.state_type().to_string(),
+                });
+            }
+        };
+
+        let num_candidates = candidates.len();
+        if num_candidates == 0 {
+            // No candidates to failover to - fail immediately
+            active_downloads.write().await.remove(&download.ticket_id);
+            let _ = torrent_client
+                .remove_torrent(&download.info_hash, false)
+                .await;
+            ticket_store.update_state(
+                &download.ticket_id,
+                TicketState::Failed {
+                    error: "Download stalled: no candidates available".to_string(),
+                    retryable: false,
+                    retry_count: 0,
+                    failed_at: Utc::now(),
+                },
+            )?;
+            return Ok(());
+        }
+
+        // Calculate next candidate and round
+        let mut next_idx = download.candidate_idx + 1;
+        let mut next_round = download.failover_round;
+
+        if next_idx >= num_candidates {
+            next_idx = 0;
+            next_round += 1;
+        }
+
+        // Check if we've exhausted all rounds
+        if next_round > 3 {
+            // All candidates tried in all rounds - fail permanently
+            active_downloads.write().await.remove(&download.ticket_id);
+            let _ = torrent_client
+                .remove_torrent(&download.info_hash, false)
+                .await;
+
+            ticket_store.update_state(
+                &download.ticket_id,
+                TicketState::Failed {
+                    error: format!(
+                        "Download stalled: tried {} candidates over 3 rounds (~{} hours)",
+                        num_candidates,
+                        (config.stall_timeout_round1_secs * num_candidates as u64
+                            + config.stall_timeout_round2_secs * num_candidates as u64
+                            + config.stall_timeout_round3_secs * num_candidates as u64)
+                            / 3600
+                    ),
+                    retryable: false,
+                    retry_count: 0,
+                    failed_at: Utc::now(),
+                },
+            )?;
+
+            info!(
+                "Ticket {} failed after exhausting all failover attempts",
+                download.ticket_id
+            );
+            return Ok(());
+        }
+
+        // Remove current stalled torrent
+        let _ = torrent_client
+            .remove_torrent(&download.info_hash, false)
+            .await;
+
+        // Try next candidate
+        let next_candidate = &candidates[next_idx];
+        info!(
+            "Ticket {}: stall detected (round {}), failing over to candidate {} of {}",
+            download.ticket_id,
+            download.failover_round,
+            next_idx + 1,
+            num_candidates
+        );
+
+        // Add new torrent
+        let request = AddTorrentRequest::magnet(&next_candidate.magnet_uri);
+        match torrent_client.add_torrent(request).await {
+            Ok(result) => {
+                let now = Utc::now();
+
+                // Update tracking
+                {
+                    let mut downloads = active_downloads.write().await;
+                    downloads.insert(
+                        download.ticket_id.clone(),
+                        ActiveDownload {
+                            ticket_id: download.ticket_id.clone(),
+                            info_hash: result.hash.clone(),
+                            started_at: now,
+                            candidate_idx: next_idx,
+                            failover_round: next_round,
+                            last_progress_pct: 0.0,
+                            last_progress_at: now,
+                        },
+                    );
+                }
+
+                // Update ticket state
+                ticket_store.update_state(
+                    &download.ticket_id,
+                    TicketState::Downloading {
+                        info_hash: result.hash,
+                        progress_pct: 0.0,
+                        speed_bps: 0,
+                        eta_secs: None,
+                        started_at: now,
+                        candidate_idx: next_idx,
+                        failover_round: next_round,
+                        last_progress_pct: 0.0,
+                        last_progress_at: now,
+                        candidates,
+                    },
+                )?;
+            }
+            Err(e) => {
+                // Failed to add the next candidate - try the one after that
+                warn!(
+                    "Failed to add failover torrent for candidate {}: {}",
+                    next_idx, e
+                );
+                // Update download tracking to skip this candidate
+                {
+                    let mut downloads = active_downloads.write().await;
+                    if let Some(d) = downloads.get_mut(&download.ticket_id) {
+                        d.candidate_idx = next_idx;
+                        d.failover_round = next_round;
+                        // Reset stall timer to trigger immediate retry of next candidate
+                        d.last_progress_at = Utc::now()
+                            - chrono::Duration::seconds(
+                                Self::get_stall_timeout(config, next_round) as i64 + 1,
+                            );
+                    }
+                }
+            }
+        }
+
+        Ok(())
     }
 }
 
