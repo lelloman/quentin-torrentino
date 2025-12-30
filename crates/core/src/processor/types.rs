@@ -47,8 +47,8 @@ pub struct PipelineJob {
     pub source_files: Vec<SourceFile>,
     /// File mappings from TextBrain.
     pub file_mappings: Vec<FileMapping>,
-    /// Conversion constraints.
-    pub constraints: ConversionConstraints,
+    /// Conversion constraints (None = copy files without conversion).
+    pub constraints: Option<ConversionConstraints>,
     /// Destination directory.
     pub dest_dir: PathBuf,
     /// Metadata to embed (optional).

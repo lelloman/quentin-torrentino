@@ -16,7 +16,6 @@ use tokio::sync::{broadcast, RwLock};
 use tracing::{debug, error, info, warn};
 
 use crate::audit::AuditHandle;
-use crate::converter::ConversionConstraints;
 use crate::processor::{PipelineJob, PipelineProcessor, SourceFile};
 use crate::searcher::Searcher;
 use crate::textbrain::{
@@ -685,7 +684,10 @@ where
             ticket_id: ticket.id.clone(),
             source_files,
             file_mappings: selected.file_mappings,
-            constraints: ConversionConstraints::default(), // TODO: From config/ticket
+            constraints: ticket
+                .output_constraints
+                .as_ref()
+                .and_then(|c| c.to_conversion_constraints()),
             dest_dir: PathBuf::from(&ticket.dest_path),
             metadata: None,
         };

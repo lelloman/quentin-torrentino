@@ -91,6 +91,7 @@ mod tests {
             created_at: now,
             updated_at: now,
             created_by: "test".to_string(),
+            output_constraints: None,
         };
 
         let result = post_process(&ticket, Path::new("/tmp")).await.unwrap();

@@ -147,6 +147,7 @@ export interface Ticket {
   priority: number
   query_context: QueryContext
   dest_path: string
+  output_constraints?: OutputConstraints
   updated_at: string
 }
 
@@ -157,6 +158,50 @@ export interface TicketListResponse {
   offset: number
 }
 
+// Audio format options
+export type AudioFormat =
+  | 'flac'
+  | 'mp3'
+  | 'aac'
+  | 'ogg_vorbis'
+  | 'opus'
+  | 'wav'
+  | 'alac'
+
+// Video codec options
+export type VideoCodec = 'h264' | 'h265' | 'vp9' | 'av1'
+
+// Video container options
+export type VideoContainer = 'mkv' | 'mp4' | 'webm'
+
+// Audio constraints for conversion
+export interface AudioConstraints {
+  format: AudioFormat
+  bitrate_kbps?: number
+  sample_rate_hz?: number
+  channels?: number
+  compression_level?: number
+}
+
+// Video constraints for conversion
+export interface VideoConstraints {
+  codec: VideoCodec
+  container: VideoContainer
+  crf?: number
+  bitrate_kbps?: number
+  width?: number
+  height?: number
+  fps?: number
+  preset?: string
+  audio?: AudioConstraints
+}
+
+// Output constraints - what format to convert to (or keep original)
+export type OutputConstraints =
+  | { type: 'original' }
+  | ({ type: 'audio' } & AudioConstraints)
+  | ({ type: 'video' } & VideoConstraints)
+
 export interface CreateTicketRequest {
   priority?: number
   query_context: {
@@ -164,6 +209,7 @@ export interface CreateTicketRequest {
     description: string
   }
   dest_path: string
+  output_constraints?: OutputConstraints
 }
 
 export interface CancelTicketRequest {

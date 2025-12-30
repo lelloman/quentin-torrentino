@@ -3,7 +3,57 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use crate::converter::{AudioConstraints, VideoConstraints};
 use crate::textbrain::{FileMapping, ScoredCandidateSummary};
+
+/// Output format constraints for a ticket.
+///
+/// Specifies how downloaded files should be processed before placement.
+/// If not specified, files are placed as-is without conversion.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum OutputConstraints {
+    /// Keep original format - no conversion, just copy files.
+    Original,
+
+    /// Convert audio files to specified format.
+    Audio(AudioConstraints),
+
+    /// Convert video files to specified format.
+    Video(VideoConstraints),
+}
+
+impl OutputConstraints {
+    /// Create constraints for keeping original format.
+    pub fn original() -> Self {
+        Self::Original
+    }
+
+    /// Create constraints for audio conversion.
+    pub fn audio(constraints: AudioConstraints) -> Self {
+        Self::Audio(constraints)
+    }
+
+    /// Create constraints for video conversion.
+    pub fn video(constraints: VideoConstraints) -> Self {
+        Self::Video(constraints)
+    }
+
+    /// Returns true if conversion is needed.
+    pub fn needs_conversion(&self) -> bool {
+        !matches!(self, Self::Original)
+    }
+
+    /// Convert to ConversionConstraints for the pipeline.
+    /// Returns None if Original (no conversion needed).
+    pub fn to_conversion_constraints(&self) -> Option<crate::converter::ConversionConstraints> {
+        match self {
+            Self::Original => None,
+            Self::Audio(a) => Some(crate::converter::ConversionConstraints::Audio(a.clone())),
+            Self::Video(v) => Some(crate::converter::ConversionConstraints::Video(v.clone())),
+        }
+    }
+}
 
 /// Default failover round for backward compatibility.
 fn default_failover_round() -> u8 {
@@ -509,6 +559,10 @@ pub struct Ticket {
 
     /// Destination path for final output.
     pub dest_path: String,
+
+    /// Output format constraints (None = keep original, no conversion).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_constraints: Option<OutputConstraints>,
 
     /// Last update timestamp.
     pub updated_at: DateTime<Utc>,

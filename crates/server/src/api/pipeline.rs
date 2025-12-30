@@ -396,13 +396,13 @@ pub async fn process_ticket(
         ticket_id: ticket_id.clone(),
         source_files,
         file_mappings: vec![], // Will be populated from TextBrain results
-        constraints: ConversionConstraints::Audio(AudioConstraints {
+        constraints: Some(ConversionConstraints::Audio(AudioConstraints {
             format: audio_format,
             bitrate_kbps: Some(request.bitrate_kbps),
             sample_rate_hz: None,
             channels: None,
             compression_level: None,
-        }),
+        })),
         dest_dir: PathBuf::from(request.dest_dir),
         metadata: None, // TODO: Extract from ticket
     };

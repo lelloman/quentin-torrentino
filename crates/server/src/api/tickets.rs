@@ -10,8 +10,8 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use torrentino_core::{
-    AuditEvent, CreateTicketRequest, QueryContext, SelectedCandidate, Ticket, TicketError,
-    TicketFilter, TicketState,
+    AuditEvent, CreateTicketRequest, OutputConstraints, QueryContext, SelectedCandidate, Ticket,
+    TicketError, TicketFilter, TicketState,
 };
 
 use crate::state::AppState;
@@ -35,6 +35,8 @@ pub struct CreateTicketBody {
     pub query_context: QueryContextBody,
     /// Destination path for final output
     pub dest_path: String,
+    /// Output format constraints (None = keep original, no conversion)
+    pub output_constraints: Option<OutputConstraints>,
 }
 
 /// Query context in request body
@@ -91,6 +93,8 @@ pub struct TicketResponse {
     pub priority: u16,
     pub query_context: QueryContext,
     pub dest_path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_constraints: Option<OutputConstraints>,
     pub updated_at: String,
 }
 
@@ -104,6 +108,7 @@ impl From<Ticket> for TicketResponse {
             priority: ticket.priority,
             query_context: ticket.query_context,
             dest_path: ticket.dest_path,
+            output_constraints: ticket.output_constraints,
             updated_at: ticket.updated_at.to_rfc3339(),
         }
     }
@@ -138,6 +143,7 @@ pub async fn create_ticket(
         priority: body.priority.unwrap_or(0),
         query_context: QueryContext::new(body.query_context.tags.clone(), &body.query_context.description),
         dest_path: body.dest_path.clone(),
+        output_constraints: body.output_constraints,
     };
 
     match state.ticket_store().create(request) {

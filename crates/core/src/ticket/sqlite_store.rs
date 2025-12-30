@@ -6,7 +6,10 @@ use std::sync::Mutex;
 use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection};
 
-use super::{CreateTicketRequest, QueryContext, Ticket, TicketError, TicketFilter, TicketState, TicketStore};
+use super::{
+    CreateTicketRequest, OutputConstraints, QueryContext, Ticket, TicketError, TicketFilter,
+    TicketState, TicketStore,
+};
 
 /// SQLite-backed ticket store.
 pub struct SqliteTicketStore {
@@ -44,6 +47,7 @@ impl SqliteTicketStore {
                 priority INTEGER NOT NULL DEFAULT 0,
                 query_context TEXT NOT NULL,
                 dest_path TEXT NOT NULL,
+                output_constraints TEXT,
                 updated_at TEXT NOT NULL
             );
 
@@ -53,6 +57,12 @@ impl SqliteTicketStore {
             "#,
         )
         .map_err(|e| TicketError::Database(e.to_string()))?;
+
+        // Migration: add output_constraints column if it doesn't exist
+        let _ = conn.execute(
+            "ALTER TABLE tickets ADD COLUMN output_constraints TEXT",
+            [],
+        );
 
         Ok(())
     }
@@ -90,7 +100,8 @@ impl SqliteTicketStore {
         let priority: u16 = row.get(4)?;
         let query_context_json: String = row.get(5)?;
         let dest_path: String = row.get(6)?;
-        let updated_at_str: String = row.get(7)?;
+        let output_constraints_json: Option<String> = row.get(7)?;
+        let updated_at_str: String = row.get(8)?;
 
         // Parse timestamps - use default if parsing fails (shouldn't happen with valid data)
         let created_at = DateTime::parse_from_rfc3339(&created_at_str)
@@ -108,6 +119,9 @@ impl SqliteTicketStore {
         let query_context: QueryContext = serde_json::from_str(&query_context_json)
             .unwrap_or_else(|_| QueryContext::new(vec![], ""));
 
+        let output_constraints: Option<OutputConstraints> = output_constraints_json
+            .and_then(|json| serde_json::from_str(&json).ok());
+
         Ok(Ticket {
             id,
             created_at,
@@ -116,6 +130,7 @@ impl SqliteTicketStore {
             priority,
             query_context,
             dest_path,
+            output_constraints,
             updated_at,
         })
     }
@@ -135,8 +150,15 @@ impl TicketStore for SqliteTicketStore {
         let query_context_json = serde_json::to_string(&request.query_context)
             .map_err(|e| TicketError::Database(e.to_string()))?;
 
+        let output_constraints_json = request
+            .output_constraints
+            .as_ref()
+            .map(|c| serde_json::to_string(c))
+            .transpose()
+            .map_err(|e| TicketError::Database(e.to_string()))?;
+
         conn.execute(
-            "INSERT INTO tickets (id, created_at, created_by, state, priority, query_context, dest_path, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO tickets (id, created_at, created_by, state, priority, query_context, dest_path, output_constraints, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             params![
                 id,
                 now.to_rfc3339(),
@@ -145,6 +167,7 @@ impl TicketStore for SqliteTicketStore {
                 request.priority,
                 query_context_json,
                 request.dest_path,
+                output_constraints_json,
                 now.to_rfc3339(),
             ],
         )
@@ -158,6 +181,7 @@ impl TicketStore for SqliteTicketStore {
             priority: request.priority,
             query_context: request.query_context,
             dest_path: request.dest_path,
+            output_constraints: request.output_constraints,
             updated_at: now,
         })
     }
@@ -166,7 +190,7 @@ impl TicketStore for SqliteTicketStore {
         let conn = self.conn.lock().unwrap();
 
         let result = conn.query_row(
-            "SELECT id, created_at, created_by, state, priority, query_context, dest_path, updated_at FROM tickets WHERE id = ?",
+            "SELECT id, created_at, created_by, state, priority, query_context, dest_path, output_constraints, updated_at FROM tickets WHERE id = ?",
             params![id],
             Self::row_to_ticket,
         );
@@ -184,7 +208,7 @@ impl TicketStore for SqliteTicketStore {
         let (where_clause, params) = Self::build_where_clause(filter);
 
         let sql = format!(
-            "SELECT id, created_at, created_by, state, priority, query_context, dest_path, updated_at FROM tickets {} ORDER BY priority DESC, created_at ASC LIMIT ? OFFSET ?",
+            "SELECT id, created_at, created_by, state, priority, query_context, dest_path, output_constraints, updated_at FROM tickets {} ORDER BY priority DESC, created_at ASC LIMIT ? OFFSET ?",
             where_clause
         );
 
@@ -233,7 +257,7 @@ impl TicketStore for SqliteTicketStore {
 
         // First, get the current ticket to check state
         let current = conn.query_row(
-            "SELECT id, created_at, created_by, state, priority, query_context, dest_path, updated_at FROM tickets WHERE id = ?",
+            "SELECT id, created_at, created_by, state, priority, query_context, dest_path, output_constraints, updated_at FROM tickets WHERE id = ?",
             params![id],
             Self::row_to_ticket,
         );
@@ -274,6 +298,7 @@ impl TicketStore for SqliteTicketStore {
             priority: current_ticket.priority,
             query_context: current_ticket.query_context,
             dest_path: current_ticket.dest_path,
+            output_constraints: current_ticket.output_constraints,
             updated_at: now,
         })
     }
@@ -296,6 +321,7 @@ mod tests {
                 "Abbey Road by The Beatles",
             ),
             dest_path: "/media/music/beatles".to_string(),
+            output_constraints: None, // Keep original format
         }
     }
 

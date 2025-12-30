@@ -348,144 +348,202 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
             )));
         }
 
-        for (idx, source_file) in job.source_files.iter().enumerate() {
-            let current_file_name = source_file
-                .path
-                .file_name()
-                .map(|n| n.to_string_lossy().to_string())
-                .unwrap_or_default();
+        // Check if we need conversion or just copy
+        let needs_conversion = job.constraints.is_some();
 
-            // Update job state
-            {
-                let mut jobs = active_jobs.write().await;
-                if let Some(state) = jobs.get_mut(&ticket_id) {
-                    *state = JobState::Converting {
-                        started_at: conversion_start,
-                        current_file: idx,
-                        total_files,
-                    };
-                }
-            }
+        if needs_conversion {
+            // Run conversion for each file
+            let constraints = job.constraints.as_ref().unwrap();
 
-            // Update ticket state
-            if let Some(ref store) = ticket_store {
-                update_ticket_state(
-                    store,
-                    TicketState::Converting {
-                        started_at: chrono::Utc::now(),
-                        current_idx: idx,
-                        total: total_files,
-                        current_name: current_file_name.clone(),
-                    },
-                );
-            }
+            for (idx, source_file) in job.source_files.iter().enumerate() {
+                let current_file_name = source_file
+                    .path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_default();
 
-            // Send progress
-            if let Some(ref tx) = progress_tx {
-                let _ = tx
-                    .send(PipelineProgress::Converting {
-                        ticket_id: ticket_id.clone(),
-                        current_file: idx,
-                        total_files,
-                        current_file_name: current_file_name.clone(),
-                        percent: (idx as f32 / total_files as f32) * 100.0,
-                    })
-                    .await;
-            }
-
-            // Build conversion job
-            let output_ext = match &job.constraints {
-                ConversionConstraints::Audio(a) => a.format.extension(),
-                ConversionConstraints::Video(v) => v.container.extension(v.audio.as_ref().map(|a| &a.format)),
-            };
-            let output_path = temp_dir.join(format!("{}.{}", source_file.item_id, output_ext));
-
-            let metadata = job.metadata.as_ref().map(|m| EmbeddedMetadata {
-                title: m.title.clone(),
-                artist: m.artist.clone(),
-                album: m.album.clone(),
-                album_artist: m.album_artist.clone(),
-                year: m.year,
-                track_number: m.track_number,
-                track_total: m.track_total,
-                disc_number: m.disc_number,
-                disc_total: m.disc_total,
-                genre: m.genre.clone(),
-                comment: m.comment.clone(),
-                extra: Default::default(),
-            });
-
-            let conv_job = ConversionJob {
-                job_id: format!("{}-{}", ticket_id, source_file.item_id),
-                input_path: source_file.path.clone(),
-                output_path: output_path.clone(),
-                constraints: job.constraints.clone(),
-                metadata,
-                cover_art_path: job.metadata.as_ref().and_then(|m| m.cover_art.clone()),
-            };
-
-            // Run conversion
-            match converter.convert(conv_job).await {
-                Ok(result) => {
-                    converted_files.push((source_file.clone(), result, output_path));
-                }
-                Err(e) => {
-                    conversion_stats.active.fetch_sub(1, Ordering::Relaxed);
-                    conversion_stats.total_failed.fetch_add(1, Ordering::Relaxed);
-
-                    // Update ticket state to Failed
-                    if let Some(ref store) = ticket_store {
-                        update_ticket_state(
-                            store,
-                            TicketState::Failed {
-                                error: format!("Conversion failed: {}", e),
-                                retryable: e.is_retryable(),
-                                retry_count: 0,
-                                failed_at: chrono::Utc::now(),
-                            },
-                        );
+                // Update job state
+                {
+                    let mut jobs = active_jobs.write().await;
+                    if let Some(state) = jobs.get_mut(&ticket_id) {
+                        *state = JobState::Converting {
+                            started_at: conversion_start,
+                            current_file: idx,
+                            total_files,
+                        };
                     }
+                }
 
-                    if let Some(ref audit) = audit {
-                        audit.emit(AuditEvent::ConversionFailed {
+                // Update ticket state
+                if let Some(ref store) = ticket_store {
+                    update_ticket_state(
+                        store,
+                        TicketState::Converting {
+                            started_at: chrono::Utc::now(),
+                            current_idx: idx,
+                            total: total_files,
+                            current_name: current_file_name.clone(),
+                        },
+                    );
+                }
+
+                // Send progress
+                if let Some(ref tx) = progress_tx {
+                    let _ = tx
+                        .send(PipelineProgress::Converting {
                             ticket_id: ticket_id.clone(),
-                            job_id: ticket_id.clone(),
-                            failed_file: Some(source_file.path.to_string_lossy().to_string()),
-                            error: e.to_string(),
-                            files_completed: idx,
-                            retryable: e.is_retryable(),
-                        }).await;
-                    }
+                            current_file: idx,
+                            total_files,
+                            current_file_name: current_file_name.clone(),
+                            percent: (idx as f32 / total_files as f32) * 100.0,
+                        })
+                        .await;
+                }
 
-                    return Err(PipelineError::ConversionFailed(e.to_string()));
+                // Build conversion job
+                let output_ext = match constraints {
+                    ConversionConstraints::Audio(a) => a.format.extension(),
+                    ConversionConstraints::Video(v) => v.container.extension(v.audio.as_ref().map(|a| &a.format)),
+                };
+                let output_path = temp_dir.join(format!("{}.{}", source_file.item_id, output_ext));
+
+                let metadata = job.metadata.as_ref().map(|m| EmbeddedMetadata {
+                    title: m.title.clone(),
+                    artist: m.artist.clone(),
+                    album: m.album.clone(),
+                    album_artist: m.album_artist.clone(),
+                    year: m.year,
+                    track_number: m.track_number,
+                    track_total: m.track_total,
+                    disc_number: m.disc_number,
+                    disc_total: m.disc_total,
+                    genre: m.genre.clone(),
+                    comment: m.comment.clone(),
+                    extra: Default::default(),
+                });
+
+                let conv_job = ConversionJob {
+                    job_id: format!("{}-{}", ticket_id, source_file.item_id),
+                    input_path: source_file.path.clone(),
+                    output_path: output_path.clone(),
+                    constraints: constraints.clone(),
+                    metadata,
+                    cover_art_path: job.metadata.as_ref().and_then(|m| m.cover_art.clone()),
+                };
+
+                // Run conversion
+                match converter.convert(conv_job).await {
+                    Ok(result) => {
+                        converted_files.push((source_file.clone(), result, output_path));
+                    }
+                    Err(e) => {
+                        conversion_stats.active.fetch_sub(1, Ordering::Relaxed);
+                        conversion_stats.total_failed.fetch_add(1, Ordering::Relaxed);
+
+                        // Update ticket state to Failed
+                        if let Some(ref store) = ticket_store {
+                            update_ticket_state(
+                                store,
+                                TicketState::Failed {
+                                    error: format!("Conversion failed: {}", e),
+                                    retryable: e.is_retryable(),
+                                    retry_count: 0,
+                                    failed_at: chrono::Utc::now(),
+                                },
+                            );
+                        }
+
+                        if let Some(ref audit) = audit {
+                            audit.emit(AuditEvent::ConversionFailed {
+                                ticket_id: ticket_id.clone(),
+                                job_id: ticket_id.clone(),
+                                failed_file: Some(source_file.path.to_string_lossy().to_string()),
+                                error: e.to_string(),
+                                files_completed: idx,
+                                retryable: e.is_retryable(),
+                            }).await;
+                        }
+
+                        return Err(PipelineError::ConversionFailed(e.to_string()));
+                    }
                 }
             }
+        } else {
+            // No conversion needed - files will be copied directly in placement phase
+            // We still track stats but skip actual conversion
+            tracing::info!(
+                ticket_id = %ticket_id,
+                files = job.source_files.len(),
+                "Skipping conversion - no output constraints specified"
+            );
         }
 
         let conversion_duration = conversion_start.elapsed();
         conversion_stats.active.fetch_sub(1, Ordering::Relaxed);
         conversion_stats.total_processed.fetch_add(1, Ordering::Relaxed);
 
-        // Calculate total output bytes
-        let total_output_bytes: u64 = converted_files.iter().map(|(_, r, _)| r.output_size_bytes).sum();
+        // Calculate total output bytes and build placements based on whether conversion happened
+        let (total_output_bytes, placements, cleanup_sources) = if needs_conversion {
+            // Conversion happened - use converted files
+            let bytes: u64 = converted_files.iter().map(|(_, r, _)| r.output_size_bytes).sum();
+            let placements: Vec<FilePlacement> = converted_files
+                .iter()
+                .map(|(source, _, temp_path)| {
+                    let dest_path = job.dest_dir.join(&source.dest_filename);
+                    FilePlacement {
+                        item_id: source.item_id.clone(),
+                        source: temp_path.clone(),
+                        destination: dest_path,
+                        overwrite: true,
+                        verify_checksum: None,
+                    }
+                })
+                .collect();
+            (bytes, placements, true) // Clean up temp files after placement
+        } else {
+            // No conversion - place source files directly
+            // Get file sizes asynchronously
+            let mut bytes: u64 = 0;
+            for source in &job.source_files {
+                if let Ok(meta) = tokio::fs::metadata(&source.path).await {
+                    bytes += meta.len();
+                }
+            }
+            let placements: Vec<FilePlacement> = job.source_files
+                .iter()
+                .map(|source| {
+                    let dest_path = job.dest_dir.join(&source.dest_filename);
+                    FilePlacement {
+                        item_id: source.item_id.clone(),
+                        source: source.path.clone(),
+                        destination: dest_path,
+                        overwrite: true,
+                        verify_checksum: None,
+                    }
+                })
+                .collect();
+            (bytes, placements, false) // Don't clean up source files
+        };
 
-        // Emit conversion completed event
-        if let Some(ref audit) = audit {
-            audit.emit(AuditEvent::ConversionCompleted {
-                ticket_id: ticket_id.clone(),
-                job_id: ticket_id.clone(),
-                files_converted: converted_files.len(),
-                output_bytes: total_output_bytes,
-                duration_ms: conversion_duration.as_millis() as u64,
-                input_format: converted_files.first().map(|(_, r, _)| r.input_format.clone()).unwrap_or_default(),
-                output_format: converted_files.first().map(|(_, r, _)| r.output_format.clone()).unwrap_or_default(),
-            }).await;
+        // Emit conversion completed event (only if conversion happened)
+        if needs_conversion {
+            if let Some(ref audit) = audit {
+                audit.emit(AuditEvent::ConversionCompleted {
+                    ticket_id: ticket_id.clone(),
+                    job_id: ticket_id.clone(),
+                    files_converted: converted_files.len(),
+                    output_bytes: total_output_bytes,
+                    duration_ms: conversion_duration.as_millis() as u64,
+                    input_format: converted_files.first().map(|(_, r, _)| r.input_format.clone()).unwrap_or_default(),
+                    output_format: converted_files.first().map(|(_, r, _)| r.output_format.clone()).unwrap_or_default(),
+                }).await;
+            }
         }
 
         // Phase 2: Placement
         placement_stats.queued.fetch_add(1, Ordering::Relaxed);
 
-        let total_converted = converted_files.len();
+        let files_to_place = placements.len();
 
         // Update job state
         {
@@ -494,7 +552,7 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
                 *state = JobState::Placing {
                     started_at: Instant::now(),
                     files_placed: 0,
-                    total_files: total_converted,
+                    total_files: files_to_place,
                 };
             }
         }
@@ -506,7 +564,7 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
                 TicketState::Placing {
                     started_at: chrono::Utc::now(),
                     files_placed: 0,
-                    total_files: total_converted,
+                    total_files: files_to_place,
                 },
             );
         }
@@ -523,33 +581,18 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
             audit.emit(AuditEvent::PlacementStarted {
                 ticket_id: ticket_id.clone(),
                 job_id: ticket_id.clone(),
-                total_files: converted_files.len(),
+                total_files: files_to_place,
                 total_bytes: total_output_bytes,
             }).await;
         }
 
         let placement_start = Instant::now();
 
-        // Build placement job
-        let placements: Vec<FilePlacement> = converted_files
-            .iter()
-            .map(|(source, _, temp_path)| {
-                let dest_path = job.dest_dir.join(&source.dest_filename);
-                FilePlacement {
-                    item_id: source.item_id.clone(),
-                    source: temp_path.clone(),
-                    destination: dest_path,
-                    overwrite: true,
-                    verify_checksum: None,
-                }
-            })
-            .collect();
-
         let placement_job = PlacementJob {
             job_id: ticket_id.clone(),
             files: placements,
             atomic: true,
-            cleanup_sources: true, // Clean up temp files
+            cleanup_sources,
             enable_rollback: true,
         };
 
@@ -571,8 +614,10 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
                     }).await;
                 }
 
-                // Clean up temp directory
-                let _ = tokio::fs::remove_dir_all(&temp_dir).await;
+                // Clean up temp directory (only if conversion was used)
+                if needs_conversion {
+                    let _ = tokio::fs::remove_dir_all(&temp_dir).await;
+                }
 
                 let files_placed: Vec<PlacedFileInfo> = result
                     .files_placed
@@ -639,8 +684,10 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
                     }).await;
                 }
 
-                // Clean up temp directory
-                let _ = tokio::fs::remove_dir_all(&temp_dir).await;
+                // Clean up temp directory (only if conversion was used)
+                if needs_conversion {
+                    let _ = tokio::fs::remove_dir_all(&temp_dir).await;
+                }
 
                 Err(PipelineError::PlacementFailed(e.to_string()))
             }
@@ -686,13 +733,13 @@ mod tests {
             ticket_id: "test-1".to_string(),
             source_files: vec![],
             file_mappings: vec![],
-            constraints: ConversionConstraints::Audio(AudioConstraints {
+            constraints: Some(ConversionConstraints::Audio(AudioConstraints {
                 format: AudioFormat::OggVorbis,
                 bitrate_kbps: Some(320),
                 sample_rate_hz: None,
                 channels: None,
                 compression_level: None,
-            }),
+            })),
             dest_dir: PathBuf::from("/tmp/test"),
             metadata: None,
         };

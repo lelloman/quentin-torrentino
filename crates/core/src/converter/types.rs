@@ -113,7 +113,7 @@ impl ContainerFormat {
 }
 
 /// Constraints for audio conversion.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AudioConstraints {
     /// Target audio format.
     pub format: AudioFormat,
@@ -144,7 +144,7 @@ impl Default for AudioConstraints {
 }
 
 /// Constraints for video conversion.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VideoConstraints {
     /// Target video codec.
     pub format: VideoFormat,

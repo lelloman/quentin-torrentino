@@ -4,7 +4,7 @@
 
 use std::fmt;
 
-use crate::ticket::{QueryContext, Ticket, TicketState};
+use crate::ticket::{OutputConstraints, QueryContext, Ticket, TicketState};
 
 /// Error type for ticket operations.
 #[derive(Debug)]
@@ -52,6 +52,8 @@ pub struct CreateTicketRequest {
     pub query_context: QueryContext,
     /// Destination path for output.
     pub dest_path: String,
+    /// Output format constraints (None = keep original, no conversion).
+    pub output_constraints: Option<OutputConstraints>,
 }
 
 /// Filter for querying tickets.

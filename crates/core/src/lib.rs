@@ -31,8 +31,8 @@ pub use searcher::{
 };
 pub use ticket::{
     AcquisitionPhase, CompletionStats, CreateTicketRequest, ExpectedContent, ExpectedTrack,
-    QueryContext, SelectedCandidate, SqliteTicketStore, Ticket, TicketError, TicketFilter,
-    TicketState, TicketStore,
+    OutputConstraints, QueryContext, SelectedCandidate, SqliteTicketStore, Ticket, TicketError,
+    TicketFilter, TicketState, TicketStore,
 };
 pub use torrent_client::{
     AddTorrentRequest, AddTorrentResult, LibrqbitClient, QBittorrentClient, TorrentClient,
