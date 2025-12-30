@@ -330,28 +330,31 @@ All TextBrain decisions are logged with full context:
 
 This data enables fine-tuning smaller models for local inference, reducing latency and API costs.
 
-## Content Module System
+## Content-Specific Logic
 
-Content modules are plugins that provide content-type-specific behavior for query building, scoring, and post-processing. The system ships with three built-in modules: **Music**, **Video**, and **Generic** (fallback).
+Content-specific behavior for query building, scoring, and post-processing is dispatched based on the `ExpectedContent` type in the ticket. No plugin system - just organized code with match-based dispatch.
 
 ### Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                         ContentModule Trait                              │
-│                                                                          │
-│  fn handles(&self, ticket: &Ticket) -> bool                             │
-│  fn build_queries(&self, ticket: &Ticket) -> Vec<SearchQuery>           │
-│  fn score_candidate(&self, ticket: &Ticket, candidate: &...) -> f32     │
-│  fn map_files(&self, ticket: &Ticket, files: &[...]) -> FileMapping     │
-│  async fn post_process(&self, ticket: &Ticket, files: &[...]) -> Result │
-└─────────────────────────────────────────────────────────────────────────┘
-                                    │
-           ┌────────────────────────┼────────────────────────┐
-           │                        │                        │
-           ▼                        ▼                        ▼
+┌─────────────────────────────────────────────────────────────┐
+│                      Orchestrator                            │
+│                                                              │
+│  ticket.query_context.expected = ExpectedContent::Album     │
+│                           │                                  │
+│                           ▼                                  │
+│                   match expected {                           │
+│                     Album/Track => content::music::*         │
+│                     Movie/TvEpisode => content::video::*     │
+│                     _ => content::generic::*                 │
+│                   }                                          │
+└─────────────────────────────────────────────────────────────┘
+                              │
+         ┌────────────────────┼────────────────────┐
+         │                    │                    │
+         ▼                    ▼                    ▼
 ┌─────────────────────┐  ┌─────────────────────┐  ┌─────────────────────┐
-│    MusicModule      │  │    VideoModule      │  │   GenericModule     │
+│    music.rs         │  │    video.rs         │  │   generic.rs        │
 │                     │  │                     │  │                     │
 │ handles:            │  │ handles:            │  │ handles:            │
 │  - Album            │  │  - Movie            │  │  - everything else  │
@@ -365,95 +368,62 @@ Content modules are plugins that provide content-type-specific behavior for quer
 └─────────────────────┘  └─────────────────────┘  └─────────────────────┘
 ```
 
-### ContentModule Trait
+### Dispatch Functions
+
+The `content` module provides dispatch functions that route to the appropriate content-specific logic:
 
 ```rust
-#[async_trait]
-pub trait ContentModule: Send + Sync {
-    /// Module name for logging/debugging.
-    fn name(&self) -> &str;
+// content/mod.rs - dispatch based on ExpectedContent
+pub fn build_queries(context: &QueryContext, config: &TextBrainConfig) -> QueryBuildResult {
+    match &context.expected {
+        Some(ExpectedContent::Album { .. }) |
+        Some(ExpectedContent::Track { .. }) => music::build_queries(context, config),
 
-    /// Check if this module handles the given ticket.
-    /// Dispatch is based on ticket.query_context.expected variant.
-    fn handles(&self, ticket: &Ticket) -> bool;
+        Some(ExpectedContent::Movie { .. }) |
+        Some(ExpectedContent::TvEpisode { .. }) => video::build_queries(context, config),
 
-    /// Build search queries for this content type.
-    /// Returns queries in priority order (try first query first).
-    fn build_queries(&self, ticket: &Ticket) -> Vec<SearchQuery>;
+        _ => generic::build_queries(context, config),
+    }
+}
 
-    /// Score a candidate against ticket requirements.
-    /// Returns 0.0-1.0 score with reasoning.
-    fn score_candidate(
-        &self,
-        ticket: &Ticket,
-        candidate: &TorrentCandidate,
-    ) -> ScoredCandidate;
+pub fn score_candidate(context: &QueryContext, candidate: &TorrentCandidate, config: &TextBrainConfig) -> ScoredCandidate {
+    match &context.expected {
+        Some(ExpectedContent::Album { .. }) |
+        Some(ExpectedContent::Track { .. }) => music::score_candidate(context, candidate, config),
+        // ... same pattern
+    }
+}
 
-    /// Map torrent files to expected content items.
-    fn map_files(
-        &self,
-        ticket: &Ticket,
-        files: &[TorrentFile],
-    ) -> FileMappingResult;
-
-    /// Post-process after download completes.
-    /// Called before conversion, can fetch external assets (cover art, subtitles).
-    async fn post_process(
-        &self,
-        ticket: &Ticket,
-        download_path: &Path,
-    ) -> Result<PostProcessResult>;
-
-    /// Content-specific API routes (optional).
-    /// Returns Axum router to mount at /api/v1/{module_name}/
-    fn api_routes(&self) -> Option<axum::Router> {
-        None
+pub async fn post_process(ticket: &Ticket, download_path: &Path) -> Result<PostProcessResult> {
+    match &ticket.query_context.expected {
+        Some(ExpectedContent::Album { .. }) |
+        Some(ExpectedContent::Track { .. }) => music::post_process(ticket, download_path).await,
+        // ... same pattern
     }
 }
 ```
 
-### Module Dispatch
+### LLM Integration
 
-The orchestrator dispatches to modules based on `ExpectedContent`:
+LLM is configured at the instance level (`[textbrain.llm]`), not per content type. Content-specific code can use LLM when available:
 
 ```rust
-impl ModuleRegistry {
-    pub fn get_module(&self, ticket: &Ticket) -> &dyn ContentModule {
-        // Check registered modules in order
-        for module in &self.modules {
-            if module.handles(ticket) {
-                return module.as_ref();
-            }
-        }
-        // Fallback to generic
-        &self.generic
-    }
-}
+pub fn build_queries(context: &QueryContext, config: &TextBrainConfig) -> QueryBuildResult {
+    // Content-specific heuristics
+    let mut queries = build_music_queries(context);
 
-// MusicModule handles check
-impl ContentModule for MusicModule {
-    fn handles(&self, ticket: &Ticket) -> bool {
-        matches!(
-            &ticket.query_context.expected,
-            Some(ExpectedContent::Album { .. } | ExpectedContent::Track { .. })
-        )
+    // Enhance with LLM if configured
+    if config.mode.can_use_llm() && config.llm.is_some() {
+        queries.extend(llm_enhanced_queries(context, config));
     }
-}
 
-// VideoModule handles check
-impl ContentModule for VideoModule {
-    fn handles(&self, ticket: &Ticket) -> bool {
-        matches!(
-            &ticket.query_context.expected,
-            Some(ExpectedContent::Movie { .. } | ExpectedContent::TvEpisode { .. })
-        )
-    }
+    queries
 }
 ```
 
-### Built-in Modules
+### Content Types
 
-#### MusicModule
+#### Music (Album, Track)
 
 | Feature | Description |
 |---------|-------------|
@@ -1795,23 +1765,19 @@ The missing piece that connects all existing components into an automated end-to
   ```
 - [ ] **Dashboard**: Orchestrator status panel, enable/disable toggle, worker stats
 
-*Phase 5b: Content Module Infrastructure*
-Implement the `ContentModule` trait and `ModuleRegistry` (see "Content Module System" section above).
+*Phase 5b: Content Dispatch Infrastructure*
+Add the `content` module with dispatch functions and generic fallback (see "Content-Specific Logic" section above).
 
-- [ ] `ContentModule` trait definition in `crates/core/src/modules/mod.rs`
-- [ ] `ModuleRegistry` for dispatch based on `ExpectedContent` variant
-- [ ] `GenericModule` as fallback (wraps existing `DumbQueryBuilder`/`DumbMatcher`)
-- [ ] Integration points in orchestrator workers:
-  - [ ] Acquisition worker calls `module.build_queries()` and `module.score_candidate()`
-  - [ ] Download worker calls `module.post_process()` after download completes
-- [ ] Module configuration loading from `[modules]` config section
-- [ ] Mount module API routes at `/api/v1/{module_name}/`
+- [ ] `content/mod.rs` with dispatch functions (`build_queries`, `score_candidate`, `map_files`, `post_process`)
+- [ ] `content/types.rs` with `PostProcessResult`, `ContentError`
+- [ ] `content/generic.rs` wrapping existing `DumbQueryBuilder`/`DumbMatcher`/`DumbFileMapper`
+- [ ] Stub `content/music.rs` and `content/video.rs` (delegate to generic initially)
+- [ ] Update orchestrator to use `content::*` dispatch instead of direct TextBrain calls
+- [ ] Verify existing behavior unchanged
 
-*Phase 5c: Music Module*
-Implement `MusicModule` as a `ContentModule` plugin.
+*Phase 5c: Music Content*
+Implement music-specific logic in `content/music.rs`.
 
-- [ ] `MusicModule` struct implementing `ContentModule` trait
-- [ ] `handles()`: Match `ExpectedContent::Album` and `ExpectedContent::Track`
 - [ ] `build_queries()`: Music-specific patterns
   - [ ] `"{artist} {album}"`, `"{artist} {album} FLAC"`, `"{artist} discography"`
   - [ ] Handle transliterations and alternate artist names
@@ -1828,17 +1794,15 @@ Implement `MusicModule` as a `ContentModule` plugin.
   - [ ] MusicBrainz Cover Art Archive (primary, no auth needed)
   - [ ] Discogs API (fallback, optional token)
   - [ ] Extract from torrent (folder.jpg, cover.*, embedded tags)
-- [ ] `api_routes()`: Music-specific API
+- [ ] Music-specific API endpoints:
   - [ ] `POST /api/v1/music/search` - Search MusicBrainz for albums
   - [ ] `POST /api/v1/music/album` - Create ticket from MusicBrainz release ID (auto-populates tracks)
 - [ ] **Dashboard**: Music ticket creation wizard
   - [ ] MusicBrainz search → select release → preview tracks → create ticket
 
-*Phase 5d: Video Module*
-Implement `VideoModule` as a `ContentModule` plugin.
+*Phase 5d: Video Content*
+Implement video-specific logic in `content/video.rs`.
 
-- [ ] `VideoModule` struct implementing `ContentModule` trait
-- [ ] `handles()`: Match `ExpectedContent::Movie` and `ExpectedContent::TvEpisode`
 - [ ] `build_queries()`: Video-specific patterns
   - [ ] Movies: `"{title} {year}"`, `"{title} {year} 1080p"`, `"{title} {year} {quality}"`
   - [ ] TV: `"{series} S{season:02}"`, `"{series} S{season:02}E{episode:02}"`, `"{series} complete"`
@@ -1857,7 +1821,7 @@ Implement `VideoModule` as a `ContentModule` plugin.
   - [ ] OpenSubtitles API search
   - [ ] Extract embedded subtitles from MKV
   - [ ] Language detection and filtering
-- [ ] `api_routes()`: Video-specific API
+- [ ] Video-specific API endpoints:
   - [ ] `POST /api/v1/video/search` - Search TMDB
   - [ ] `POST /api/v1/video/movie` - Create ticket from TMDB movie ID
   - [ ] `POST /api/v1/video/episode` - Create ticket from TMDB episode ID
@@ -1865,8 +1829,8 @@ Implement `VideoModule` as a `ContentModule` plugin.
   - [ ] TMDB search → select movie/show → select season/episodes → create ticket
 
 *Phase 5e: Other Content Types (Stretch Goal)*
-- [ ] `SoftwareModule`, `EbookModule`, etc. following the `ContentModule` pattern
-- [ ] Community can contribute modules via the plugin interface
+- [ ] Add `content/software.rs`, `content/ebook.rs`, etc. as needed
+- [ ] Follow same pattern: add match arm in dispatch, implement content-specific logic
 
 **Phase 6: Production Ready**
 - [ ] WebSocket real-time updates (snapshot-on-connect + subscriptions)
