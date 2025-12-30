@@ -86,6 +86,45 @@ The system is **content-agnostic** - the ticket structure hints at content type,
 └─────────────────┘                           └─────────────────┘
 ```
 
+### Orchestrator Architecture (Phase 5a)
+
+The `TicketOrchestrator` is a background service that drives tickets through the state machine automatically:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          TICKET ORCHESTRATOR                                 │
+│                                                                              │
+│  ┌────────────────────┐     ┌────────────────────┐     ┌─────────────────┐  │
+│  │  Acquisition       │     │  Download          │     │  Pipeline       │  │
+│  │  Worker            │     │  Worker            │     │  Trigger        │  │
+│  │                    │     │                    │     │                 │  │
+│  │ polls: Pending     │     │ polls: Approved    │     │ watches:        │  │
+│  │ calls: TextBrain   │     │ calls: TorrentClient│    │ Downloading     │  │
+│  │ outputs:           │     │ outputs:           │     │ complete        │  │
+│  │  - AutoApproved    │────▶│  - Downloading     │────▶│                 │  │
+│  │  - NeedsApproval   │     │  - download done   │     │ submits to:     │  │
+│  │  - AcqFailed       │     │  - Failed          │     │ PipelineProcessor│ │
+│  └────────────────────┘     └────────────────────┘     └─────────────────┘  │
+│           │                          │                          │           │
+│           │ ┌────────────────────────┴──────────────────────────┘           │
+│           │ │                                                               │
+│           ▼ ▼                                                               │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                         Ticket Store (SQLite)                        │   │
+│  │  Pending → Acquiring → AutoApproved → Downloading → Converting → ... │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+State Flow:
+  Pending ──[AcquisitionWorker]──▶ Acquiring ──▶ NeedsApproval ──[user]──▶ Approved ─┐
+                                       │                                              │
+                                       └──▶ AutoApproved ─────────────────────────────┤
+                                                                                      │
+  ┌───────────────────────────────────────────────────────────────────────────────────┘
+  │
+  └──[DownloadWorker]──▶ Downloading ──▶ [PipelineTrigger] ──▶ Converting ──▶ Placing ──▶ Completed
+```
+
 ## Authentication
 
 Authentication is **required** - the service will not start without an explicit auth configuration. This ensures operators are aware of their security posture.
@@ -290,6 +329,208 @@ All TextBrain decisions are logged with full context:
 - User corrections (when manual selection differs from auto)
 
 This data enables fine-tuning smaller models for local inference, reducing latency and API costs.
+
+## Content Module System
+
+Content modules are plugins that provide content-type-specific behavior for query building, scoring, and post-processing. The system ships with three built-in modules: **Music**, **Video**, and **Generic** (fallback).
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         ContentModule Trait                              │
+│                                                                          │
+│  fn handles(&self, ticket: &Ticket) -> bool                             │
+│  fn build_queries(&self, ticket: &Ticket) -> Vec<SearchQuery>           │
+│  fn score_candidate(&self, ticket: &Ticket, candidate: &...) -> f32     │
+│  fn map_files(&self, ticket: &Ticket, files: &[...]) -> FileMapping     │
+│  async fn post_process(&self, ticket: &Ticket, files: &[...]) -> Result │
+└─────────────────────────────────────────────────────────────────────────┘
+                                    │
+           ┌────────────────────────┼────────────────────────┐
+           │                        │                        │
+           ▼                        ▼                        ▼
+┌─────────────────────┐  ┌─────────────────────┐  ┌─────────────────────┐
+│    MusicModule      │  │    VideoModule      │  │   GenericModule     │
+│                     │  │                     │  │                     │
+│ handles:            │  │ handles:            │  │ handles:            │
+│  - Album            │  │  - Movie            │  │  - everything else  │
+│  - Track            │  │  - TvEpisode        │  │  - fallback         │
+│                     │  │                     │  │                     │
+│ features:           │  │ features:           │  │ features:           │
+│  - MusicBrainz      │  │  - TMDB lookup      │  │  - basic fuzzy      │
+│  - Cover art        │  │  - Subtitle fetch   │  │    matching         │
+│  - Audio metadata   │  │  - Release groups   │  │  - generic queries  │
+│  - Format detection │  │  - Resolution/codec │  │                     │
+└─────────────────────┘  └─────────────────────┘  └─────────────────────┘
+```
+
+### ContentModule Trait
+
+```rust
+#[async_trait]
+pub trait ContentModule: Send + Sync {
+    /// Module name for logging/debugging.
+    fn name(&self) -> &str;
+
+    /// Check if this module handles the given ticket.
+    /// Dispatch is based on ticket.query_context.expected variant.
+    fn handles(&self, ticket: &Ticket) -> bool;
+
+    /// Build search queries for this content type.
+    /// Returns queries in priority order (try first query first).
+    fn build_queries(&self, ticket: &Ticket) -> Vec<SearchQuery>;
+
+    /// Score a candidate against ticket requirements.
+    /// Returns 0.0-1.0 score with reasoning.
+    fn score_candidate(
+        &self,
+        ticket: &Ticket,
+        candidate: &TorrentCandidate,
+    ) -> ScoredCandidate;
+
+    /// Map torrent files to expected content items.
+    fn map_files(
+        &self,
+        ticket: &Ticket,
+        files: &[TorrentFile],
+    ) -> FileMappingResult;
+
+    /// Post-process after download completes.
+    /// Called before conversion, can fetch external assets (cover art, subtitles).
+    async fn post_process(
+        &self,
+        ticket: &Ticket,
+        download_path: &Path,
+    ) -> Result<PostProcessResult>;
+
+    /// Content-specific API routes (optional).
+    /// Returns Axum router to mount at /api/v1/{module_name}/
+    fn api_routes(&self) -> Option<axum::Router> {
+        None
+    }
+}
+```
+
+### Module Dispatch
+
+The orchestrator dispatches to modules based on `ExpectedContent`:
+
+```rust
+impl ModuleRegistry {
+    pub fn get_module(&self, ticket: &Ticket) -> &dyn ContentModule {
+        // Check registered modules in order
+        for module in &self.modules {
+            if module.handles(ticket) {
+                return module.as_ref();
+            }
+        }
+        // Fallback to generic
+        &self.generic
+    }
+}
+
+// MusicModule handles check
+impl ContentModule for MusicModule {
+    fn handles(&self, ticket: &Ticket) -> bool {
+        matches!(
+            &ticket.query_context.expected,
+            Some(ExpectedContent::Album { .. } | ExpectedContent::Track { .. })
+        )
+    }
+}
+
+// VideoModule handles check
+impl ContentModule for VideoModule {
+    fn handles(&self, ticket: &Ticket) -> bool {
+        matches!(
+            &ticket.query_context.expected,
+            Some(ExpectedContent::Movie { .. } | ExpectedContent::TvEpisode { .. })
+        )
+    }
+}
+```
+
+### Built-in Modules
+
+#### MusicModule
+
+| Feature | Description |
+|---------|-------------|
+| **Query Building** | `"{artist} {album}"`, `"{artist} discography FLAC"`, handles transliterations |
+| **Scoring** | Track count validation, duration tolerance (±5s), format detection (FLAC/320/V0) |
+| **File Mapping** | Match files to tracks by name, number, duration |
+| **Post-Processing** | Fetch cover art (MusicBrainz CAA → Discogs → embedded) |
+| **API Routes** | `POST /api/v1/music/album` - lookup album, auto-populate tracks |
+
+#### VideoModule
+
+| Feature | Description |
+|---------|-------------|
+| **Query Building** | `"{title} {year}"`, `"{series} S{season}"`, release group patterns |
+| **Scoring** | Resolution detection (1080p/4K), codec preferences, release group ranking |
+| **File Mapping** | Episode number extraction (S01E01), movie file detection |
+| **Post-Processing** | Fetch subtitles (OpenSubtitles), extract embedded subs |
+| **API Routes** | `POST /api/v1/video/movie`, `POST /api/v1/video/episode` - TMDB lookup |
+
+#### GenericModule
+
+Fallback for unrecognized content types or when `expected` is `None`:
+- Basic fuzzy string matching on description
+- Generic query patterns from tags
+- No post-processing
+
+### Configuration
+
+```toml
+[modules]
+# Modules are loaded in order, first match wins
+enabled = ["music", "video", "generic"]
+
+[modules.music]
+musicbrainz_rate_limit_per_sec = 1.0
+cover_art_sources = ["musicbrainz", "discogs", "embedded"]
+discogs_token = "optional-for-higher-limits"
+
+[modules.video]
+tmdb_api_key = "your-tmdb-key"
+subtitle_languages = ["en", "es"]
+opensubtitles_api_key = "optional"
+preferred_resolution = "1080p"
+```
+
+### Integration with Orchestrator
+
+```
+Ticket Created
+      │
+      ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    Acquisition Worker                            │
+│                                                                  │
+│  module = registry.get_module(ticket)  ←── dispatch by expected │
+│                                                                  │
+│  queries = module.build_queries(ticket)                         │
+│  candidates = searcher.search(queries)                          │
+│  scored = module.score_candidate(ticket, each candidate)        │
+│  mapping = module.map_files(ticket, best_candidate.files)       │
+│                                                                  │
+└──────────────────────────────┬──────────────────────────────────┘
+                               │
+                               ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    Download Worker                               │
+│                                                                  │
+│  ... download completes ...                                     │
+│                                                                  │
+│  module.post_process(ticket, download_path)  ←── fetch assets   │
+│                                                                  │
+└──────────────────────────────┬──────────────────────────────────┘
+                               │
+                               ▼
+                    Pipeline Processor
+                    (conversion + placement)
+```
 
 ## Audit Log System
 
@@ -1514,30 +1755,126 @@ Each phase includes corresponding admin dashboard work. The dashboard evolves al
 - [x] Ticket state transitions (Converting → Placing → Completed/Failed)
 - [x] **Dashboard**: Pipeline visualization, pool status, job progress (`/pipeline`)
 
-**Phase 5: Content Modules** ⬅️ CURRENT
+**Phase 5: Orchestrator + Content Modules** ⬅️ CURRENT
 
-*Phase 5a: Music Module*
-- [ ] MusicTicket implementation
-- [ ] Audio converter (transcode + metadata embedding)
-- [ ] Cover art fetching (MusicBrainz, Discogs, embedded)
-- [ ] **Dashboard**: Ticket creation form, conversion status
+*Phase 5a: Ticket Orchestrator* ← START HERE
+The missing piece that connects all existing components into an automated end-to-end pipeline.
 
-*Phase 5b: Video Module*
-- [ ] VideoTicket implementation (movies, TV series)
-- [ ] Video converter
-- [ ] Subtitle handling
-- [ ] **Dashboard**: Video-specific views
+- [ ] `TicketOrchestrator` background service spawned on server startup
+- [ ] **Acquisition Worker**:
+  - [ ] Poll for `Pending` tickets (respecting priority order)
+  - [ ] Call `TextBrain.acquire()` for each ticket
+  - [ ] Transition to `NeedsApproval` or `AutoApproved` based on confidence threshold
+  - [ ] Handle `AcquisitionFailed` state when no suitable torrent found
+  - [ ] Configurable polling interval and concurrency limits
+- [ ] **Download Worker**:
+  - [ ] Watch for `Approved`/`AutoApproved` tickets
+  - [ ] Add torrent to TorrentClient (librqbit/qBittorrent)
+  - [ ] Transition to `Downloading` state
+  - [ ] Poll download progress, update ticket state with progress/speed/ETA
+  - [ ] Detect download completion, transition to `Converting`
+  - [ ] Handle download failures with retry logic
+- [ ] **Pipeline Integration**:
+  - [ ] Watch for tickets entering `Converting` state (or download complete)
+  - [ ] Build `PipelineJob` from downloaded files + ticket constraints
+  - [ ] Submit to existing `PipelineProcessor`
+  - [ ] Pipeline already handles `Converting` → `Placing` → `Completed`
+- [ ] **State Machine Enforcement**:
+  - [ ] Ensure valid transitions only
+  - [ ] Handle edge cases (user cancellation, manual overrides)
+  - [ ] Graceful shutdown (complete in-flight work, persist state)
+- [ ] **Configuration**:
+  ```toml
+  [orchestrator]
+  enabled = true
+  acquisition_poll_interval_secs = 5
+  acquisition_max_concurrent = 2
+  download_poll_interval_secs = 10
+  download_max_concurrent = 3
+  auto_approve_threshold = 0.85
+  ```
+- [ ] **Dashboard**: Orchestrator status panel, enable/disable toggle, worker stats
 
-*Phase 5c: Other Content Types*
-- [ ] Software, ebooks, etc. as needed
+*Phase 5b: Content Module Infrastructure*
+Implement the `ContentModule` trait and `ModuleRegistry` (see "Content Module System" section above).
+
+- [ ] `ContentModule` trait definition in `crates/core/src/modules/mod.rs`
+- [ ] `ModuleRegistry` for dispatch based on `ExpectedContent` variant
+- [ ] `GenericModule` as fallback (wraps existing `DumbQueryBuilder`/`DumbMatcher`)
+- [ ] Integration points in orchestrator workers:
+  - [ ] Acquisition worker calls `module.build_queries()` and `module.score_candidate()`
+  - [ ] Download worker calls `module.post_process()` after download completes
+- [ ] Module configuration loading from `[modules]` config section
+- [ ] Mount module API routes at `/api/v1/{module_name}/`
+
+*Phase 5c: Music Module*
+Implement `MusicModule` as a `ContentModule` plugin.
+
+- [ ] `MusicModule` struct implementing `ContentModule` trait
+- [ ] `handles()`: Match `ExpectedContent::Album` and `ExpectedContent::Track`
+- [ ] `build_queries()`: Music-specific patterns
+  - [ ] `"{artist} {album}"`, `"{artist} {album} FLAC"`, `"{artist} discography"`
+  - [ ] Handle transliterations and alternate artist names
+- [ ] `score_candidate()`: Music-specific scoring
+  - [ ] Track count validation against `ExpectedContent::Album.tracks`
+  - [ ] Duration tolerance matching (±5 seconds per track)
+  - [ ] Audio format detection (FLAC, 320, V0, V2) from torrent title
+  - [ ] Red flag detection (karaoke, cover, tribute, compilation)
+- [ ] `map_files()`: Map torrent files to expected tracks
+  - [ ] Match by track number in filename
+  - [ ] Match by fuzzy title comparison
+  - [ ] Match by duration (if available from torrent metadata)
+- [ ] `post_process()`: Fetch cover art
+  - [ ] MusicBrainz Cover Art Archive (primary, no auth needed)
+  - [ ] Discogs API (fallback, optional token)
+  - [ ] Extract from torrent (folder.jpg, cover.*, embedded tags)
+- [ ] `api_routes()`: Music-specific API
+  - [ ] `POST /api/v1/music/search` - Search MusicBrainz for albums
+  - [ ] `POST /api/v1/music/album` - Create ticket from MusicBrainz release ID (auto-populates tracks)
+- [ ] **Dashboard**: Music ticket creation wizard
+  - [ ] MusicBrainz search → select release → preview tracks → create ticket
+
+*Phase 5d: Video Module*
+Implement `VideoModule` as a `ContentModule` plugin.
+
+- [ ] `VideoModule` struct implementing `ContentModule` trait
+- [ ] `handles()`: Match `ExpectedContent::Movie` and `ExpectedContent::TvEpisode`
+- [ ] `build_queries()`: Video-specific patterns
+  - [ ] Movies: `"{title} {year}"`, `"{title} {year} 1080p"`, `"{title} {year} {quality}"`
+  - [ ] TV: `"{series} S{season:02}"`, `"{series} S{season:02}E{episode:02}"`, `"{series} complete"`
+  - [ ] Release group preferences (configurable)
+- [ ] `score_candidate()`: Video-specific scoring
+  - [ ] Resolution detection (480p, 720p, 1080p, 2160p/4K) from title
+  - [ ] Codec detection (x264, x265/HEVC, AV1) and preferences
+  - [ ] Source detection (BluRay, WEB-DL, HDTV, CAM)
+  - [ ] Release group ranking (configurable trusted groups)
+  - [ ] Episode completeness check for season packs
+- [ ] `map_files()`: Map torrent files to expected content
+  - [ ] Episode number extraction via regex (S01E01, 1x01, etc.)
+  - [ ] Movie file detection (largest video file, ignore samples)
+  - [ ] Subtitle file detection (.srt, .ass, .sub)
+- [ ] `post_process()`: Fetch/process subtitles
+  - [ ] OpenSubtitles API search
+  - [ ] Extract embedded subtitles from MKV
+  - [ ] Language detection and filtering
+- [ ] `api_routes()`: Video-specific API
+  - [ ] `POST /api/v1/video/search` - Search TMDB
+  - [ ] `POST /api/v1/video/movie` - Create ticket from TMDB movie ID
+  - [ ] `POST /api/v1/video/episode` - Create ticket from TMDB episode ID
+- [ ] **Dashboard**: Video ticket creation wizard
+  - [ ] TMDB search → select movie/show → select season/episodes → create ticket
+
+*Phase 5e: Other Content Types (Stretch Goal)*
+- [ ] `SoftwareModule`, `EbookModule`, etc. following the `ContentModule` pattern
+- [ ] Community can contribute modules via the plugin interface
 
 **Phase 6: Production Ready**
 - [ ] WebSocket real-time updates (snapshot-on-connect + subscriptions)
-- [ ] Retry logic with exponential backoff
-- [ ] Metrics/observability
+- [ ] Retry logic with exponential backoff (integrate with orchestrator)
+- [ ] Metrics/observability (Prometheus metrics for all workers)
 - [ ] Docker packaging
-- [ ] Comprehensive testing
-- [ ] **Dashboard**: Real-time updates, audit log viewer, system health page
+- [ ] Comprehensive testing (unit, integration, E2E)
+- [ ] **Dashboard**: Real-time updates via WebSocket, audit log viewer, system health page
 
 ## Design Decisions
 
