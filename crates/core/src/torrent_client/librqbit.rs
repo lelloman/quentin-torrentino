@@ -125,9 +125,11 @@ impl LibrqbitClient {
             .live
             .as_ref()
             .map(|live| {
-                // Convert Mbps to bytes/sec (Mbps * 1024 * 1024 / 8)
-                let dl_speed = (live.download_speed.mbps * 1024.0 * 1024.0 / 8.0) as u64;
-                let ul_speed = (live.upload_speed.mbps * 1024.0 * 1024.0 / 8.0) as u64;
+                // Note: Despite the field name "mbps", librqbit actually stores MiB/s (mebibytes)
+                // as evidenced by its Display impl: write!(f, "{:.2} MiB/s", self.mbps)
+                // Convert MiB/s to bytes/sec: MiB/s * 1024 * 1024
+                let dl_speed = (live.download_speed.mbps * 1024.0 * 1024.0) as u64;
+                let ul_speed = (live.upload_speed.mbps * 1024.0 * 1024.0) as u64;
 
                 // Count peers from peer_stats
                 let total_peers = live.snapshot.peer_stats.queued
