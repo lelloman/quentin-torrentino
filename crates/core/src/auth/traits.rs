@@ -13,6 +13,9 @@ pub enum AuthError {
 
     #[error("Authentication service unavailable: {0}")]
     ServiceUnavailable(String),
+
+    #[error("Configuration error: {0}")]
+    ConfigurationError(String),
 }
 
 #[async_trait]

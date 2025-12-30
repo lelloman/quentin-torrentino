@@ -17,12 +17,13 @@ pub use audit::{
     AuditRecord, AuditStore, AuditWriter, SqliteAuditStore,
 };
 pub use auth::{
-    create_authenticator, AuthError, AuthRequest, Authenticator, Identity, NoneAuthenticator,
+    create_authenticator, ApiKeyAuthenticator, AuthError, AuthRequest, Authenticator, Identity,
+    NoneAuthenticator,
 };
 pub use config::{
-    load_config, load_config_from_str, validate_config, AuthMethod, Config, ConfigError,
-    DatabaseConfig, JackettConfig, LibrqbitConfig, QBittorrentConfig, SanitizedConfig,
-    SearcherBackend, SearcherConfig, TorrentClientBackend, TorrentClientConfig,
+    load_config, load_config_from_str, validate_config, AuthConfig, AuthMethod, Config,
+    ConfigError, DatabaseConfig, JackettConfig, LibrqbitConfig, QBittorrentConfig,
+    SanitizedConfig, SearcherBackend, SearcherConfig, TorrentClientBackend, TorrentClientConfig,
 };
 pub use searcher::{
     deduplicate_results, IndexerStatus, JackettSearcher, RawTorrentResult, SearchCategory,

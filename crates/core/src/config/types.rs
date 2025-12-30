@@ -53,6 +53,10 @@ fn default_port() -> u16 {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AuthConfig {
     pub method: AuthMethod,
+    /// API key for api_key auth method.
+    /// Can use ${ENV_VAR} syntax to read from environment.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_key: Option<String>,
 }
 
 /// Database configuration
@@ -74,11 +78,14 @@ fn default_db_path() -> PathBuf {
     PathBuf::from("quentin.db")
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AuthMethod {
+    /// No authentication - all requests allowed
     None,
-    // Future: Oidc, Address, Cert, Plugin
+    /// API key authentication - requires Authorization header
+    ApiKey,
+    // Future: Oidc, ProxyHeaders, Cert
 }
 
 /// Searcher configuration
@@ -272,6 +279,7 @@ impl From<&Config> for SanitizedConfig {
             auth: SanitizedAuthConfig {
                 method: match config.auth.method {
                     AuthMethod::None => "none".to_string(),
+                    AuthMethod::ApiKey => "api_key".to_string(),
                 },
             },
             server: config.server.clone(),
@@ -378,6 +386,7 @@ port = 8080
         let config = Config {
             auth: AuthConfig {
                 method: AuthMethod::None,
+                api_key: None,
             },
             server: ServerConfig::default(),
             database: DatabaseConfig::default(),
@@ -446,6 +455,7 @@ api_key = "test-api-key"
         let config = Config {
             auth: AuthConfig {
                 method: AuthMethod::None,
+                api_key: None,
             },
             server: ServerConfig::default(),
             database: DatabaseConfig::default(),
@@ -525,6 +535,7 @@ timeout_secs = 60
         let config = Config {
             auth: AuthConfig {
                 method: AuthMethod::None,
+                api_key: None,
             },
             server: ServerConfig::default(),
             database: DatabaseConfig::default(),

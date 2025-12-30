@@ -28,6 +28,7 @@ mod tests {
         let config = Config {
             auth: AuthConfig {
                 method: AuthMethod::None,
+                api_key: None,
             },
             server: ServerConfig::default(),
             database: DatabaseConfig::default(),
@@ -44,6 +45,7 @@ mod tests {
         let config = Config {
             auth: AuthConfig {
                 method: AuthMethod::None,
+                api_key: None,
             },
             server: ServerConfig {
                 host: "0.0.0.0".parse::<IpAddr>().unwrap(),

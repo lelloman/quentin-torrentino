@@ -8,9 +8,22 @@
 # You must choose an authentication method.
 
 [auth]
-# Available methods: "none", "oidc", "address", "cert", "plugin"
-# Currently only "none" is implemented
-#method = "none"
+# Available methods:
+#   - "none": No authentication (for local/development use only)
+#   - "api_key": Static API key authentication
+#
+# Default: "none"
+method = "none"
+
+# For API key authentication:
+# Set method = "api_key" and provide a key.
+# The key can be passed in requests via:
+#   - Authorization: Bearer <api_key>
+#   - X-API-Key: <api_key>
+#
+# Example:
+# method = "api_key"
+# api_key = "your-secret-api-key-here"
 
 # ==============================================================================
 # SERVER

@@ -1,11 +1,15 @@
 use axum::{
+    middleware,
     routing::{delete, get, post},
     Router,
 };
 use std::sync::Arc;
 use tower_http::services::{ServeDir, ServeFile};
 
-use super::{audit, catalog, handlers, orchestrator, pipeline, searcher, textbrain, tickets, torrents};
+use super::{
+    audit, catalog, handlers, middleware::auth_middleware, orchestrator, pipeline, searcher,
+    textbrain, tickets, torrents,
+};
 use crate::state::AppState;
 
 pub fn create_router(state: Arc<AppState>) -> Router {
@@ -74,6 +78,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/orchestrator/status", get(orchestrator::get_status))
         .route("/orchestrator/start", post(orchestrator::start))
         .route("/orchestrator/stop", post(orchestrator::stop))
+        .layer(middleware::from_fn_with_state(state.clone(), auth_middleware))
         .with_state(state);
 
     // Serve dashboard with SPA fallback

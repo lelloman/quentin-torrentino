@@ -69,8 +69,9 @@ async fn run() -> Result<()> {
     let config_hash_short = &config_hash[..16];
 
     // Create authenticator
-    let authenticator: Arc<dyn Authenticator> =
-        Arc::from(create_authenticator(&config.auth.method));
+    let authenticator: Arc<dyn Authenticator> = Arc::from(
+        create_authenticator(&config.auth).context("Failed to create authenticator")?,
+    );
     info!("Using authenticator: {}", authenticator.method_name());
 
     // Create SQLite audit store

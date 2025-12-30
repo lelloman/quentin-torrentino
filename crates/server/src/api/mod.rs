@@ -1,6 +1,7 @@
 pub mod audit;
 pub mod catalog;
 pub mod handlers;
+pub mod middleware;
 pub mod orchestrator;
 pub mod pipeline;
 pub mod routes;
