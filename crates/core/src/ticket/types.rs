@@ -3,7 +3,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::textbrain::ScoredCandidateSummary;
+use crate::textbrain::{FileMapping, ScoredCandidateSummary};
 
 /// Query context for search and matching.
 ///
@@ -223,6 +223,9 @@ pub struct SelectedCandidate {
     pub size_bytes: u64,
     /// Match score (0.0-1.0).
     pub score: f32,
+    /// File mappings from acquisition (which torrent files match which ticket items).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub file_mappings: Vec<FileMapping>,
 }
 
 /// Statistics for a completed ticket.

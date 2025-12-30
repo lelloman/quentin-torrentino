@@ -15,8 +15,8 @@ use torrentino_core::{
     create_audit_system, create_authenticator, load_config, validate_config, AuditEvent,
     AuditStore, Authenticator, ConverterConfig, FfmpegConverter, FsPlacer, JackettSearcher,
     LibrqbitClient, PipelineProcessor, PlacerConfig, ProcessorConfig, QBittorrentClient, Searcher,
-    SearcherBackend, SqliteAuditStore, SqliteCatalog, SqliteTicketStore, TicketStore,
-    TorrentCatalog, TorrentClient, TorrentClientBackend,
+    SearcherBackend, SqliteAuditStore, SqliteCatalog, SqliteTicketStore, TicketOrchestrator,
+    TicketStore, TorrentCatalog, TorrentClient, TorrentClientBackend,
 };
 
 use api::create_router;
@@ -183,7 +183,41 @@ async fn run() -> Result<()> {
     pipeline.start().await;
     info!("Pipeline processor started");
 
-    let pipeline = Some(Arc::new(pipeline));
+    let pipeline = Arc::new(pipeline);
+
+    // Create orchestrator if enabled
+    let orchestrator = if config.orchestrator.enabled {
+        match (&searcher, &torrent_client) {
+            (Some(s), Some(tc)) => {
+                info!("Initializing ticket orchestrator");
+                let orch = TicketOrchestrator::new(
+                    config.orchestrator.clone(),
+                    Arc::clone(&ticket_store),
+                    Arc::clone(s),
+                    Arc::clone(tc),
+                    Arc::clone(&pipeline),
+                    Some(audit_handle.clone()),
+                    config.textbrain.clone(),
+                );
+                orch.start().await;
+                info!("Ticket orchestrator started");
+                Some(Arc::new(orch))
+            }
+            _ => {
+                error!(
+                    "Orchestrator enabled but missing dependencies (searcher: {}, torrent_client: {})",
+                    searcher.is_some(),
+                    torrent_client.is_some()
+                );
+                None
+            }
+        }
+    } else {
+        info!("Orchestrator disabled in config");
+        None
+    };
+
+    let pipeline = Some(pipeline);
 
     // Create app state
     let state = Arc::new(AppState::new(
@@ -196,6 +230,7 @@ async fn run() -> Result<()> {
         torrent_client,
         catalog,
         pipeline,
+        orchestrator.clone(),
     ));
 
     // Create router
@@ -214,6 +249,13 @@ async fn run() -> Result<()> {
         .with_graceful_shutdown(shutdown_signal())
         .await
         .context("Server error")?;
+
+    // Stop orchestrator if running
+    if let Some(ref orch) = orchestrator {
+        info!("Stopping orchestrator...");
+        orch.stop().await;
+        info!("Orchestrator stopped");
+    }
 
     // Emit ServiceStopped event
     info!("Server shutting down...");

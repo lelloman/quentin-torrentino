@@ -37,7 +37,7 @@ pub struct ScoredCandidate {
 }
 
 /// Mapping of a torrent file to a ticket item.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct FileMapping {
     /// Path of the file within the torrent.
     pub torrent_file_path: String,

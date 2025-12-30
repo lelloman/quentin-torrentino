@@ -19,6 +19,7 @@ pub fn validate_config(config: &Config) -> Result<(), ConfigError> {
 mod tests {
     use super::*;
     use crate::config::{AuthConfig, AuthMethod, DatabaseConfig, ServerConfig};
+    use crate::orchestrator::OrchestratorConfig;
     use crate::textbrain::TextBrainConfig;
     use std::net::IpAddr;
 
@@ -33,6 +34,7 @@ mod tests {
             searcher: None,
             torrent_client: None,
             textbrain: TextBrainConfig::default(),
+            orchestrator: OrchestratorConfig::default(),
         };
         assert!(validate_config(&config).is_ok());
     }
@@ -51,6 +53,7 @@ mod tests {
             searcher: None,
             torrent_client: None,
             textbrain: TextBrainConfig::default(),
+            orchestrator: OrchestratorConfig::default(),
         };
         let result = validate_config(&config);
         assert!(result.is_err());

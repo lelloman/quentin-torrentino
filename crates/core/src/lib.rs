@@ -3,6 +3,7 @@ pub mod auth;
 pub mod catalog;
 pub mod config;
 pub mod converter;
+pub mod orchestrator;
 pub mod placer;
 pub mod processor;
 pub mod searcher;
@@ -92,4 +93,12 @@ pub use processor::{
     // Types
     PipelineJob, PipelineMetadata, PipelineProgress, PipelineResult, PipelineStatus,
     PlacedFileInfo, PoolStatus, SourceFile,
+};
+pub use orchestrator::{
+    // Configuration
+    OrchestratorConfig,
+    // Orchestrator
+    TicketOrchestrator,
+    // Types
+    ActiveDownload, OrchestratorError, OrchestratorStatus,
 };

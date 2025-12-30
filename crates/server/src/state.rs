@@ -1,11 +1,15 @@
 use std::sync::Arc;
 use torrentino_core::{
     AuditHandle, AuditStore, Authenticator, Config, FfmpegConverter, FsPlacer,
-    PipelineProcessor, SanitizedConfig, Searcher, TicketStore, TorrentCatalog, TorrentClient,
+    PipelineProcessor, SanitizedConfig, Searcher, TicketOrchestrator, TicketStore,
+    TorrentCatalog, TorrentClient,
 };
 
 /// Type alias for the concrete pipeline processor we use
 pub type AppPipelineProcessor = PipelineProcessor<FfmpegConverter, FsPlacer>;
+
+/// Type alias for the concrete orchestrator we use
+pub type AppOrchestrator = TicketOrchestrator<FfmpegConverter, FsPlacer>;
 
 /// Shared application state
 pub struct AppState {
@@ -18,9 +22,11 @@ pub struct AppState {
     torrent_client: Option<Arc<dyn TorrentClient>>,
     catalog: Arc<dyn TorrentCatalog>,
     pipeline: Option<Arc<AppPipelineProcessor>>,
+    orchestrator: Option<Arc<AppOrchestrator>>,
 }
 
 impl AppState {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         config: Config,
         authenticator: Arc<dyn Authenticator>,
@@ -31,6 +37,7 @@ impl AppState {
         torrent_client: Option<Arc<dyn TorrentClient>>,
         catalog: Arc<dyn TorrentCatalog>,
         pipeline: Option<Arc<AppPipelineProcessor>>,
+        orchestrator: Option<Arc<AppOrchestrator>>,
     ) -> Self {
         Self {
             config,
@@ -42,6 +49,7 @@ impl AppState {
             torrent_client,
             catalog,
             pipeline,
+            orchestrator,
         }
     }
 
@@ -87,5 +95,10 @@ impl AppState {
     /// Get the pipeline processor (if initialized)
     pub fn pipeline(&self) -> Option<&Arc<AppPipelineProcessor>> {
         self.pipeline.as_ref()
+    }
+
+    /// Get the orchestrator (if enabled)
+    pub fn orchestrator(&self) -> Option<&Arc<AppOrchestrator>> {
+        self.orchestrator.as_ref()
     }
 }

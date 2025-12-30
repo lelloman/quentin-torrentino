@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::net::IpAddr;
 use std::path::PathBuf;
 
+use crate::orchestrator::OrchestratorConfig;
 use crate::textbrain::TextBrainConfig;
 
 /// Root configuration
@@ -18,6 +19,8 @@ pub struct Config {
     pub torrent_client: Option<TorrentClientConfig>,
     #[serde(default)]
     pub textbrain: TextBrainConfig,
+    #[serde(default)]
+    pub orchestrator: OrchestratorConfig,
 }
 
 /// Server configuration
@@ -183,6 +186,17 @@ pub struct SanitizedConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub torrent_client: Option<SanitizedTorrentClientConfig>,
     pub textbrain: SanitizedTextBrainConfig,
+    pub orchestrator: SanitizedOrchestratorConfig,
+}
+
+/// Sanitized Orchestrator config
+#[derive(Debug, Clone, Serialize)]
+pub struct SanitizedOrchestratorConfig {
+    pub enabled: bool,
+    pub acquisition_poll_interval_ms: u64,
+    pub download_poll_interval_ms: u64,
+    pub auto_approve_threshold: f32,
+    pub max_concurrent_downloads: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -306,6 +320,13 @@ impl From<&Config> for SanitizedConfig {
                 llm_provider: config.textbrain.llm.as_ref().map(|l| format!("{:?}", l.provider).to_lowercase()),
                 llm_model: config.textbrain.llm.as_ref().map(|l| l.model.clone()),
             },
+            orchestrator: SanitizedOrchestratorConfig {
+                enabled: config.orchestrator.enabled,
+                acquisition_poll_interval_ms: config.orchestrator.acquisition_poll_interval_ms,
+                download_poll_interval_ms: config.orchestrator.download_poll_interval_ms,
+                auto_approve_threshold: config.orchestrator.auto_approve_threshold,
+                max_concurrent_downloads: config.orchestrator.max_concurrent_downloads,
+            },
         }
     }
 }
@@ -363,6 +384,7 @@ port = 8080
             searcher: None,
             torrent_client: None,
             textbrain: TextBrainConfig::default(),
+            orchestrator: OrchestratorConfig::default(),
         };
         let sanitized = SanitizedConfig::from(&config);
         assert_eq!(sanitized.auth.method, "none");
@@ -370,6 +392,7 @@ port = 8080
         assert_eq!(sanitized.database.path.to_str().unwrap(), "quentin.db");
         assert!(sanitized.searcher.is_none());
         assert!(sanitized.torrent_client.is_none());
+        assert!(!sanitized.orchestrator.enabled);
     }
 
     #[test]
@@ -436,6 +459,7 @@ api_key = "test-api-key"
             }),
             torrent_client: None,
             textbrain: TextBrainConfig::default(),
+            orchestrator: OrchestratorConfig::default(),
         };
 
         let sanitized = SanitizedConfig::from(&config);
@@ -517,6 +541,7 @@ timeout_secs = 60
                 librqbit: None,
             }),
             textbrain: TextBrainConfig::default(),
+            orchestrator: OrchestratorConfig::default(),
         };
 
         let sanitized = SanitizedConfig::from(&config);
