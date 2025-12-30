@@ -19,8 +19,8 @@ use crate::audit::AuditHandle;
 use crate::processor::{PipelineJob, PipelineProcessor, SourceFile};
 use crate::searcher::Searcher;
 use crate::textbrain::{
-    DumbMatcher, DumbQueryBuilder, ScoredCandidate, ScoredCandidateSummary, TextBrain,
-    TextBrainConfig,
+    AnthropicClient, DumbMatcher, DumbQueryBuilder, LlmMatcher, LlmProvider, LlmQueryBuilder,
+    OllamaClient, ScoredCandidate, ScoredCandidateSummary, TextBrain, TextBrainConfig,
 };
 use crate::ticket::{
     AcquisitionPhase, SelectedCandidate, Ticket, TicketFilter, TicketState, TicketStore,
@@ -313,10 +313,8 @@ where
             },
         )?;
 
-        // Build TextBrain with dumb implementations
-        let textbrain = TextBrain::new(textbrain_config.clone())
-            .with_dumb_query_builder(Arc::new(DumbQueryBuilder::new()))
-            .with_dumb_matcher(Arc::new(DumbMatcher::new()));
+        // Build TextBrain with configured implementations
+        let textbrain = Self::build_textbrain(textbrain_config);
 
         // Execute acquisition
         let result = textbrain
@@ -945,6 +943,67 @@ where
         }
 
         Ok(())
+    }
+
+    /// Build a TextBrain instance with appropriate query builder and matcher
+    /// based on the configuration.
+    fn build_textbrain(config: &TextBrainConfig) -> TextBrain {
+        let mut textbrain = TextBrain::new(config.clone());
+
+        // Always add dumb implementations (used as fallback in most modes)
+        if config.mode.can_use_dumb() {
+            textbrain = textbrain
+                .with_dumb_query_builder(Arc::new(DumbQueryBuilder::new()))
+                .with_dumb_matcher(Arc::new(DumbMatcher::new()));
+        }
+
+        // Add LLM implementations if configured and mode can use them
+        if config.mode.can_use_llm() {
+            if let Some(ref llm_config) = config.llm {
+                match llm_config.provider {
+                    LlmProvider::Anthropic => {
+                        if let Some(ref api_key) = llm_config.api_key {
+                            let mut client =
+                                AnthropicClient::new(api_key.clone(), llm_config.model.clone());
+                            if let Some(ref api_base) = llm_config.api_base {
+                                client = client.with_api_base(api_base.clone());
+                            }
+                            let client = Arc::new(client);
+                            textbrain = textbrain
+                                .with_llm_query_builder(Arc::new(LlmQueryBuilder::new(
+                                    client.clone(),
+                                )))
+                                .with_llm_matcher(Arc::new(LlmMatcher::new(client)));
+                            info!("LLM integration enabled with Anthropic ({})", llm_config.model);
+                        } else {
+                            warn!("Anthropic provider configured but no API key provided");
+                        }
+                    }
+                    LlmProvider::Ollama => {
+                        let mut client = OllamaClient::new(llm_config.model.clone());
+                        if let Some(ref api_base) = llm_config.api_base {
+                            client = client.with_api_base(api_base.clone());
+                        }
+                        let client = Arc::new(client);
+                        textbrain = textbrain
+                            .with_llm_query_builder(Arc::new(LlmQueryBuilder::new(client.clone())))
+                            .with_llm_matcher(Arc::new(LlmMatcher::new(client)));
+                        info!("LLM integration enabled with Ollama ({})", llm_config.model);
+                    }
+                    LlmProvider::OpenAi | LlmProvider::Custom => {
+                        // TODO: Implement OpenAI and custom providers
+                        warn!(
+                            "LLM provider {:?} is not yet implemented, falling back to heuristics",
+                            llm_config.provider
+                        );
+                    }
+                }
+            } else if config.mode.requires_llm() {
+                warn!("LLM mode requires LLM configuration but none provided");
+            }
+        }
+
+        textbrain
     }
 }
 
