@@ -8,6 +8,7 @@ import LoadingSpinner from '../components/common/LoadingSpinner.vue'
 import ErrorAlert from '../components/common/ErrorAlert.vue'
 import Badge from '../components/common/Badge.vue'
 import TicketCard from '../components/tickets/TicketCard.vue'
+import OrchestratorStatus from '../components/orchestrator/OrchestratorStatus.vue'
 
 const store = useAppStore()
 const { health, healthLoading, healthError } = storeToRefs(store)
@@ -86,6 +87,11 @@ onMounted(() => {
           <span class="i-carbon-checkmark text-2xl text-green-400"></span>
         </div>
       </div>
+    </div>
+
+    <!-- Orchestrator Status -->
+    <div class="mb-8">
+      <OrchestratorStatus />
     </div>
 
     <ErrorAlert
