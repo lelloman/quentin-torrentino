@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import type { Ticket } from '../../api/types'
-import { approveTicket, rejectTicket, deleteTicket, retryTicket } from '../../api/tickets'
+import { approveTicket, rejectTicket, retryTicket } from '../../api/tickets'
 import Badge from '../common/Badge.vue'
 
 const props = defineProps<{
@@ -10,7 +10,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   cancel: []
-  delete: []
+  showDelete: []
   refresh: []
 }>()
 
@@ -18,8 +18,6 @@ const actionLoading = ref(false)
 const actionError = ref<string | null>(null)
 const selectedCandidateIdx = ref(0)
 const rejectReason = ref('')
-const showDeleteConfirm = ref(false)
-const deleteLoading = ref(false)
 const retryLoading = ref(false)
 
 // State variant for badge color
@@ -140,21 +138,6 @@ async function handleReject() {
     actionError.value = e instanceof Error ? e.message : 'Failed to reject'
   } finally {
     actionLoading.value = false
-  }
-}
-
-// Handle delete action
-async function handleDelete() {
-  deleteLoading.value = true
-  actionError.value = null
-  try {
-    await deleteTicket(props.ticket.id)
-    showDeleteConfirm.value = false
-    emit('delete')
-  } catch (e) {
-    actionError.value = e instanceof Error ? e.message : 'Failed to delete'
-  } finally {
-    deleteLoading.value = false
   }
 }
 
@@ -547,7 +530,7 @@ async function handleRetry() {
           Cancel Ticket
         </button>
         <button
-          @click="showDeleteConfirm = true"
+          @click="emit('showDelete')"
           class="px-4 py-2 border border-red-300 text-red-600 rounded-lg hover:bg-red-50 transition-colors flex items-center gap-2"
         >
           <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -558,42 +541,5 @@ async function handleRetry() {
       </div>
     </div>
 
-    <!-- Delete Confirmation Modal -->
-    <div
-      v-if="showDeleteConfirm"
-      class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
-      @click.self="showDeleteConfirm = false"
-    >
-      <div class="bg-white rounded-lg p-6 max-w-md w-full mx-4 shadow-xl">
-        <h3 class="text-lg font-bold text-red-800 mb-4">Delete Ticket Permanently?</h3>
-        <p class="text-gray-600 mb-2">
-          This action cannot be undone. The ticket and all associated data will be permanently removed.
-        </p>
-        <p class="text-sm text-gray-500 mb-6 font-mono">
-          ID: {{ ticket.id }}
-        </p>
-
-        <div v-if="actionError" class="mb-4 p-3 bg-red-100 text-red-700 rounded text-sm">
-          {{ actionError }}
-        </div>
-
-        <div class="flex justify-end gap-3">
-          <button
-            @click="showDeleteConfirm = false"
-            :disabled="deleteLoading"
-            class="px-4 py-2 text-gray-600 hover:text-gray-800"
-          >
-            Cancel
-          </button>
-          <button
-            @click="handleDelete"
-            :disabled="deleteLoading"
-            class="btn-danger"
-          >
-            {{ deleteLoading ? 'Deleting...' : 'Yes, Delete Permanently' }}
-          </button>
-        </div>
-      </div>
-    </div>
   </div>
 </template>
