@@ -330,6 +330,59 @@ pub async fn cancel_ticket(
     }
 }
 
+/// Query parameters for hard delete
+#[derive(Debug, Deserialize)]
+pub struct DeleteTicketParams {
+    /// Confirmation flag - must be "true" to actually delete
+    pub confirm: Option<String>,
+}
+
+/// Permanently delete a ticket (hard delete)
+pub async fn delete_ticket(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Query(params): Query<DeleteTicketParams>,
+) -> Result<Json<TicketResponse>, impl IntoResponse> {
+    // Require explicit confirmation
+    if params.confirm.as_deref() != Some("true") {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(TicketErrorResponse {
+                error: "Hard delete requires confirmation. Add ?confirm=true to permanently delete this ticket.".to_string(),
+            }),
+        ));
+    }
+
+    let deleted_by = "anonymous".to_string(); // TODO: Get from auth
+
+    match state.ticket_store().delete(&id) {
+        Ok(ticket) => {
+            // Emit audit event
+            state
+                .audit()
+                .try_emit(AuditEvent::TicketDeleted {
+                    ticket_id: ticket.id.clone(),
+                    deleted_by,
+                    previous_state: ticket.state.state_type().to_string(),
+                });
+
+            Ok(Json(TicketResponse::from(ticket)))
+        }
+        Err(TicketError::NotFound(_)) => Err((
+            StatusCode::NOT_FOUND,
+            Json(TicketErrorResponse {
+                error: format!("Ticket not found: {}", id),
+            }),
+        )),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(TicketErrorResponse {
+                error: e.to_string(),
+            }),
+        )),
+    }
+}
+
 /// Approve a ticket (for tickets in NeedsApproval state)
 pub async fn approve_ticket(
     State(state): State<Arc<AppState>>,
@@ -422,6 +475,7 @@ pub async fn approve_ticket(
         title: selected_summary.title.clone(),
         info_hash: selected_summary.info_hash.clone(),
         magnet_uri,
+        torrent_url: None, // Will be populated from catalog if available
         size_bytes: selected_summary.size_bytes,
         score: selected_summary.score,
         file_mappings: vec![], // TODO: Get from file mapper
@@ -445,6 +499,7 @@ pub async fn approve_ticket(
                 title: c.title.clone(),
                 info_hash: c.info_hash.clone(),
                 magnet_uri: magnet,
+                torrent_url: None,
                 size_bytes: c.size_bytes,
                 score: c.score,
                 file_mappings: vec![],

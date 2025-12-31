@@ -302,6 +302,31 @@ impl TicketStore for SqliteTicketStore {
             updated_at: now,
         })
     }
+
+    fn delete(&self, id: &str) -> Result<Ticket, TicketError> {
+        let conn = self.conn.lock().unwrap();
+
+        // First, get the ticket to return it
+        let ticket = conn.query_row(
+            "SELECT id, created_at, created_by, state, priority, query_context, dest_path, output_constraints, updated_at FROM tickets WHERE id = ?",
+            params![id],
+            Self::row_to_ticket,
+        );
+
+        let ticket = match ticket {
+            Ok(t) => t,
+            Err(rusqlite::Error::QueryReturnedNoRows) => {
+                return Err(TicketError::NotFound(id.to_string()));
+            }
+            Err(e) => return Err(TicketError::Database(e.to_string())),
+        };
+
+        // Delete the ticket
+        conn.execute("DELETE FROM tickets WHERE id = ?", params![id])
+            .map_err(|e| TicketError::Database(e.to_string()))?;
+
+        Ok(ticket)
+    }
 }
 
 #[cfg(test)]

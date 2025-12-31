@@ -72,6 +72,12 @@ pub enum AuditEvent {
         reason: Option<String>,
         previous_state: String,
     },
+    /// Ticket was permanently deleted (hard delete).
+    TicketDeleted {
+        ticket_id: String,
+        deleted_by: String,
+        previous_state: String,
+    },
 
     // Search events
     SearchExecuted {
@@ -464,6 +470,7 @@ impl AuditEvent {
             Self::TicketCreated { .. } => "ticket_created",
             Self::TicketStateChanged { .. } => "ticket_state_changed",
             Self::TicketCancelled { .. } => "ticket_cancelled",
+            Self::TicketDeleted { .. } => "ticket_deleted",
             Self::SearchExecuted { .. } => "search_executed",
             Self::IndexerRateLimitUpdated { .. } => "indexer_rate_limit_updated",
             Self::IndexerEnabledChanged { .. } => "indexer_enabled_changed",
@@ -499,6 +506,7 @@ impl AuditEvent {
             Self::TicketCreated { ticket_id, .. }
             | Self::TicketStateChanged { ticket_id, .. }
             | Self::TicketCancelled { ticket_id, .. }
+            | Self::TicketDeleted { ticket_id, .. }
             | Self::QueriesGenerated { ticket_id, .. }
             | Self::CandidatesScored { ticket_id, .. }
             | Self::CandidateSelected { ticket_id, .. }
@@ -526,6 +534,7 @@ impl AuditEvent {
         match self {
             Self::TicketCreated { requested_by, .. } => Some(requested_by),
             Self::TicketCancelled { cancelled_by, .. } => Some(cancelled_by),
+            Self::TicketDeleted { deleted_by, .. } => Some(deleted_by),
             Self::CandidateSelected { selected_by, .. } => Some(selected_by),
             Self::SearchExecuted { user_id, .. }
             | Self::IndexerRateLimitUpdated { user_id, .. }

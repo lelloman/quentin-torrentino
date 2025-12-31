@@ -121,4 +121,8 @@ pub trait TicketStore: Send + Sync {
 
     /// Update a ticket's state.
     fn update_state(&self, id: &str, new_state: TicketState) -> Result<Ticket, TicketError>;
+
+    /// Permanently delete a ticket and all associated data.
+    /// Returns the deleted ticket if found.
+    fn delete(&self, id: &str) -> Result<Ticket, TicketError>;
 }

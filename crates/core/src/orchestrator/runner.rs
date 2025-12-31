@@ -444,64 +444,99 @@ where
                 }
 
                 // Extract all candidates from state for failover
-                let (selected, candidates) = Self::extract_candidates(&ticket)?;
+                let (_selected, candidates) = Self::extract_candidates(&ticket)?;
 
-                // Add to torrent client
-                let request = AddTorrentRequest::magnet(&selected.magnet_uri);
-                match torrent_client.add_torrent(request).await {
-                    Ok(result) => {
-                        // Track active download with failover context
-                        let now = Utc::now();
-                        {
-                            let mut downloads = active_downloads.write().await;
-                            downloads.insert(
-                                ticket.id.clone(),
-                                ActiveDownload {
-                                    ticket_id: ticket.id.clone(),
+                // Try each candidate until one works
+                let mut last_error = String::new();
+                let mut success = false;
+
+                for (candidate_idx, candidate) in candidates.iter().enumerate() {
+                    debug!(
+                        "Trying candidate {} of {} for ticket {}: {}",
+                        candidate_idx + 1,
+                        candidates.len(),
+                        ticket.id,
+                        candidate.title
+                    );
+
+                    let add_result = Self::add_torrent_from_candidate(
+                        torrent_client.as_ref(),
+                        candidate,
+                    ).await;
+
+                    match add_result {
+                        Ok(result) => {
+                            // Track active download with failover context
+                            let now = Utc::now();
+                            {
+                                let mut downloads = active_downloads.write().await;
+                                downloads.insert(
+                                    ticket.id.clone(),
+                                    ActiveDownload {
+                                        ticket_id: ticket.id.clone(),
+                                        info_hash: result.hash.clone(),
+                                        started_at: now,
+                                        candidate_idx,
+                                        failover_round: 1,
+                                        last_progress_pct: 0.0,
+                                        last_progress_at: now,
+                                    },
+                                );
+                            }
+
+                            // Update ticket state with failover fields
+                            ticket_store.update_state(
+                                &ticket.id,
+                                TicketState::Downloading {
                                     info_hash: result.hash.clone(),
+                                    progress_pct: 0.0,
+                                    speed_bps: 0,
+                                    eta_secs: None,
                                     started_at: now,
-                                    candidate_idx: 0,
+                                    candidate_idx,
                                     failover_round: 1,
                                     last_progress_pct: 0.0,
                                     last_progress_at: now,
+                                    candidates: candidates.clone(),
                                 },
+                            )?;
+
+                            info!(
+                                "Started download for ticket {} (candidate {}): {}",
+                                ticket.id, candidate_idx + 1, result.hash
                             );
+                            success = true;
+                            break;
                         }
-
-                        // Update ticket state with failover fields
-                        ticket_store.update_state(
-                            &ticket.id,
-                            TicketState::Downloading {
-                                info_hash: result.hash.clone(),
-                                progress_pct: 0.0,
-                                speed_bps: 0,
-                                eta_secs: None,
-                                started_at: now,
-                                candidate_idx: 0,
-                                failover_round: 1,
-                                last_progress_pct: 0.0,
-                                last_progress_at: now,
-                                candidates,
-                            },
-                        )?;
-
-                        info!(
-                            "Started download for ticket {}: {}",
-                            ticket.id, result.hash
-                        );
+                        Err(e) => {
+                            warn!(
+                                "Failed to add candidate {} for ticket {}: {}",
+                                candidate_idx + 1, ticket.id, e
+                            );
+                            last_error = format!("{}", e);
+                            // Continue to next candidate
+                        }
                     }
-                    Err(e) => {
-                        warn!("Failed to add torrent for ticket {}: {}", ticket.id, e);
-                        ticket_store.update_state(
-                            &ticket.id,
-                            TicketState::Failed {
-                                error: format!("Failed to add torrent: {}", e),
-                                retryable: true,
-                                retry_count: 0,
-                                failed_at: Utc::now(),
-                            },
-                        )?;
-                    }
+                }
+
+                // If all candidates failed, mark ticket as failed
+                if !success {
+                    error!(
+                        "All {} candidates failed for ticket {}",
+                        candidates.len(), ticket.id
+                    );
+                    ticket_store.update_state(
+                        &ticket.id,
+                        TicketState::Failed {
+                            error: format!(
+                                "All {} candidates failed to add. Last error: {}",
+                                candidates.len(), last_error
+                            ),
+                            retryable: true,
+                            retry_count: 0,
+                            failed_at: Utc::now(),
+                        },
+                    )?;
                 }
             }
         }
@@ -531,10 +566,32 @@ where
             let info = match torrent_client.get_torrent(&download.info_hash).await {
                 Ok(info) => info,
                 Err(e) => {
-                    warn!(
-                        "Failed to get torrent {} for ticket {}: {}",
-                        download.info_hash, download.ticket_id, e
-                    );
+                    // Check if this is a "torrent not found" error (torrent was deleted externally)
+                    let error_str = e.to_string().to_lowercase();
+                    if error_str.contains("not found") || error_str.contains("404") || error_str.contains("no such") {
+                        warn!(
+                            "Torrent {} was deleted externally for ticket {}, triggering failover",
+                            download.info_hash, download.ticket_id
+                        );
+                        // Handle this like a stall - try the next candidate
+                        if let Err(failover_err) = Self::handle_stall(
+                            ticket_store,
+                            torrent_client,
+                            active_downloads,
+                            &download,
+                            config,
+                        ).await {
+                            warn!(
+                                "Failed to handle deleted torrent for ticket {}: {}",
+                                download.ticket_id, failover_err
+                            );
+                        }
+                    } else {
+                        warn!(
+                            "Failed to get torrent {} for ticket {}: {}",
+                            download.info_hash, download.ticket_id, e
+                        );
+                    }
                     continue;
                 }
             };
@@ -698,9 +755,94 @@ where
         Ok(())
     }
 
+    /// Add a torrent from a SelectedCandidate, handling both magnet URIs and .torrent URLs.
+    async fn add_torrent_from_candidate(
+        torrent_client: &dyn TorrentClient,
+        candidate: &SelectedCandidate,
+    ) -> Result<crate::torrent_client::AddTorrentResult, crate::torrent_client::TorrentClientError> {
+        // First, try the magnet URI if it looks valid
+        if candidate.magnet_uri.starts_with("magnet:") {
+            let request = AddTorrentRequest::magnet(&candidate.magnet_uri);
+            return torrent_client.add_torrent(request).await;
+        }
+
+        // If magnet_uri doesn't start with "magnet:", it might be a .torrent URL
+        // Try to download it
+        if candidate.magnet_uri.starts_with("http://") || candidate.magnet_uri.starts_with("https://") {
+            debug!("magnet_uri is actually a URL, downloading .torrent file: {}", candidate.magnet_uri);
+            match Self::download_torrent_file(&candidate.magnet_uri).await {
+                Ok(data) => {
+                    let request = AddTorrentRequest::torrent_file(data);
+                    return torrent_client.add_torrent(request).await;
+                }
+                Err(e) => {
+                    warn!("Failed to download .torrent file from magnet_uri: {}", e);
+                }
+            }
+        }
+
+        // Try the dedicated torrent_url if available
+        if let Some(ref torrent_url) = candidate.torrent_url {
+            debug!("Trying torrent_url: {}", torrent_url);
+            match Self::download_torrent_file(torrent_url).await {
+                Ok(data) => {
+                    let request = AddTorrentRequest::torrent_file(data);
+                    return torrent_client.add_torrent(request).await;
+                }
+                Err(e) => {
+                    warn!("Failed to download .torrent file from torrent_url: {}", e);
+                }
+            }
+        }
+
+        // Last resort: construct magnet from info_hash
+        if !candidate.info_hash.is_empty() {
+            debug!("Constructing magnet URI from info_hash: {}", candidate.info_hash);
+            let constructed_magnet = format!(
+                "magnet:?xt=urn:btih:{}&dn={}",
+                candidate.info_hash,
+                urlencoding::encode(&candidate.title)
+            );
+            let request = AddTorrentRequest::magnet(&constructed_magnet);
+            return torrent_client.add_torrent(request).await;
+        }
+
+        Err(crate::torrent_client::TorrentClientError::ApiError(
+            "No valid magnet URI, torrent URL, or info hash available".to_string()
+        ))
+    }
+
+    /// Download a .torrent file from a URL.
+    async fn download_torrent_file(url: &str) -> Result<Vec<u8>, OrchestratorError> {
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(30))
+            .build()
+            .map_err(|e| OrchestratorError::MissingData(format!("Failed to create HTTP client: {}", e)))?;
+
+        let response = client
+            .get(url)
+            .send()
+            .await
+            .map_err(|e| OrchestratorError::MissingData(format!("Failed to download .torrent: {}", e)))?;
+
+        if !response.status().is_success() {
+            return Err(OrchestratorError::MissingData(format!(
+                "Failed to download .torrent: HTTP {}",
+                response.status()
+            )));
+        }
+
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|e| OrchestratorError::MissingData(format!("Failed to read .torrent body: {}", e)))?;
+
+        Ok(bytes.to_vec())
+    }
+
     /// Build SelectedCandidate from ScoredCandidate.
     fn build_selected_candidate(candidate: &ScoredCandidate) -> SelectedCandidate {
-        // Get magnet URI from first source
+        // Get magnet URI from first source that has one
         let magnet_uri = candidate
             .candidate
             .sources
@@ -714,10 +856,18 @@ where
                 )
             });
 
+        // Get torrent URL from first source that has one (fallback for when magnet is unavailable)
+        let torrent_url = candidate
+            .candidate
+            .sources
+            .iter()
+            .find_map(|s| s.torrent_url.clone());
+
         SelectedCandidate {
             title: candidate.candidate.title.clone(),
             info_hash: candidate.candidate.info_hash.clone(),
             magnet_uri,
+            torrent_url,
             size_bytes: candidate.candidate.size_bytes,
             score: candidate.score,
             file_mappings: candidate.file_mappings.clone(),
@@ -729,8 +879,21 @@ where
         match &ticket.state {
             TicketState::AutoApproved { selected, .. } => Ok(selected.clone()),
             TicketState::Approved { selected, .. } => Ok(selected.clone()),
+            TicketState::Downloading {
+                candidates,
+                candidate_idx,
+                ..
+            } => {
+                // When triggering pipeline after download, use the current candidate
+                candidates
+                    .get(*candidate_idx)
+                    .cloned()
+                    .ok_or_else(|| OrchestratorError::MissingData(
+                        "No candidate at current index in Downloading state".to_string()
+                    ))
+            }
             _ => Err(OrchestratorError::InvalidState {
-                expected: "AutoApproved or Approved".to_string(),
+                expected: "AutoApproved, Approved, or Downloading".to_string(),
                 actual: ticket.state.state_type().to_string(),
             }),
         }

@@ -274,6 +274,9 @@ pub struct SelectedCandidate {
     pub info_hash: String,
     /// Magnet URI for downloading.
     pub magnet_uri: String,
+    /// Direct .torrent file URL (fallback if magnet is unavailable).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub torrent_url: Option<String>,
     /// Size in bytes.
     pub size_bytes: u64,
     /// Match score (0.0-1.0).
