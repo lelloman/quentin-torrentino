@@ -101,6 +101,7 @@ function goBack() {
       <TicketDetail
         :ticket="currentTicket"
         @cancel="showCancelDialog = true"
+        @delete="goBack"
         @refresh="handleRefresh"
       />
 

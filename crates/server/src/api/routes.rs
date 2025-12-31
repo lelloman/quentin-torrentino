@@ -30,6 +30,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/tickets/{id}", get(tickets::get_ticket))
         .route("/tickets/{id}", delete(tickets::cancel_ticket))
         .route("/tickets/{id}/delete", post(tickets::delete_ticket))
+        .route("/tickets/{id}/retry", post(tickets::retry_ticket))
         .route("/tickets/{id}/approve", post(tickets::approve_ticket))
         .route("/tickets/{id}/reject", post(tickets::reject_ticket))
         // Search (read-only, indexers configured in Jackett)

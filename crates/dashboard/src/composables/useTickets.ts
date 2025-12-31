@@ -11,6 +11,7 @@ import {
   getTicket as apiGetTicket,
   createTicket as apiCreateTicket,
   cancelTicket as apiCancelTicket,
+  deleteTicket as apiDeleteTicket,
   type ListTicketsParams,
 } from '../api/tickets'
 
@@ -113,6 +114,28 @@ export function useTickets() {
     }
   }
 
+  async function deleteTicket(id: string): Promise<boolean> {
+    loading.value = true
+    error.value = null
+
+    try {
+      await apiDeleteTicket(id)
+      // Remove from list
+      tickets.value = tickets.value.filter((t) => t.id !== id)
+      total.value = Math.max(0, total.value - 1)
+      // Clear current ticket if it's the one being deleted
+      if (currentTicket.value?.id === id) {
+        currentTicket.value = null
+      }
+      return true
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : 'Failed to delete ticket'
+      return false
+    } finally {
+      loading.value = false
+    }
+  }
+
   function setStateFilter(state: TicketStateType | undefined) {
     stateFilter.value = state
     offset.value = 0
@@ -134,6 +157,7 @@ export function useTickets() {
     fetchTicket,
     createTicket,
     cancelTicket,
+    deleteTicket,
     setStateFilter,
     clearError,
   }

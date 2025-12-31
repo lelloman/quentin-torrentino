@@ -537,6 +537,77 @@ pub async fn approve_ticket(
     }
 }
 
+/// Retry a failed ticket (resets to Pending state)
+pub async fn retry_ticket(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<TicketResponse>, impl IntoResponse> {
+    // Get the current ticket
+    let current_ticket = match state.ticket_store().get(&id) {
+        Ok(Some(ticket)) => ticket,
+        Ok(None) => {
+            return Err((
+                StatusCode::NOT_FOUND,
+                Json(TicketErrorResponse {
+                    error: format!("Ticket not found: {}", id),
+                }),
+            ));
+        }
+        Err(e) => {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(TicketErrorResponse {
+                    error: e.to_string(),
+                }),
+            ));
+        }
+    };
+
+    // Check that ticket is in a retryable state
+    let can_retry = matches!(
+        &current_ticket.state,
+        TicketState::Failed { retryable: true, .. }
+            | TicketState::AcquisitionFailed { .. }
+            | TicketState::Rejected { .. }
+            | TicketState::Cancelled { .. }
+    );
+
+    if !can_retry {
+        return Err((
+            StatusCode::CONFLICT,
+            Json(TicketErrorResponse {
+                error: format!(
+                    "Cannot retry ticket: current state is {}",
+                    current_ticket.state.state_type()
+                ),
+            }),
+        ));
+    }
+
+    let previous_state = current_ticket.state.state_type().to_string();
+
+    // Reset to Pending state
+    match state.ticket_store().update_state(&id, TicketState::Pending) {
+        Ok(ticket) => {
+            // Emit audit event
+            state.audit().try_emit(AuditEvent::TicketStateChanged {
+                ticket_id: ticket.id.clone(),
+                from_state: previous_state,
+                to_state: "pending".to_string(),
+                reason: Some("Manual retry".to_string()),
+            });
+
+            Ok(Json(TicketResponse::from(ticket)))
+        }
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(TicketErrorResponse {
+                error: e.to_string(),
+            }),
+        )),
+    }
+}
+
 /// Reject a ticket (for tickets in NeedsApproval state)
 pub async fn reject_ticket(
     State(state): State<Arc<AppState>>,

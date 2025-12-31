@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import type { Ticket } from '../../api/types'
-import { approveTicket, rejectTicket } from '../../api/tickets'
+import { approveTicket, rejectTicket, deleteTicket, retryTicket } from '../../api/tickets'
 import Badge from '../common/Badge.vue'
 
 const props = defineProps<{
@@ -10,6 +10,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   cancel: []
+  delete: []
   refresh: []
 }>()
 
@@ -17,6 +18,9 @@ const actionLoading = ref(false)
 const actionError = ref<string | null>(null)
 const selectedCandidateIdx = ref(0)
 const rejectReason = ref('')
+const showDeleteConfirm = ref(false)
+const deleteLoading = ref(false)
+const retryLoading = ref(false)
 
 // State variant for badge color
 const stateVariant = computed(() => {
@@ -60,6 +64,16 @@ const stateName = computed(() => {
 const canCancel = computed(() => {
   const type = props.ticket.state.type
   return ['pending', 'needs_approval', 'downloading'].includes(type)
+})
+
+// Can this ticket be retried?
+const canRetry = computed(() => {
+  const state = props.ticket.state
+  if (state.type === 'failed' && state.retryable) return true
+  if (state.type === 'acquisition_failed') return true
+  if (state.type === 'rejected') return true
+  if (state.type === 'cancelled') return true
+  return false
 })
 
 // Is this an active/in-progress state?
@@ -126,6 +140,35 @@ async function handleReject() {
     actionError.value = e instanceof Error ? e.message : 'Failed to reject'
   } finally {
     actionLoading.value = false
+  }
+}
+
+// Handle delete action
+async function handleDelete() {
+  deleteLoading.value = true
+  actionError.value = null
+  try {
+    await deleteTicket(props.ticket.id)
+    showDeleteConfirm.value = false
+    emit('delete')
+  } catch (e) {
+    actionError.value = e instanceof Error ? e.message : 'Failed to delete'
+  } finally {
+    deleteLoading.value = false
+  }
+}
+
+// Handle retry action
+async function handleRetry() {
+  retryLoading.value = true
+  actionError.value = null
+  try {
+    await retryTicket(props.ticket.id)
+    emit('refresh')
+  } catch (e) {
+    actionError.value = e instanceof Error ? e.message : 'Failed to retry'
+  } finally {
+    retryLoading.value = false
   }
 }
 </script>
@@ -480,9 +523,77 @@ async function handleReject() {
       </div>
     </div>
 
-    <!-- Cancel Button -->
-    <div v-if="canCancel" class="flex justify-end">
-      <button @click="emit('cancel')" class="btn-danger">Cancel Ticket</button>
+    <!-- Action Buttons -->
+    <div class="card border-gray-200">
+      <h3 class="text-lg font-semibold mb-4">Actions</h3>
+
+      <div v-if="actionError" class="mb-4 p-3 bg-red-100 text-red-700 rounded text-sm">
+        {{ actionError }}
+      </div>
+
+      <div class="flex flex-wrap gap-3">
+        <button
+          v-if="canRetry"
+          @click="handleRetry"
+          :disabled="retryLoading"
+          class="btn-primary flex items-center gap-2"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+          {{ retryLoading ? 'Retrying...' : 'Retry' }}
+        </button>
+        <button v-if="canCancel" @click="emit('cancel')" class="btn-danger">
+          Cancel Ticket
+        </button>
+        <button
+          @click="showDeleteConfirm = true"
+          class="px-4 py-2 border border-red-300 text-red-600 rounded-lg hover:bg-red-50 transition-colors flex items-center gap-2"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+          </svg>
+          Delete Permanently
+        </button>
+      </div>
+    </div>
+
+    <!-- Delete Confirmation Modal -->
+    <div
+      v-if="showDeleteConfirm"
+      class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+      @click.self="showDeleteConfirm = false"
+    >
+      <div class="bg-white rounded-lg p-6 max-w-md w-full mx-4 shadow-xl">
+        <h3 class="text-lg font-bold text-red-800 mb-4">Delete Ticket Permanently?</h3>
+        <p class="text-gray-600 mb-2">
+          This action cannot be undone. The ticket and all associated data will be permanently removed.
+        </p>
+        <p class="text-sm text-gray-500 mb-6 font-mono">
+          ID: {{ ticket.id }}
+        </p>
+
+        <div v-if="actionError" class="mb-4 p-3 bg-red-100 text-red-700 rounded text-sm">
+          {{ actionError }}
+        </div>
+
+        <div class="flex justify-end gap-3">
+          <button
+            @click="showDeleteConfirm = false"
+            :disabled="deleteLoading"
+            class="px-4 py-2 text-gray-600 hover:text-gray-800"
+          >
+            Cancel
+          </button>
+          <button
+            @click="handleDelete"
+            :disabled="deleteLoading"
+            class="btn-danger"
+          >
+            {{ deleteLoading ? 'Deleting...' : 'Yes, Delete Permanently' }}
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 </template>

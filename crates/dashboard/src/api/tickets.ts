@@ -55,3 +55,11 @@ export async function approveTicket(id: string, request?: ApproveTicketRequest):
 export async function rejectTicket(id: string, request?: RejectTicketRequest): Promise<Ticket> {
   return post<Ticket>(`/tickets/${id}/reject`, request)
 }
+
+export async function deleteTicket(id: string): Promise<Ticket> {
+  return post<Ticket>(`/tickets/${id}/delete?confirm=true`)
+}
+
+export async function retryTicket(id: string): Promise<Ticket> {
+  return post<Ticket>(`/tickets/${id}/retry`)
+}
