@@ -384,6 +384,17 @@ where
                                 approved_at: Utc::now(),
                             },
                         )?;
+
+                        // Emit state change event
+                        if let Some(ref audit_handle) = audit {
+                            audit_handle.emit(AuditEvent::TicketStateChanged {
+                                ticket_id: ticket.id.clone(),
+                                from_state: "acquiring".to_string(),
+                                to_state: "auto_approved".to_string(),
+                                reason: Some(format!("Auto-approved with score {:.2}", candidate.score)),
+                            }).await;
+                        }
+
                         info!(
                             "Ticket {} auto-approved with score {:.2}",
                             ticket.id, candidate.score
@@ -393,12 +404,22 @@ where
                         ticket_store.update_state(
                             &ticket.id,
                             TicketState::AcquisitionFailed {
-                                queries_tried: acq.queries_tried,
+                                queries_tried: acq.queries_tried.clone(),
                                 candidates_seen: acq.candidates_evaluated,
                                 reason: "No candidates found".to_string(),
                                 failed_at: Utc::now(),
                             },
                         )?;
+
+                        // Emit state change event
+                        if let Some(ref audit_handle) = audit {
+                            audit_handle.emit(AuditEvent::TicketStateChanged {
+                                ticket_id: ticket.id.clone(),
+                                from_state: "acquiring".to_string(),
+                                to_state: "acquisition_failed".to_string(),
+                                reason: Some("No candidates found".to_string()),
+                            }).await;
+                        }
                     }
                 } else if let Some(ref candidate) = acq.best_candidate {
                     // Needs manual approval - below threshold
@@ -418,6 +439,17 @@ where
                             waiting_since: Utc::now(),
                         },
                     )?;
+
+                    // Emit state change event
+                    if let Some(ref audit_handle) = audit {
+                        audit_handle.emit(AuditEvent::TicketStateChanged {
+                            ticket_id: ticket.id.clone(),
+                            from_state: "acquiring".to_string(),
+                            to_state: "needs_approval".to_string(),
+                            reason: Some(format!("Best score {:.2} below threshold", candidate.score)),
+                        }).await;
+                    }
+
                     info!(
                         "Ticket {} needs approval, best score {:.2} < threshold {:.2}",
                         ticket.id, candidate.score, config.auto_approve_threshold
@@ -427,25 +459,47 @@ where
                     ticket_store.update_state(
                         &ticket.id,
                         TicketState::AcquisitionFailed {
-                            queries_tried: acq.queries_tried,
+                            queries_tried: acq.queries_tried.clone(),
                             candidates_seen: acq.candidates_evaluated,
                             reason: "No suitable candidates found".to_string(),
                             failed_at: Utc::now(),
                         },
                     )?;
+
+                    // Emit state change event
+                    if let Some(ref audit_handle) = audit {
+                        audit_handle.emit(AuditEvent::TicketStateChanged {
+                            ticket_id: ticket.id.clone(),
+                            from_state: "acquiring".to_string(),
+                            to_state: "acquisition_failed".to_string(),
+                            reason: Some("No suitable candidates found".to_string()),
+                        }).await;
+                    }
                 }
             }
             Err(e) => {
+                let error_reason = e.to_string();
                 ticket_store.update_state(
                     &ticket.id,
                     TicketState::AcquisitionFailed {
                         queries_tried: vec![],
                         candidates_seen: 0,
-                        reason: e.to_string(),
+                        reason: error_reason.clone(),
                         failed_at: Utc::now(),
                     },
                 )?;
-                warn!("Acquisition failed for ticket {}: {}", ticket.id, e);
+
+                // Emit state change event
+                if let Some(ref audit_handle) = audit {
+                    audit_handle.emit(AuditEvent::TicketStateChanged {
+                        ticket_id: ticket.id.clone(),
+                        from_state: "acquiring".to_string(),
+                        to_state: "acquisition_failed".to_string(),
+                        reason: Some(error_reason.clone()),
+                    }).await;
+                }
+
+                warn!("Acquisition failed for ticket {}: {}", ticket.id, error_reason);
             }
         }
 

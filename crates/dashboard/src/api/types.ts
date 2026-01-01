@@ -22,8 +22,11 @@ export interface QueryContext {
   description: string
 }
 
-// Acquisition phase enum
-export type AcquisitionPhase = 'building_queries' | 'searching' | 'scoring'
+// Acquisition phase - tagged enum from Rust with #[serde(tag = "phase")]
+export type AcquisitionPhase =
+  | { phase: 'query_building' }
+  | { phase: 'searching'; query: string }
+  | { phase: 'scoring'; candidates_count: number }
 
 // Scored candidate summary (for NeedsApproval state)
 export interface ScoredCandidateSummaryState {
@@ -407,6 +410,7 @@ export type AuditEventType =
   | 'ticket_created'
   | 'ticket_state_changed'
   | 'ticket_cancelled'
+  | 'ticket_deleted'
   | 'search_executed'
   | 'indexer_rate_limit_updated'
   | 'indexer_enabled_changed'
@@ -419,6 +423,10 @@ export type AuditEventType =
   | 'queries_generated'
   | 'candidates_scored'
   | 'candidate_selected'
+  | 'training_query_context'
+  | 'training_scoring_context'
+  | 'training_file_mapping_context'
+  | 'user_correction'
 
 // Discriminated union for audit event data
 export type AuditEventData =
@@ -540,6 +548,60 @@ export type AuditEventData =
       title: string
       score: number
       auto_selected: boolean
+    }
+  | {
+      type: 'ticket_deleted'
+      ticket_id: string
+      deleted_by: string
+      hard_delete: boolean
+    }
+  | {
+      type: 'training_query_context'
+      sample_id: string
+      ticket_id: string
+      input_tags?: string[]
+      input_description: string
+      input_expected?: string
+      output_queries: string[]
+      method: string
+      confidence: number
+      success?: boolean
+    }
+  | {
+      type: 'training_scoring_context'
+      sample_id: string
+      ticket_id: string
+      input_description: string
+      input_expected?: string
+      input_candidates: Array<{
+        title: string
+        hash: string
+        size_bytes: number
+        seeders: number
+        category?: string
+      }>
+      output_recommended_idx: number
+      output_scores: number[]
+      method: string
+    }
+  | {
+      type: 'training_file_mapping_context'
+      sample_id: string
+      ticket_id: string
+      torrent_title: string
+      torrent_hash: string
+      expected_content: string
+      files: string[]
+      mappings: Array<{ file_idx: number; track_idx?: number; role?: string }>
+      quality_score: number
+    }
+  | {
+      type: 'user_correction'
+      ticket_id: string
+      correction_type: string
+      original_value: string
+      corrected_value: string
+      user_id: string
     }
 
 export interface AuditRecord {

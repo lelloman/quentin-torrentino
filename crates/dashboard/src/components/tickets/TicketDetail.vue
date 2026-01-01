@@ -233,7 +233,7 @@ async function handleRetry() {
       <div class="space-y-3">
         <div class="flex justify-between">
           <span class="text-gray-600">Phase</span>
-          <Badge variant="info">{{ ticket.state.phase.replace(/_/g, ' ') }}</Badge>
+          <Badge variant="info">{{ ticket.state.phase.phase.replace(/_/g, ' ') }}</Badge>
         </div>
         <div class="flex justify-between">
           <span class="text-gray-600">Queries Tried</span>

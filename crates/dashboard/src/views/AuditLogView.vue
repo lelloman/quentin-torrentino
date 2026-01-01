@@ -181,6 +181,16 @@ function getEventSummary(event: AuditRecord): string {
       return `${data.candidates_count} candidates, top score: ${data.top_candidate_score ?? 'N/A'}`
     case 'candidate_selected':
       return `${data.title} (score: ${data.score})${data.auto_selected ? ' [auto]' : ''}`
+    case 'training_query_context':
+      return `Training data: ${data.output_queries?.length ?? 0} queries generated`
+    case 'training_scoring_context':
+      return `Training data: ${data.input_candidates?.length ?? 0} candidates scored`
+    case 'training_file_mapping_context':
+      return `Training data: file mapping for ${data.torrent_title ?? 'unknown'}`
+    case 'user_correction':
+      return `User correction: ${data.correction_type}`
+    case 'ticket_deleted':
+      return `Deleted by ${data.deleted_by}${data.hard_delete ? ' (hard delete)' : ''}`
     default:
       return 'Unknown event'
   }
@@ -302,6 +312,15 @@ const showFilters = ref(true)
               <optgroup label="TextBrain">
                 <option
                   v-for="type in eventTypeCategories.textbrain"
+                  :key="type"
+                  :value="type"
+                >
+                  {{ eventTypeLabels[type] }}
+                </option>
+              </optgroup>
+              <optgroup label="Training">
+                <option
+                  v-for="type in eventTypeCategories.training"
                   :key="type"
                   :value="type"
                 >

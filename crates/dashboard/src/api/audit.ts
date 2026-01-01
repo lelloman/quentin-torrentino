@@ -25,6 +25,7 @@ export const allEventTypes: AuditEventType[] = [
   'ticket_created',
   'ticket_state_changed',
   'ticket_cancelled',
+  'ticket_deleted',
   'search_executed',
   'indexer_rate_limit_updated',
   'indexer_enabled_changed',
@@ -37,12 +38,16 @@ export const allEventTypes: AuditEventType[] = [
   'queries_generated',
   'candidates_scored',
   'candidate_selected',
+  'training_query_context',
+  'training_scoring_context',
+  'training_file_mapping_context',
+  'user_correction',
 ]
 
 // Group event types by category for the UI
 export const eventTypeCategories = {
   system: ['service_started', 'service_stopped'] as AuditEventType[],
-  ticket: ['ticket_created', 'ticket_state_changed', 'ticket_cancelled'] as AuditEventType[],
+  ticket: ['ticket_created', 'ticket_state_changed', 'ticket_cancelled', 'ticket_deleted'] as AuditEventType[],
   search: ['search_executed', 'indexer_rate_limit_updated', 'indexer_enabled_changed'] as AuditEventType[],
   torrent: [
     'torrent_added',
@@ -53,6 +58,7 @@ export const eventTypeCategories = {
     'torrent_rechecked',
   ] as AuditEventType[],
   textbrain: ['queries_generated', 'candidates_scored', 'candidate_selected'] as AuditEventType[],
+  training: ['training_query_context', 'training_scoring_context', 'training_file_mapping_context', 'user_correction'] as AuditEventType[],
 }
 
 // Human-readable labels for event types
@@ -62,6 +68,7 @@ export const eventTypeLabels: Record<AuditEventType, string> = {
   ticket_created: 'Ticket Created',
   ticket_state_changed: 'Ticket State Changed',
   ticket_cancelled: 'Ticket Cancelled',
+  ticket_deleted: 'Ticket Deleted',
   search_executed: 'Search Executed',
   indexer_rate_limit_updated: 'Indexer Rate Limit Updated',
   indexer_enabled_changed: 'Indexer Enabled Changed',
@@ -74,4 +81,8 @@ export const eventTypeLabels: Record<AuditEventType, string> = {
   queries_generated: 'Queries Generated',
   candidates_scored: 'Candidates Scored',
   candidate_selected: 'Candidate Selected',
+  training_query_context: 'Training: Query Context',
+  training_scoring_context: 'Training: Scoring Context',
+  training_file_mapping_context: 'Training: File Mapping',
+  user_correction: 'User Correction',
 }
