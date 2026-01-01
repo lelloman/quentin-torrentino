@@ -4,6 +4,7 @@ pub mod catalog;
 pub mod config;
 pub mod content;
 pub mod converter;
+pub mod external_catalog;
 pub mod orchestrator;
 pub mod placer;
 pub mod processor;
@@ -22,17 +23,20 @@ pub use auth::{
 };
 pub use config::{
     load_config, load_config_from_str, validate_config, AuthConfig, AuthMethod, Config,
-    ConfigError, DatabaseConfig, JackettConfig, LibrqbitConfig, QBittorrentConfig,
-    SanitizedConfig, SearcherBackend, SearcherConfig, TorrentClientBackend, TorrentClientConfig,
+    ConfigError, DatabaseConfig, ExternalCatalogsConfig, JackettConfig, LibrqbitConfig,
+    QBittorrentConfig, SanitizedConfig, SearcherBackend, SearcherConfig, TorrentClientBackend,
+    TorrentClientConfig,
 };
 pub use searcher::{
     deduplicate_results, IndexerStatus, JackettSearcher, RawTorrentResult, SearchCategory,
     SearchError, SearchQuery, SearchResult, Searcher, TorrentCandidate, TorrentFile, TorrentSource,
 };
 pub use ticket::{
-    AcquisitionPhase, CompletionStats, CreateTicketRequest, ExpectedContent, ExpectedTrack,
-    OutputConstraints, QueryContext, SelectedCandidate, SqliteTicketStore, Ticket, TicketError,
-    TicketFilter, TicketState, TicketStore,
+    AcquisitionPhase, AudioSearchConstraints, CatalogReference, CompletionStats,
+    CreateTicketRequest, ExpectedContent, ExpectedTrack, OutputConstraints, QueryContext,
+    Resolution, SearchConstraints, SelectedCandidate, SqliteTicketStore, Ticket, TicketError,
+    TicketFilter, TicketState, TicketStore, TmdbMediaType, VideoCodec, VideoSearchConstraints,
+    VideoSource,
 };
 pub use torrent_client::{
     AddTorrentRequest, AddTorrentResult, LibrqbitClient, QBittorrentClient, TorrentClient,
@@ -109,4 +113,18 @@ pub use content::{
     ContentError,
     // Result types
     PostProcessResult,
+};
+pub use external_catalog::{
+    // Trait
+    ExternalCatalog,
+    // Error types
+    ExternalCatalogError,
+    // Clients
+    CombinedCatalogClient, MusicBrainzClient, TmdbClient,
+    // Configuration
+    MusicBrainzConfig, TmdbConfig,
+    // MusicBrainz types
+    MusicBrainzRelease, MusicBrainzTrack,
+    // TMDB types
+    TmdbEpisode, TmdbMovie, TmdbSeason, TmdbSeasonSummary, TmdbSeries,
 };

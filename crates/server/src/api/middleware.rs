@@ -104,6 +104,7 @@ mod tests {
             torrent_client: None,
             textbrain: TextBrainConfig::default(),
             orchestrator: OrchestratorConfig::default(),
+            external_catalogs: None,
         }
     }
 
@@ -139,6 +140,7 @@ mod tests {
             catalog,
             None,
             None,
+            None, // external_catalog
         ))
     }
 

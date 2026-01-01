@@ -14,7 +14,10 @@ use crate::textbrain::{
     DumbFileMapper, FileMapping, MatchResult, QueryBuildResult, ScoredCandidate, TextBrainConfig,
     TextBrainError,
 };
-use crate::ticket::{ExpectedContent, QueryContext, Ticket};
+use crate::ticket::{
+    CatalogReference, ExpectedContent, QueryContext, Resolution, Ticket, VideoCodec,
+    VideoSearchConstraints, VideoSource,
+};
 
 use super::generic;
 use super::types::{ContentError, PostProcessResult};
@@ -28,17 +31,27 @@ use super::types::{ContentError, PostProcessResult};
 /// Generates video-specific query patterns based on ExpectedContent:
 /// - Movies: "{title} {year}", "{title} {year} 1080p", "{title} BluRay"
 /// - TV: "{series} S01E01", "{series} season 1", "{series} complete"
+///
+/// Also considers `search_constraints.video` to prioritize resolution/source queries.
 pub async fn build_queries(
     context: &QueryContext,
     config: &TextBrainConfig,
 ) -> Result<QueryBuildResult, TextBrainError> {
+    // Extract video constraints if present
+    let video_constraints = context
+        .search_constraints
+        .as_ref()
+        .and_then(|sc| sc.video.as_ref());
+
     let queries = match &context.expected {
-        Some(ExpectedContent::Movie { title, year }) => build_movie_queries(title, *year),
+        Some(ExpectedContent::Movie { title, year }) => {
+            build_movie_queries(title, *year, video_constraints)
+        }
         Some(ExpectedContent::TvEpisode {
             series,
             season,
             episodes,
-        }) => build_tv_queries(series, *season, episodes),
+        }) => build_tv_queries(series, *season, episodes, video_constraints),
         _ => {
             // Fall back to generic for unexpected content types
             return generic::build_queries(context, config).await;
@@ -60,15 +73,40 @@ pub async fn build_queries(
 }
 
 /// Build queries for a movie.
-fn build_movie_queries(title: &str, year: Option<u32>) -> Vec<String> {
+///
+/// If video constraints specify preferred resolution/source, those are prioritized.
+fn build_movie_queries(
+    title: &str,
+    year: Option<u32>,
+    constraints: Option<&VideoSearchConstraints>,
+) -> Vec<String> {
     let mut queries = Vec::new();
     let mut seen = HashSet::new();
 
     let title_clean = clean_movie_title(title);
 
+    // Get preferred resolution/source from constraints or use defaults
+    let (resolution_kw, source_kw) = get_quality_keywords(constraints);
+
     // With year (most specific)
     if let Some(y) = year {
-        // Quality-specific queries
+        // Preferred quality first
+        if let Some(res) = resolution_kw {
+            if let Some(src) = source_kw {
+                add_query(
+                    &mut queries,
+                    &mut seen,
+                    format!("{} {} {} {}", title_clean, y, res, src),
+                );
+            }
+            add_query(
+                &mut queries,
+                &mut seen,
+                format!("{} {} {}", title_clean, y, res),
+            );
+        }
+
+        // Fallback quality-specific queries
         add_query(
             &mut queries,
             &mut seen,
@@ -104,12 +142,36 @@ fn build_movie_queries(title: &str, year: Option<u32>) -> Vec<String> {
     queries
 }
 
+/// Get quality keywords from video constraints.
+fn get_quality_keywords(
+    constraints: Option<&VideoSearchConstraints>,
+) -> (Option<&'static str>, Option<&'static str>) {
+    let Some(c) = constraints else {
+        return (None, None);
+    };
+
+    let resolution = c.preferred_resolution.as_ref().map(|r| r.as_keyword());
+
+    let source = c
+        .preferred_sources
+        .first()
+        .map(|s| s.as_keyword());
+
+    (resolution, source)
+}
+
 /// Build queries for TV episodes.
-fn build_tv_queries(series: &str, season: u32, episodes: &[u32]) -> Vec<String> {
+fn build_tv_queries(
+    series: &str,
+    season: u32,
+    episodes: &[u32],
+    constraints: Option<&VideoSearchConstraints>,
+) -> Vec<String> {
     let mut queries = Vec::new();
     let mut seen = HashSet::new();
 
     let series_clean = clean_series_title(series);
+    let (resolution_kw, _) = get_quality_keywords(constraints);
 
     // Specific episode queries
     if episodes.len() == 1 {
@@ -120,6 +182,15 @@ fn build_tv_queries(series: &str, season: u32, episodes: &[u32]) -> Vec<String> 
             &mut seen,
             format!("{} S{:02}E{:02}", series_clean, season, ep),
         );
+
+        // With preferred resolution
+        if let Some(res) = resolution_kw {
+            add_query(
+                &mut queries,
+                &mut seen,
+                format!("{} S{:02}E{:02} {}", series_clean, season, ep, res),
+            );
+        }
         add_query(
             &mut queries,
             &mut seen,
@@ -308,6 +379,10 @@ struct VideoScorer<'a> {
     expected_series: Option<&'a str>,
     expected_season: Option<u32>,
     expected_episodes: Vec<u32>,
+    /// Video search constraints (resolution, source, codec preferences).
+    video_constraints: Option<&'a VideoSearchConstraints>,
+    /// Catalog reference for validation (runtime, episode count).
+    catalog_ref: Option<&'a CatalogReference>,
 }
 
 impl<'a> VideoScorer<'a> {
@@ -331,6 +406,13 @@ impl<'a> VideoScorer<'a> {
                 _ => (None, None, None, None, vec![]),
             };
 
+        let video_constraints = context
+            .search_constraints
+            .as_ref()
+            .and_then(|sc| sc.video.as_ref());
+
+        let catalog_ref = context.catalog_reference.as_ref();
+
         Self {
             context,
             file_mapper: DumbFileMapper::new(),
@@ -339,6 +421,8 @@ impl<'a> VideoScorer<'a> {
             expected_series,
             expected_season,
             expected_episodes,
+            video_constraints,
+            catalog_ref,
         }
     }
 
@@ -353,15 +437,34 @@ impl<'a> VideoScorer<'a> {
         let health_score = self.health_score(candidate);
         let red_flag_penalty = self.red_flag_penalty(&title_lower);
 
+        // Constraint-based scoring adjustments
+        let constraint_result = self.constraint_check(&title_lower);
+
         // File mapping score (if files available)
         let (file_mappings, mapping_score) = self.file_mapping_score(candidate);
 
+        // Catalog validation
+        let catalog_bonus = self.catalog_validation_bonus(&file_mappings);
+
+        // Handle constraint rejection (below min resolution)
+        if constraint_result.rejected {
+            // Heavily penalize but don't completely reject
+            return ScoredCandidate {
+                candidate: candidate.clone(),
+                score: 0.05,
+                reasoning: format!("below minimum resolution ({})", constraint_result.reason),
+                file_mappings: vec![],
+            };
+        }
+
         // Weighted combination
-        let base_score = (title_score * 0.35)
-            + (resolution_score * 0.20)
-            + (source_score * 0.15)
+        let base_score = (title_score * 0.30)
+            + (resolution_score * 0.15)
+            + (source_score * 0.12)
             + (codec_score * 0.05)
-            + (health_score * 0.10)
+            + (health_score * 0.08)
+            + constraint_result.bonus
+            + catalog_bonus
             - red_flag_penalty;
 
         // If we have file mappings, factor them in
@@ -378,6 +481,8 @@ impl<'a> VideoScorer<'a> {
             source_score,
             health_score,
             red_flag_penalty,
+            constraint_result.bonus,
+            catalog_bonus,
             candidate,
         );
 
@@ -386,6 +491,133 @@ impl<'a> VideoScorer<'a> {
             score: final_score.clamp(0.0, 1.0),
             reasoning,
             file_mappings,
+        }
+    }
+
+    /// Check constraints and return bonus/penalty.
+    fn constraint_check(&self, title: &str) -> ConstraintCheckResult {
+        let constraints = match self.video_constraints {
+            Some(c) => c,
+            None => return ConstraintCheckResult::default(),
+        };
+
+        let mut bonus: f32 = 0.0;
+        let detected_resolution = detect_resolution(title);
+
+        // Check minimum resolution (hard filter)
+        if let Some(min_res) = &constraints.min_resolution {
+            if let Some(detected) = detected_resolution {
+                if detected < *min_res {
+                    return ConstraintCheckResult {
+                        rejected: true,
+                        bonus: 0.0,
+                        reason: format!("detected {} < min {}", detected.as_keyword(), min_res.as_keyword()),
+                    };
+                }
+            }
+        }
+
+        // Check preferred resolution
+        if let Some(pref_res) = &constraints.preferred_resolution {
+            if let Some(detected) = detected_resolution {
+                if detected == *pref_res {
+                    bonus += 0.10;
+                } else if detected > *pref_res {
+                    // Higher than preferred is OK but not bonus
+                    bonus += 0.03;
+                }
+            }
+        }
+
+        // Check preferred sources
+        if !constraints.preferred_sources.is_empty() {
+            let source_match = constraints.preferred_sources.iter().any(|s| {
+                let kw = s.as_keyword().to_lowercase();
+                title.contains(&kw) || match s {
+                    VideoSource::Remux => title.contains("remux"),
+                    VideoSource::BluRay => title.contains("bluray") || title.contains("blu-ray"),
+                    VideoSource::WebDl => title.contains("web-dl") || title.contains("webdl"),
+                    VideoSource::Hdtv => title.contains("hdtv"),
+                    VideoSource::Cam => title.contains("cam") || title.contains("hdcam"),
+                }
+            });
+            if source_match {
+                bonus += 0.08;
+            }
+        }
+
+        // Check preferred codecs
+        if !constraints.preferred_codecs.is_empty() {
+            let codec_match = constraints.preferred_codecs.iter().any(|c| match c {
+                VideoCodec::X264 => title.contains("x264") || title.contains("h264"),
+                VideoCodec::X265 => title.contains("x265") || title.contains("hevc") || title.contains("h265"),
+                VideoCodec::Av1 => title.contains("av1"),
+            });
+            if codec_match {
+                bonus += 0.05;
+            }
+        }
+
+        // Check hardcoded subs exclusion
+        if constraints.exclude_hardcoded_subs {
+            if title.contains("hc ") || title.contains("[hc]") || title.contains("hardcoded") {
+                bonus -= 0.15;
+            }
+        }
+
+        ConstraintCheckResult {
+            rejected: false,
+            bonus,
+            reason: String::new(),
+        }
+    }
+
+    /// Calculate bonus based on catalog reference validation.
+    fn catalog_validation_bonus(&self, file_mappings: &[FileMapping]) -> f32 {
+        let catalog = match self.catalog_ref {
+            Some(c) => c,
+            None => return 0.0,
+        };
+
+        match catalog {
+            CatalogReference::Tmdb { media_type, episode_count, .. } => {
+                // For TV, validate episode count
+                if let Some(expected_eps) = episode_count {
+                    if file_mappings.is_empty() {
+                        return 0.0;
+                    }
+
+                    let mapped_count = file_mappings.len() as u32;
+
+                    // Exact match
+                    if mapped_count == *expected_eps {
+                        return 0.15;
+                    }
+
+                    // Close match
+                    let diff = (mapped_count as i32 - *expected_eps as i32).unsigned_abs();
+                    if diff <= 2 {
+                        return 0.08;
+                    }
+
+                    // Significant mismatch
+                    if diff > *expected_eps / 2 {
+                        return -0.10;
+                    }
+                }
+
+                // For movies, we could validate runtime if we had file duration
+                // For now, just having a TMDB reference gives a small confidence boost
+                if matches!(media_type, crate::ticket::TmdbMediaType::Movie) {
+                    return 0.02;
+                }
+
+                0.0
+            }
+            CatalogReference::MusicBrainz { .. } => {
+                // MusicBrainz is for music, not video
+                0.0
+            }
         }
     }
 
@@ -660,6 +892,8 @@ impl<'a> VideoScorer<'a> {
         _source_score: f32,
         health_score: f32,
         penalty: f32,
+        constraint_bonus: f32,
+        catalog_bonus: f32,
         candidate: &TorrentCandidate,
     ) -> String {
         let mut parts = Vec::new();
@@ -713,6 +947,22 @@ impl<'a> VideoScorer<'a> {
             parts.push(format!("low seeders ({})", candidate.seeders));
         }
 
+        // Constraint matches
+        if constraint_bonus > 0.05 {
+            parts.push("matches preferences".to_string());
+        } else if constraint_bonus < -0.05 {
+            parts.push("below preferences".to_string());
+        }
+
+        // Catalog validation
+        if catalog_bonus > 0.10 {
+            parts.push("episode count verified".to_string());
+        } else if catalog_bonus > 0.0 {
+            parts.push("catalog validated".to_string());
+        } else if catalog_bonus < -0.05 {
+            parts.push("episode count mismatch".to_string());
+        }
+
         // Red flags
         if penalty > 0.3 {
             if title.contains("cam") || title.contains("hdcam") || title.contains("telesync") {
@@ -727,6 +977,30 @@ impl<'a> VideoScorer<'a> {
         }
 
         parts.join(", ")
+    }
+}
+
+/// Result of constraint checking.
+#[derive(Default)]
+struct ConstraintCheckResult {
+    /// Whether the candidate should be rejected (below minimum).
+    rejected: bool,
+    /// Bonus/penalty to apply.
+    bonus: f32,
+    /// Reason for rejection (if rejected).
+    reason: String,
+}
+
+/// Detect resolution from title.
+fn detect_resolution(title: &str) -> Option<Resolution> {
+    if title.contains("2160p") || title.contains("4k") || title.contains("uhd") {
+        Some(Resolution::R2160p)
+    } else if title.contains("1080p") || title.contains("1080i") {
+        Some(Resolution::R1080p)
+    } else if title.contains("720p") {
+        Some(Resolution::R720p)
+    } else {
+        None
     }
 }
 
@@ -917,6 +1191,8 @@ mod tests {
                 title: title.to_string(),
                 year,
             }),
+            catalog_reference: None,
+            search_constraints: None,
         }
     }
 
@@ -929,6 +1205,8 @@ mod tests {
                 season,
                 episodes,
             }),
+            catalog_reference: None,
+            search_constraints: None,
         }
     }
 

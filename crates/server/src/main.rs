@@ -13,10 +13,11 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use torrentino_core::{
     create_audit_system, create_authenticator, load_config, validate_config, AuditEvent,
-    AuditStore, Authenticator, ConverterConfig, FfmpegConverter, FsPlacer, JackettSearcher,
-    LibrqbitClient, PipelineProcessor, PlacerConfig, ProcessorConfig, QBittorrentClient, Searcher,
-    SearcherBackend, SqliteAuditStore, SqliteCatalog, SqliteTicketStore, TicketOrchestrator,
-    TicketStore, TorrentCatalog, TorrentClient, TorrentClientBackend,
+    AuditStore, Authenticator, CombinedCatalogClient, ConverterConfig, ExternalCatalog,
+    FfmpegConverter, FsPlacer, JackettSearcher, LibrqbitClient, MusicBrainzClient,
+    PipelineProcessor, PlacerConfig, ProcessorConfig, QBittorrentClient, Searcher, SearcherBackend,
+    SqliteAuditStore, SqliteCatalog, SqliteTicketStore, TicketOrchestrator, TicketStore, TmdbClient,
+    TorrentCatalog, TorrentClient, TorrentClientBackend,
 };
 
 use api::create_router;
@@ -220,6 +221,43 @@ async fn run() -> Result<()> {
 
     let pipeline = Some(pipeline);
 
+    // Initialize external catalog client if configured
+    let external_catalog: Option<Arc<dyn ExternalCatalog>> =
+        if let Some(ref ec_config) = config.external_catalogs {
+            let mb_client = ec_config
+                .musicbrainz
+                .as_ref()
+                .map(|mb_cfg| {
+                    info!("Initializing MusicBrainz client");
+                    MusicBrainzClient::new(mb_cfg.clone())
+                })
+                .transpose()
+                .map_err(|e| error!("Failed to create MusicBrainz client: {}", e))
+                .ok()
+                .flatten();
+
+            let tmdb_client = ec_config
+                .tmdb
+                .as_ref()
+                .map(|tmdb_cfg| {
+                    info!("Initializing TMDB client");
+                    TmdbClient::new(tmdb_cfg.clone())
+                })
+                .transpose()
+                .map_err(|e| error!("Failed to create TMDB client: {}", e))
+                .ok()
+                .flatten();
+
+            if mb_client.is_some() || tmdb_client.is_some() {
+                Some(Arc::new(CombinedCatalogClient::new(mb_client, tmdb_client)))
+            } else {
+                None
+            }
+        } else {
+            info!("External catalogs not configured");
+            None
+        };
+
     // Create app state
     let state = Arc::new(AppState::new(
         config.clone(),
@@ -232,6 +270,7 @@ async fn run() -> Result<()> {
         catalog,
         pipeline,
         orchestrator.clone(),
+        external_catalog,
     ));
 
     // Create router

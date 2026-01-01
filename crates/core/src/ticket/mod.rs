@@ -7,6 +7,8 @@ mod types;
 pub use sqlite_store::SqliteTicketStore;
 pub use store::{CreateTicketRequest, TicketError, TicketFilter, TicketStore};
 pub use types::{
-    AcquisitionPhase, CompletionStats, ExpectedContent, ExpectedTrack, OutputConstraints,
-    QueryContext, SelectedCandidate, Ticket, TicketState,
+    AcquisitionPhase, AudioSearchConstraints, CatalogReference, CompletionStats, ExpectedContent,
+    ExpectedTrack, OutputConstraints, QueryContext, Resolution, SearchConstraints,
+    SelectedCandidate, Ticket, TicketState, TmdbMediaType, VideoCodec, VideoSearchConstraints,
+    VideoSource,
 };

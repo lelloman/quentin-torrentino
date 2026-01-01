@@ -167,3 +167,32 @@ path = "quentin.db"
 #
 # # How many candidates to retain for failover
 # max_failover_candidates = 5
+
+# ==============================================================================
+# EXTERNAL CATALOGS (OPTIONAL)
+# ==============================================================================
+# External catalog integration for improved search and matching.
+# Enables the ticket wizard to look up metadata from MusicBrainz and TMDB.
+
+# MusicBrainz - Music metadata (albums, tracks, artists)
+# No API key required, but rate limited to 1 request/second.
+
+# [external_catalogs.musicbrainz]
+# # User-Agent string (MusicBrainz requires proper identification)
+# # Format: "AppName/Version ( contact-url-or-email )"
+# user_agent = "QuentinTorrentino/0.1.0 ( https://github.com/your-username )"
+#
+# # Rate limit delay in milliseconds (default: 1100 for ~1 req/sec)
+# rate_limit_ms = 1100
+#
+# # Base URL (optional, for testing with a mirror)
+# # base_url = "https://musicbrainz.org/ws/2"
+
+# TMDB - Movie and TV metadata
+# Requires a free API key from https://www.themoviedb.org/settings/api
+
+# [external_catalogs.tmdb]
+# api_key = "your-tmdb-api-key"
+#
+# # Base URL (optional)
+# # base_url = "https://api.themoviedb.org/3"

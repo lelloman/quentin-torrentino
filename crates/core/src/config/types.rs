@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::net::IpAddr;
 use std::path::PathBuf;
 
+use crate::external_catalog::{MusicBrainzConfig, TmdbConfig};
 use crate::orchestrator::OrchestratorConfig;
 use crate::textbrain::TextBrainConfig;
 
@@ -21,6 +22,19 @@ pub struct Config {
     pub textbrain: TextBrainConfig,
     #[serde(default)]
     pub orchestrator: OrchestratorConfig,
+    #[serde(default)]
+    pub external_catalogs: Option<ExternalCatalogsConfig>,
+}
+
+/// External catalog configuration (MusicBrainz, TMDB)
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+pub struct ExternalCatalogsConfig {
+    /// MusicBrainz configuration (optional, no API key required)
+    #[serde(default)]
+    pub musicbrainz: Option<MusicBrainzConfig>,
+    /// TMDB configuration (requires API key)
+    #[serde(default)]
+    pub tmdb: Option<TmdbConfig>,
 }
 
 /// Server configuration
@@ -194,6 +208,30 @@ pub struct SanitizedConfig {
     pub torrent_client: Option<SanitizedTorrentClientConfig>,
     pub textbrain: SanitizedTextBrainConfig,
     pub orchestrator: SanitizedOrchestratorConfig,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub external_catalogs: Option<SanitizedExternalCatalogsConfig>,
+}
+
+/// Sanitized external catalogs config (API keys hidden)
+#[derive(Debug, Clone, Serialize)]
+pub struct SanitizedExternalCatalogsConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub musicbrainz: Option<SanitizedMusicBrainzConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tmdb: Option<SanitizedTmdbConfig>,
+}
+
+/// Sanitized MusicBrainz config
+#[derive(Debug, Clone, Serialize)]
+pub struct SanitizedMusicBrainzConfig {
+    pub user_agent: String,
+    pub rate_limit_ms: u64,
+}
+
+/// Sanitized TMDB config (API key hidden)
+#[derive(Debug, Clone, Serialize)]
+pub struct SanitizedTmdbConfig {
+    pub api_key_configured: bool,
 }
 
 /// Sanitized Orchestrator config
@@ -335,6 +373,17 @@ impl From<&Config> for SanitizedConfig {
                 auto_approve_threshold: config.orchestrator.auto_approve_threshold,
                 max_concurrent_downloads: config.orchestrator.max_concurrent_downloads,
             },
+            external_catalogs: config.external_catalogs.as_ref().map(|ec| {
+                SanitizedExternalCatalogsConfig {
+                    musicbrainz: ec.musicbrainz.as_ref().map(|mb| SanitizedMusicBrainzConfig {
+                        user_agent: mb.user_agent.clone(),
+                        rate_limit_ms: mb.rate_limit_ms,
+                    }),
+                    tmdb: ec.tmdb.as_ref().map(|t| SanitizedTmdbConfig {
+                        api_key_configured: !t.api_key.is_empty(),
+                    }),
+                }
+            }),
         }
     }
 }
@@ -394,6 +443,7 @@ port = 8080
             torrent_client: None,
             textbrain: TextBrainConfig::default(),
             orchestrator: OrchestratorConfig::default(),
+            external_catalogs: None,
         };
         let sanitized = SanitizedConfig::from(&config);
         assert_eq!(sanitized.auth.method, "none");
@@ -470,6 +520,7 @@ api_key = "test-api-key"
             torrent_client: None,
             textbrain: TextBrainConfig::default(),
             orchestrator: OrchestratorConfig::default(),
+            external_catalogs: None,
         };
 
         let sanitized = SanitizedConfig::from(&config);
@@ -553,6 +604,7 @@ timeout_secs = 60
             }),
             textbrain: TextBrainConfig::default(),
             orchestrator: OrchestratorConfig::default(),
+            external_catalogs: None,
         };
 
         let sanitized = SanitizedConfig::from(&config);

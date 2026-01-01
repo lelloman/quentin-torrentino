@@ -794,3 +794,158 @@ export interface TextBrainConfigResponse {
   llm_configured: boolean
   llm_provider?: string
 }
+
+// =============================================================================
+// External Catalog Types (MusicBrainz, TMDB)
+// =============================================================================
+
+export interface ExternalCatalogStatus {
+  musicbrainz_available: boolean
+  tmdb_available: boolean
+}
+
+// MusicBrainz types
+
+export interface MusicBrainzTrack {
+  position: number
+  title: string
+  length_ms?: number
+  disc_number: number
+}
+
+export interface MusicBrainzRelease {
+  id: string
+  title: string
+  artist_credit: string
+  date?: string
+  country?: string
+  track_count: number
+  total_length_ms?: number
+  tracks: MusicBrainzTrack[]
+}
+
+// TMDB types
+
+export interface TmdbMovie {
+  id: number
+  title: string
+  original_title: string
+  release_date?: string
+  overview: string
+  poster_path?: string
+  runtime_minutes?: number
+  genres: string[]
+}
+
+export interface TmdbEpisode {
+  episode_number: number
+  name: string
+  air_date?: string
+  runtime_minutes?: number
+  overview: string
+}
+
+export interface TmdbSeason {
+  id: number
+  season_number: number
+  name: string
+  air_date?: string
+  episode_count: number
+  episodes: TmdbEpisode[]
+  poster_path?: string
+}
+
+export interface TmdbSeasonSummary {
+  season_number: number
+  episode_count: number
+  air_date?: string
+}
+
+export interface TmdbSeries {
+  id: number
+  name: string
+  original_name: string
+  first_air_date?: string
+  overview: string
+  poster_path?: string
+  number_of_seasons: number
+  number_of_episodes: number
+  genres: string[]
+  seasons: TmdbSeasonSummary[]
+}
+
+// =============================================================================
+// Catalog Reference and Search Constraints
+// =============================================================================
+
+export type TmdbMediaType = 'movie' | 'tv'
+
+// CatalogReference - stores catalog IDs for validation during scoring
+export type CatalogReference =
+  | {
+      type: 'music_brainz'
+      release_id: string
+      track_count: number
+      total_duration_ms?: number
+    }
+  | {
+      type: 'tmdb'
+      id: number
+      media_type: TmdbMediaType
+      runtime_minutes?: number
+      episode_count?: number
+    }
+
+// Resolution for video constraints
+export type Resolution = 'r720p' | 'r1080p' | 'r2160p'
+
+// Video source quality
+export type VideoSource = 'cam' | 'hdtv' | 'web_dl' | 'blu_ray' | 'remux'
+
+// Video codec for constraints (different from conversion codec)
+export type VideoSearchCodec = 'x264' | 'x265' | 'av1'
+
+// Audio search constraints
+export interface AudioSearchConstraints {
+  preferred_formats?: AudioFormat[]
+  min_bitrate_kbps?: number
+  avoid_compilations?: boolean
+  avoid_live?: boolean
+}
+
+// Video search constraints
+export interface VideoSearchConstraints {
+  min_resolution?: Resolution
+  preferred_resolution?: Resolution
+  preferred_sources?: VideoSource[]
+  preferred_codecs?: VideoSearchCodec[]
+  preferred_language?: string
+  exclude_hardcoded_subs?: boolean
+}
+
+// Combined search constraints
+export interface SearchConstraints {
+  audio?: AudioSearchConstraints
+  video?: VideoSearchConstraints
+}
+
+// Extended QueryContext with catalog reference and constraints
+export interface QueryContextWithCatalog extends QueryContext {
+  expected?: ExpectedContent
+  catalog_reference?: CatalogReference
+  search_constraints?: SearchConstraints
+}
+
+// Extended CreateTicketRequest with catalog and constraints
+export interface CreateTicketWithCatalogRequest {
+  priority?: number
+  query_context: {
+    tags: string[]
+    description: string
+    expected?: ExpectedContent
+    catalog_reference?: CatalogReference
+    search_constraints?: SearchConstraints
+  }
+  dest_path: string
+  output_constraints?: OutputConstraints
+}

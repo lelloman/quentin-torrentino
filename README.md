@@ -1778,53 +1778,63 @@ Add the `content` module with dispatch functions and generic fallback (see "Cont
 *Phase 5c: Music Content*
 Implement music-specific logic in `content/music.rs`.
 
-- [ ] `build_queries()`: Music-specific patterns
-  - [ ] `"{artist} {album}"`, `"{artist} {album} FLAC"`, `"{artist} discography"`
-  - [ ] Handle transliterations and alternate artist names
-- [ ] `score_candidate()`: Music-specific scoring
-  - [ ] Track count validation against `ExpectedContent::Album.tracks`
-  - [ ] Duration tolerance matching (±5 seconds per track)
-  - [ ] Audio format detection (FLAC, 320, V0, V2) from torrent title
-  - [ ] Red flag detection (karaoke, cover, tribute, compilation)
-- [ ] `map_files()`: Map torrent files to expected tracks
-  - [ ] Match by track number in filename
-  - [ ] Match by fuzzy title comparison
-  - [ ] Match by duration (if available from torrent metadata)
+- [x] `build_queries()`: Music-specific patterns
+  - [x] `"{artist} {album}"`, `"{artist} {album} FLAC"`, `"{artist} discography"`
+  - [x] Handle transliterations and alternate artist names
+- [x] `score_candidate()`: Music-specific scoring
+  - [x] Track count validation against `ExpectedContent::Album.tracks`
+  - [x] Duration tolerance matching (±5 seconds per track)
+  - [x] Audio format detection (FLAC, 320, V0, V2) from torrent title
+  - [x] Red flag detection (karaoke, cover, tribute, compilation)
+- [x] `map_files()`: Map torrent files to expected tracks
+  - [x] Match by track number in filename
+  - [x] Match by fuzzy title comparison
+  - [x] Match by duration (if available from torrent metadata)
 - [ ] `post_process()`: Fetch cover art
   - [ ] MusicBrainz Cover Art Archive (primary, no auth needed)
   - [ ] Discogs API (fallback, optional token)
   - [ ] Extract from torrent (folder.jpg, cover.*, embedded tags)
-- [ ] Music-specific API endpoints:
-  - [ ] `POST /api/v1/music/search` - Search MusicBrainz for albums
-  - [ ] `POST /api/v1/music/album` - Create ticket from MusicBrainz release ID (auto-populates tracks)
+- [x] External catalog integration:
+  - [x] MusicBrainz client with rate limiting (1 req/sec)
+  - [x] `CatalogReference` for linking tickets to MusicBrainz releases
+  - [x] `SearchConstraints` for audio format preferences
+- [x] External catalog API endpoints:
+  - [x] `GET /api/v1/external-catalog/musicbrainz/search` - Search MusicBrainz for releases
+  - [x] `GET /api/v1/external-catalog/musicbrainz/release/{mbid}` - Get release details
 - [ ] **Dashboard**: Music ticket creation wizard
   - [ ] MusicBrainz search → select release → preview tracks → create ticket
 
 *Phase 5d: Video Content*
 Implement video-specific logic in `content/video.rs`.
 
-- [ ] `build_queries()`: Video-specific patterns
-  - [ ] Movies: `"{title} {year}"`, `"{title} {year} 1080p"`, `"{title} {year} {quality}"`
-  - [ ] TV: `"{series} S{season:02}"`, `"{series} S{season:02}E{episode:02}"`, `"{series} complete"`
-  - [ ] Release group preferences (configurable)
-- [ ] `score_candidate()`: Video-specific scoring
-  - [ ] Resolution detection (480p, 720p, 1080p, 2160p/4K) from title
-  - [ ] Codec detection (x264, x265/HEVC, AV1) and preferences
-  - [ ] Source detection (BluRay, WEB-DL, HDTV, CAM)
-  - [ ] Release group ranking (configurable trusted groups)
-  - [ ] Episode completeness check for season packs
-- [ ] `map_files()`: Map torrent files to expected content
-  - [ ] Episode number extraction via regex (S01E01, 1x01, etc.)
-  - [ ] Movie file detection (largest video file, ignore samples)
-  - [ ] Subtitle file detection (.srt, .ass, .sub)
+- [x] `build_queries()`: Video-specific patterns
+  - [x] Movies: `"{title} {year}"`, `"{title} {year} 1080p"`, `"{title} {year} {quality}"`
+  - [x] TV: `"{series} S{season:02}"`, `"{series} S{season:02}E{episode:02}"`, `"{series} complete"`
+  - [x] Release group preferences (configurable)
+- [x] `score_candidate()`: Video-specific scoring
+  - [x] Resolution detection (480p, 720p, 1080p, 2160p/4K) from title
+  - [x] Codec detection (x264, x265/HEVC, AV1) and preferences
+  - [x] Source detection (BluRay, WEB-DL, HDTV, CAM)
+  - [x] Release group ranking (configurable trusted groups)
+  - [x] Episode completeness check for season packs
+- [x] `map_files()`: Map torrent files to expected content
+  - [x] Episode number extraction via regex (S01E01, 1x01, etc.)
+  - [x] Movie file detection (largest video file, ignore samples)
+  - [x] Subtitle file detection (.srt, .ass, .sub)
 - [ ] `post_process()`: Fetch/process subtitles
   - [ ] OpenSubtitles API search
   - [ ] Extract embedded subtitles from MKV
   - [ ] Language detection and filtering
-- [ ] Video-specific API endpoints:
-  - [ ] `POST /api/v1/video/search` - Search TMDB
-  - [ ] `POST /api/v1/video/movie` - Create ticket from TMDB movie ID
-  - [ ] `POST /api/v1/video/episode` - Create ticket from TMDB episode ID
+- [x] External catalog integration:
+  - [x] TMDB client (requires API key)
+  - [x] `CatalogReference` for linking tickets to TMDB movies/series
+  - [x] `SearchConstraints` for resolution, codec, source, language preferences
+- [x] External catalog API endpoints:
+  - [x] `GET /api/v1/external-catalog/tmdb/movies/search` - Search TMDB for movies
+  - [x] `GET /api/v1/external-catalog/tmdb/movies/{id}` - Get movie details
+  - [x] `GET /api/v1/external-catalog/tmdb/tv/search` - Search TMDB for TV series
+  - [x] `GET /api/v1/external-catalog/tmdb/tv/{id}` - Get series details
+  - [x] `GET /api/v1/external-catalog/tmdb/tv/{id}/season/{season}` - Get season details
 - [ ] **Dashboard**: Video ticket creation wizard
   - [ ] TMDB search → select movie/show → select season/episodes → create ticket
 

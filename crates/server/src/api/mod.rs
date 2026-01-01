@@ -1,5 +1,6 @@
 pub mod audit;
 pub mod catalog;
+pub mod external_catalog;
 pub mod handlers;
 pub mod middleware;
 pub mod orchestrator;

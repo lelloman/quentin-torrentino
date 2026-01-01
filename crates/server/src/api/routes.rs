@@ -7,8 +7,8 @@ use std::sync::Arc;
 use tower_http::services::{ServeDir, ServeFile};
 
 use super::{
-    audit, catalog, handlers, middleware::auth_middleware, orchestrator, pipeline, searcher,
-    textbrain, tickets, torrents,
+    audit, catalog, external_catalog, handlers, middleware::auth_middleware, orchestrator,
+    pipeline, searcher, textbrain, tickets, torrents,
 };
 use crate::state::AppState;
 
@@ -80,6 +80,39 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/orchestrator/status", get(orchestrator::get_status))
         .route("/orchestrator/start", post(orchestrator::start))
         .route("/orchestrator/stop", post(orchestrator::stop))
+        // External Catalog (MusicBrainz, TMDB)
+        .route(
+            "/external-catalog/status",
+            get(external_catalog::get_status),
+        )
+        .route(
+            "/external-catalog/musicbrainz/search",
+            get(external_catalog::search_musicbrainz),
+        )
+        .route(
+            "/external-catalog/musicbrainz/release/{mbid}",
+            get(external_catalog::get_musicbrainz_release),
+        )
+        .route(
+            "/external-catalog/tmdb/movies/search",
+            get(external_catalog::search_tmdb_movies),
+        )
+        .route(
+            "/external-catalog/tmdb/movies/{id}",
+            get(external_catalog::get_tmdb_movie),
+        )
+        .route(
+            "/external-catalog/tmdb/tv/search",
+            get(external_catalog::search_tmdb_tv),
+        )
+        .route(
+            "/external-catalog/tmdb/tv/{id}",
+            get(external_catalog::get_tmdb_tv),
+        )
+        .route(
+            "/external-catalog/tmdb/tv/{id}/season/{season}",
+            get(external_catalog::get_tmdb_season),
+        )
         .layer(middleware::from_fn_with_state(state.clone(), auth_middleware))
         .with_state(state);
 

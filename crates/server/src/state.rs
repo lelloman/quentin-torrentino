@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use torrentino_core::{
-    AuditHandle, AuditStore, Authenticator, Config, FfmpegConverter, FsPlacer,
+    AuditHandle, AuditStore, Authenticator, Config, ExternalCatalog, FfmpegConverter, FsPlacer,
     PipelineProcessor, SanitizedConfig, Searcher, TicketOrchestrator, TicketStore,
     TorrentCatalog, TorrentClient,
 };
@@ -23,6 +23,7 @@ pub struct AppState {
     catalog: Arc<dyn TorrentCatalog>,
     pipeline: Option<Arc<AppPipelineProcessor>>,
     orchestrator: Option<Arc<AppOrchestrator>>,
+    external_catalog: Option<Arc<dyn ExternalCatalog>>,
 }
 
 impl AppState {
@@ -38,6 +39,7 @@ impl AppState {
         catalog: Arc<dyn TorrentCatalog>,
         pipeline: Option<Arc<AppPipelineProcessor>>,
         orchestrator: Option<Arc<AppOrchestrator>>,
+        external_catalog: Option<Arc<dyn ExternalCatalog>>,
     ) -> Self {
         Self {
             config,
@@ -50,6 +52,7 @@ impl AppState {
             catalog,
             pipeline,
             orchestrator,
+            external_catalog,
         }
     }
 
@@ -100,5 +103,10 @@ impl AppState {
     /// Get the orchestrator (if enabled)
     pub fn orchestrator(&self) -> Option<&Arc<AppOrchestrator>> {
         self.orchestrator.as_ref()
+    }
+
+    /// Get the external catalog client (if configured)
+    pub fn external_catalog(&self) -> Option<&Arc<dyn ExternalCatalog>> {
+        self.external_catalog.as_ref()
     }
 }

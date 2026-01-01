@@ -57,14 +57,21 @@ pub async fn post_process(
 mod tests {
     use super::*;
     use crate::textbrain::TextBrainMode;
+    use crate::ticket::ExpectedContent;
+
+    fn make_query_context(description: &str, expected: Option<ExpectedContent>) -> QueryContext {
+        QueryContext {
+            tags: vec![],
+            description: description.to_string(),
+            expected,
+            catalog_reference: None,
+            search_constraints: None,
+        }
+    }
 
     #[tokio::test]
     async fn test_build_queries_generic() {
-        let context = QueryContext {
-            tags: vec![],
-            description: "Test Album by Test Artist".to_string(),
-            expected: None,
-        };
+        let context = make_query_context("Test Album by Test Artist", None);
         let config = TextBrainConfig {
             mode: TextBrainMode::DumbOnly,
             ..Default::default()
@@ -80,11 +87,7 @@ mod tests {
         let now = chrono::Utc::now();
         let ticket = Ticket {
             id: "test-123".to_string(),
-            query_context: QueryContext {
-                tags: vec![],
-                description: "test".to_string(),
-                expected: None,
-            },
+            query_context: make_query_context("test", None),
             dest_path: "/tmp/test".to_string(),
             priority: 0,
             state: crate::ticket::TicketState::Pending,

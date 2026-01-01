@@ -36,6 +36,7 @@ mod tests {
             torrent_client: None,
             textbrain: TextBrainConfig::default(),
             orchestrator: OrchestratorConfig::default(),
+            external_catalogs: None,
         };
         assert!(validate_config(&config).is_ok());
     }
@@ -56,6 +57,7 @@ mod tests {
             torrent_client: None,
             textbrain: TextBrainConfig::default(),
             orchestrator: OrchestratorConfig::default(),
+            external_catalogs: None,
         };
         let result = validate_config(&config);
         assert!(result.is_err());

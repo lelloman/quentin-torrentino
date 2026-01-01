@@ -9,12 +9,15 @@
 use std::collections::HashSet;
 use std::path::Path;
 
+use crate::converter::AudioFormat;
 use crate::searcher::{TorrentCandidate, TorrentFile};
 use crate::textbrain::{
     DumbFileMapper, FileMapping, MatchResult, QueryBuildResult, ScoredCandidate, TextBrainConfig,
     TextBrainError,
 };
-use crate::ticket::{ExpectedContent, QueryContext, Ticket};
+use crate::ticket::{
+    AudioSearchConstraints, CatalogReference, ExpectedContent, QueryContext, Ticket,
+};
 
 use super::generic;
 use super::types::{ContentError, PostProcessResult};
@@ -28,18 +31,26 @@ use super::types::{ContentError, PostProcessResult};
 /// Generates music-specific query patterns based on ExpectedContent:
 /// - Albums: "{artist} {album}", "{artist} {album} FLAC", "{album} {year}"
 /// - Tracks: "{artist} {track}", "{track} {artist}"
+///
+/// Also considers `search_constraints.audio` to prioritize format-specific queries.
 pub async fn build_queries(
     context: &QueryContext,
     config: &TextBrainConfig,
 ) -> Result<QueryBuildResult, TextBrainError> {
+    // Extract audio constraints if present
+    let audio_constraints = context
+        .search_constraints
+        .as_ref()
+        .and_then(|sc| sc.audio.as_ref());
+
     let queries = match &context.expected {
         Some(ExpectedContent::Album {
             artist,
             title,
             tracks,
-        }) => build_album_queries(artist.as_deref(), title, tracks.len()),
+        }) => build_album_queries(artist.as_deref(), title, tracks.len(), audio_constraints),
         Some(ExpectedContent::Track { artist, title }) => {
-            build_track_queries(artist.as_deref(), title)
+            build_track_queries(artist.as_deref(), title, audio_constraints)
         }
         _ => {
             // Fall back to generic for unexpected content types
@@ -63,60 +74,144 @@ pub async fn build_queries(
 }
 
 /// Build queries for an album.
-fn build_album_queries(artist: Option<&str>, title: &str, track_count: usize) -> Vec<String> {
+///
+/// If audio constraints specify preferred formats, those format keywords are
+/// prioritized in the query list.
+fn build_album_queries(
+    artist: Option<&str>,
+    title: &str,
+    track_count: usize,
+    audio_constraints: Option<&AudioSearchConstraints>,
+) -> Vec<String> {
     let mut queries = Vec::new();
     let mut seen = HashSet::new();
 
     let title_clean = clean_album_title(title);
 
+    // Determine preferred format keywords from constraints
+    let format_keywords = get_format_keywords(audio_constraints);
+
     // Primary queries with artist
     if let Some(artist) = artist {
         let artist_clean = clean_artist_name(artist);
 
-        // Most specific: artist + album + quality
-        add_query(&mut queries, &mut seen, format!("{} {} FLAC", artist_clean, title_clean));
-        add_query(&mut queries, &mut seen, format!("{} {}", artist_clean, title_clean));
+        // Add queries with preferred format keywords first
+        for keyword in &format_keywords {
+            add_query(
+                &mut queries,
+                &mut seen,
+                format!("{} {} {}", artist_clean, title_clean, keyword),
+            );
+        }
+
+        // Fallback: artist + album (no format)
+        add_query(
+            &mut queries,
+            &mut seen,
+            format!("{} {}", artist_clean, title_clean),
+        );
 
         // Artist + album (reversed order for some indexers)
-        add_query(&mut queries, &mut seen, format!("{} {}", title_clean, artist_clean));
+        add_query(
+            &mut queries,
+            &mut seen,
+            format!("{} {}", title_clean, artist_clean),
+        );
 
         // Just artist + lossless (for discography searches)
-        add_query(&mut queries, &mut seen, format!("{} FLAC", artist_clean));
-        add_query(&mut queries, &mut seen, format!("{} lossless", artist_clean));
+        for keyword in &format_keywords {
+            add_query(
+                &mut queries,
+                &mut seen,
+                format!("{} {}", artist_clean, keyword),
+            );
+        }
     }
 
-    // Album title only queries
-    add_query(&mut queries, &mut seen, format!("{} FLAC", title_clean));
+    // Album title only queries with format keywords
+    for keyword in &format_keywords {
+        add_query(
+            &mut queries,
+            &mut seen,
+            format!("{} {}", title_clean, keyword),
+        );
+    }
     add_query(&mut queries, &mut seen, title_clean.clone());
 
     // If album has many tracks, might be looking for complete album
     if track_count > 8 {
         if let Some(artist) = artist {
-            add_query(&mut queries, &mut seen, format!("{} complete album", clean_artist_name(artist)));
+            add_query(
+                &mut queries,
+                &mut seen,
+                format!("{} complete album", clean_artist_name(artist)),
+            );
         }
     }
 
     queries
 }
 
+/// Get format keywords from audio constraints, with sensible defaults.
+fn get_format_keywords(constraints: Option<&AudioSearchConstraints>) -> Vec<&'static str> {
+    if let Some(c) = constraints {
+        if !c.preferred_formats.is_empty() {
+            return c
+                .preferred_formats
+                .iter()
+                .filter_map(|f| match f {
+                    AudioFormat::Flac => Some("FLAC"),
+                    AudioFormat::Alac => Some("ALAC"),
+                    AudioFormat::Aac => Some("AAC"),
+                    AudioFormat::Mp3 => Some("MP3"),
+                    AudioFormat::Opus => Some("OPUS"),
+                    AudioFormat::OggVorbis => Some("OGG"),
+                    AudioFormat::Wav => None,
+                })
+                .collect();
+        }
+    }
+    // Default: prefer FLAC
+    vec!["FLAC"]
+}
+
 /// Build queries for a single track.
-fn build_track_queries(artist: Option<&str>, title: &str) -> Vec<String> {
+fn build_track_queries(
+    artist: Option<&str>,
+    title: &str,
+    audio_constraints: Option<&AudioSearchConstraints>,
+) -> Vec<String> {
     let mut queries = Vec::new();
     let mut seen = HashSet::new();
 
     let title_clean = clean_track_title(title);
+    let format_keywords = get_format_keywords(audio_constraints);
 
     if let Some(artist) = artist {
         let artist_clean = clean_artist_name(artist);
 
         // Artist + track title
-        add_query(&mut queries, &mut seen, format!("{} {}", artist_clean, title_clean));
+        add_query(
+            &mut queries,
+            &mut seen,
+            format!("{} {}", artist_clean, title_clean),
+        );
 
         // Track title + artist (some indexers prefer this)
-        add_query(&mut queries, &mut seen, format!("{} {}", title_clean, artist_clean));
+        add_query(
+            &mut queries,
+            &mut seen,
+            format!("{} {}", title_clean, artist_clean),
+        );
 
         // With quality indicator
-        add_query(&mut queries, &mut seen, format!("{} {} FLAC", artist_clean, title_clean));
+        for keyword in &format_keywords {
+            add_query(
+                &mut queries,
+                &mut seen,
+                format!("{} {} {}", artist_clean, title_clean, keyword),
+            );
+        }
     }
 
     // Just track title
@@ -281,6 +376,10 @@ struct MusicScorer<'a> {
     expected_artist: Option<&'a str>,
     expected_title: Option<&'a str>,
     expected_track_count: usize,
+    /// Audio search constraints (preferred formats, avoid live/compilations).
+    audio_constraints: Option<&'a AudioSearchConstraints>,
+    /// Catalog reference for validation (track count, duration).
+    catalog_ref: Option<&'a CatalogReference>,
 }
 
 impl<'a> MusicScorer<'a> {
@@ -297,12 +396,21 @@ impl<'a> MusicScorer<'a> {
             _ => (None, None, 0),
         };
 
+        let audio_constraints = context
+            .search_constraints
+            .as_ref()
+            .and_then(|sc| sc.audio.as_ref());
+
+        let catalog_ref = context.catalog_reference.as_ref();
+
         Self {
             context,
             file_mapper: DumbFileMapper::new(),
             expected_artist,
             expected_title,
             expected_track_count,
+            audio_constraints,
+            catalog_ref,
         }
     }
 
@@ -315,13 +423,21 @@ impl<'a> MusicScorer<'a> {
         let health_score = self.health_score(candidate);
         let red_flag_penalty = self.red_flag_penalty(&title_lower);
 
+        // Constraint-based scoring adjustments
+        let constraint_bonus = self.constraint_bonus(&title_lower);
+
         // File mapping score (if files available)
         let (file_mappings, mapping_score) = self.file_mapping_score(candidate);
 
+        // Catalog validation (track count match if we have files)
+        let catalog_bonus = self.catalog_validation_bonus(&file_mappings);
+
         // Weighted combination
-        let base_score = (title_score * 0.45)
-            + (format_score * 0.20)
+        let base_score = (title_score * 0.40)
+            + (format_score * 0.15)
             + (health_score * 0.10)
+            + constraint_bonus
+            + catalog_bonus
             - red_flag_penalty;
 
         // If we have file mappings, factor them in heavily
@@ -337,6 +453,8 @@ impl<'a> MusicScorer<'a> {
             health_score,
             red_flag_penalty,
             mapping_score,
+            constraint_bonus,
+            catalog_bonus,
             candidate,
         );
 
@@ -345,6 +463,94 @@ impl<'a> MusicScorer<'a> {
             score: final_score.clamp(0.0, 1.0),
             reasoning,
             file_mappings,
+        }
+    }
+
+    /// Calculate bonus/penalty based on search constraints.
+    fn constraint_bonus(&self, title: &str) -> f32 {
+        let constraints = match self.audio_constraints {
+            Some(c) => c,
+            None => return 0.0,
+        };
+
+        let mut bonus: f32 = 0.0;
+
+        // Check preferred formats
+        if !constraints.preferred_formats.is_empty() {
+            let format_match = constraints.preferred_formats.iter().any(|f| match f {
+                AudioFormat::Flac => title.contains("flac"),
+                AudioFormat::Alac => title.contains("alac"),
+                AudioFormat::Aac => title.contains("aac"),
+                AudioFormat::Mp3 => title.contains("mp3"),
+                AudioFormat::Opus => title.contains("opus"),
+                AudioFormat::OggVorbis => title.contains("ogg") || title.contains("vorbis"),
+                _ => false,
+            });
+            if format_match {
+                bonus += 0.10;
+            }
+        }
+
+        // Check for min bitrate (only meaningful for lossy)
+        if let Some(min_bitrate) = constraints.min_bitrate_kbps {
+            // Try to parse bitrate from title
+            if let Some(bitrate) = extract_bitrate(title) {
+                if bitrate >= min_bitrate {
+                    bonus += 0.05;
+                } else {
+                    bonus -= 0.10; // Penalty for below minimum
+                }
+            }
+        }
+
+        bonus
+    }
+
+    /// Calculate bonus based on catalog reference validation.
+    ///
+    /// If we have a MusicBrainz catalog reference with track count,
+    /// we can validate the file mapping matches expected track count.
+    fn catalog_validation_bonus(&self, file_mappings: &[FileMapping]) -> f32 {
+        let catalog = match self.catalog_ref {
+            Some(c) => c,
+            None => return 0.0,
+        };
+
+        match catalog {
+            CatalogReference::MusicBrainz { track_count, .. } => {
+                if file_mappings.is_empty() {
+                    return 0.0;
+                }
+
+                let mapped_count = file_mappings.len() as u32;
+                let expected = *track_count;
+
+                if expected == 0 {
+                    return 0.0;
+                }
+
+                // Exact match is best
+                if mapped_count == expected {
+                    return 0.15;
+                }
+
+                // Close match (within 1-2 tracks - could be bonus tracks)
+                let diff = (mapped_count as i32 - expected as i32).unsigned_abs();
+                if diff <= 2 {
+                    return 0.08;
+                }
+
+                // Significant mismatch is a penalty
+                if diff > expected / 2 {
+                    return -0.10;
+                }
+
+                0.0
+            }
+            CatalogReference::Tmdb { .. } => {
+                // TMDB is for video, not music
+                0.0
+            }
         }
     }
 
@@ -438,17 +644,36 @@ impl<'a> MusicScorer<'a> {
     }
 
     /// Calculate penalty for red flags.
+    ///
+    /// Uses audio constraints for avoid_compilations and avoid_live if present.
     fn red_flag_penalty(&self, title: &str) -> f32 {
         let mut penalty: f32 = 0.0;
 
-        // Compilation/VA when looking for specific artist
-        if self.expected_artist.is_some()
-            && (title.contains("various artist")
-                || title.contains("v.a.")
-                || title.contains("va -")
-                || title.contains("compilation"))
-        {
-            penalty += 0.3;
+        // Check if user explicitly wants to avoid compilations via constraints
+        let avoid_compilations = self
+            .audio_constraints
+            .map(|c| c.avoid_compilations)
+            .unwrap_or(false);
+
+        // Check if user explicitly wants to avoid live recordings
+        let avoid_live = self
+            .audio_constraints
+            .map(|c| c.avoid_live)
+            .unwrap_or(false);
+
+        // Compilation/VA detection
+        let is_compilation = title.contains("various artist")
+            || title.contains("v.a.")
+            || title.contains("va -")
+            || title.contains("compilation");
+
+        if is_compilation {
+            // Higher penalty if user explicitly wants to avoid, or if looking for specific artist
+            if avoid_compilations {
+                penalty += 0.5;
+            } else if self.expected_artist.is_some() {
+                penalty += 0.3;
+            }
         }
 
         // Sample/preview releases
@@ -456,14 +681,23 @@ impl<'a> MusicScorer<'a> {
             penalty += 0.4;
         }
 
-        // Live recordings when studio expected (common mismatch)
-        let expected_is_not_live = self
-            .expected_title
-            .is_none_or(|t| !t.to_lowercase().contains("live"));
-        if expected_is_not_live
-            && (title.contains("[live]") || title.contains("(live)") || title.contains(" live "))
-        {
-            penalty += 0.2;
+        // Live recording detection
+        let is_live =
+            title.contains("[live]") || title.contains("(live)") || title.contains(" live ");
+
+        if is_live {
+            // Higher penalty if user explicitly wants to avoid
+            if avoid_live {
+                penalty += 0.4;
+            } else {
+                // Only penalize if expected title doesn't contain "live"
+                let expected_is_not_live = self
+                    .expected_title
+                    .is_none_or(|t| !t.to_lowercase().contains("live"));
+                if expected_is_not_live {
+                    penalty += 0.2;
+                }
+            }
         }
 
         // Tribute/cover albums
@@ -513,6 +747,7 @@ impl<'a> MusicScorer<'a> {
     }
 
     /// Generate human-readable reasoning.
+    #[allow(clippy::too_many_arguments)]
     fn generate_reasoning(
         &self,
         title_score: f32,
@@ -520,6 +755,8 @@ impl<'a> MusicScorer<'a> {
         health_score: f32,
         penalty: f32,
         mapping_score: f32,
+        constraint_bonus: f32,
+        catalog_bonus: f32,
         candidate: &TorrentCandidate,
     ) -> String {
         let mut parts = Vec::new();
@@ -553,6 +790,22 @@ impl<'a> MusicScorer<'a> {
             parts.push(format!("low seeders ({})", candidate.seeders));
         }
 
+        // Constraint matches
+        if constraint_bonus > 0.05 {
+            parts.push("matches constraints".to_string());
+        } else if constraint_bonus < -0.05 {
+            parts.push("below min quality".to_string());
+        }
+
+        // Catalog validation
+        if catalog_bonus > 0.10 {
+            parts.push("track count verified".to_string());
+        } else if catalog_bonus > 0.0 {
+            parts.push("track count close".to_string());
+        } else if catalog_bonus < -0.05 {
+            parts.push("track count mismatch".to_string());
+        }
+
         // Penalties
         if penalty > 0.2 {
             let title_lower = candidate.title.to_lowercase();
@@ -574,6 +827,26 @@ impl<'a> MusicScorer<'a> {
 
         parts.join(", ")
     }
+}
+
+/// Extract bitrate from title string (e.g., "320", "256", "192").
+fn extract_bitrate(title: &str) -> Option<u32> {
+    // Common bitrate patterns
+    let patterns = ["320", "256", "192", "160", "128", "96", "64"];
+    for pattern in patterns {
+        if title.contains(pattern) {
+            // Verify it's likely a bitrate (near "kbps" or "mp3")
+            if title.contains("kbps")
+                || title.contains("mp3")
+                || title.contains("aac")
+                || title.contains("cbr")
+                || title.contains("vbr")
+            {
+                return pattern.parse().ok();
+            }
+        }
+    }
+    None
 }
 
 /// Check if a word is a stop word.
@@ -709,6 +982,8 @@ mod tests {
                 title: title.to_string(),
                 tracks,
             }),
+            catalog_reference: None,
+            search_constraints: None,
         }
     }
 
@@ -720,6 +995,8 @@ mod tests {
                 artist: artist.map(String::from),
                 title: title.to_string(),
             }),
+            catalog_reference: None,
+            search_constraints: None,
         }
     }
 

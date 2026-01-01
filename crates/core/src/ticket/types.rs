@@ -3,8 +3,202 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::converter::{AudioConstraints, VideoConstraints};
+use crate::converter::{AudioConstraints, AudioFormat, VideoConstraints};
 use crate::textbrain::{FileMapping, ScoredCandidateSummary};
+
+// ============================================================================
+// Catalog Reference Types
+// ============================================================================
+
+/// Reference to an external catalog entry for validation.
+///
+/// When a ticket is created via the wizard with catalog lookup, this stores
+/// the catalog ID and cached validation data. During scoring, candidates can
+/// be validated against this reference.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum CatalogReference {
+    /// MusicBrainz release reference.
+    MusicBrainz {
+        /// MusicBrainz Release ID (MBID).
+        release_id: String,
+        /// Cached track count for validation.
+        track_count: u32,
+        /// Cached total duration in milliseconds (if available).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        total_duration_ms: Option<u64>,
+    },
+
+    /// TMDB reference for movies or TV.
+    Tmdb {
+        /// TMDB ID.
+        id: u32,
+        /// Media type (movie or TV).
+        media_type: TmdbMediaType,
+        /// Runtime in minutes (for movies).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        runtime_minutes: Option<u32>,
+        /// Episode count (for TV seasons).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        episode_count: Option<u32>,
+    },
+}
+
+/// TMDB media type.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TmdbMediaType {
+    Movie,
+    Tv,
+}
+
+// ============================================================================
+// Search Constraints Types
+// ============================================================================
+
+/// Constraints that affect how torrents are searched and scored.
+///
+/// These are different from `OutputConstraints` (which affect conversion).
+/// Search constraints influence query generation and candidate scoring.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct SearchConstraints {
+    /// Audio-specific search constraints (for music content).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audio: Option<AudioSearchConstraints>,
+
+    /// Video-specific search constraints (for movies/TV).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub video: Option<VideoSearchConstraints>,
+}
+
+/// Audio search constraints for music content.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct AudioSearchConstraints {
+    /// Preferred audio formats (boost score for matches).
+    /// Example: [Flac, Alac] to prefer lossless.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub preferred_formats: Vec<AudioFormat>,
+
+    /// Minimum bitrate in kbps (for lossy formats).
+    /// Candidates below this will be penalized.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_bitrate_kbps: Option<u32>,
+
+    /// Avoid compilation/various artists releases.
+    #[serde(default)]
+    pub avoid_compilations: bool,
+
+    /// Avoid live recordings.
+    #[serde(default)]
+    pub avoid_live: bool,
+}
+
+/// Video search constraints for movies/TV.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct VideoSearchConstraints {
+    /// Minimum resolution (hard filter - reject below this).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_resolution: Option<Resolution>,
+
+    /// Preferred resolution (boost score for exact match).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preferred_resolution: Option<Resolution>,
+
+    /// Preferred video sources (boost score for matches).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub preferred_sources: Vec<VideoSource>,
+
+    /// Preferred video codecs (boost score for matches).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub preferred_codecs: Vec<VideoCodec>,
+
+    /// Preferred audio language (e.g., "en", "it").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preferred_language: Option<String>,
+
+    /// Exclude releases with hardcoded subtitles.
+    #[serde(default)]
+    pub exclude_hardcoded_subs: bool,
+}
+
+/// Video resolution for search constraints.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "snake_case")]
+pub enum Resolution {
+    /// 720p (1280x720)
+    R720p,
+    /// 1080p (1920x1080)
+    R1080p,
+    /// 4K/2160p (3840x2160)
+    R2160p,
+}
+
+impl Resolution {
+    /// Returns the resolution as a search keyword.
+    pub fn as_keyword(&self) -> &'static str {
+        match self {
+            Resolution::R720p => "720p",
+            Resolution::R1080p => "1080p",
+            Resolution::R2160p => "2160p",
+        }
+    }
+}
+
+/// Video source quality for search constraints.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "snake_case")]
+pub enum VideoSource {
+    /// Camera recording (lowest quality)
+    Cam,
+    /// HDTV capture
+    Hdtv,
+    /// Web download (streaming service)
+    WebDl,
+    /// BluRay encode
+    BluRay,
+    /// BluRay remux (highest quality)
+    Remux,
+}
+
+impl VideoSource {
+    /// Returns the source as a search keyword.
+    pub fn as_keyword(&self) -> &'static str {
+        match self {
+            VideoSource::Cam => "CAM",
+            VideoSource::Hdtv => "HDTV",
+            VideoSource::WebDl => "WEB-DL",
+            VideoSource::BluRay => "BluRay",
+            VideoSource::Remux => "REMUX",
+        }
+    }
+}
+
+/// Video codec for search constraints.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum VideoCodec {
+    /// H.264/AVC
+    X264,
+    /// H.265/HEVC
+    X265,
+    /// AV1
+    Av1,
+}
+
+impl VideoCodec {
+    /// Returns the codec as a search keyword.
+    pub fn as_keyword(&self) -> &'static str {
+        match self {
+            VideoCodec::X264 => "x264",
+            VideoCodec::X265 => "x265",
+            VideoCodec::Av1 => "AV1",
+        }
+    }
+}
+
+// ============================================================================
+// Output Constraints Types
+// ============================================================================
 
 /// Output format constraints for a ticket.
 ///
@@ -78,6 +272,15 @@ pub struct QueryContext {
     /// Used to verify torrent files match what we're looking for.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expected: Option<ExpectedContent>,
+
+    /// Reference to external catalog entry (MusicBrainz, TMDB).
+    /// Used for validation during scoring.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub catalog_reference: Option<CatalogReference>,
+
+    /// Search constraints that affect query generation and scoring.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub search_constraints: Option<SearchConstraints>,
 }
 
 impl QueryContext {
@@ -87,12 +290,26 @@ impl QueryContext {
             tags,
             description: description.into(),
             expected: None,
+            catalog_reference: None,
+            search_constraints: None,
         }
     }
 
     /// Create a query context with expected content.
     pub fn with_expected(mut self, expected: ExpectedContent) -> Self {
         self.expected = Some(expected);
+        self
+    }
+
+    /// Add a catalog reference for validation.
+    pub fn with_catalog_reference(mut self, reference: CatalogReference) -> Self {
+        self.catalog_reference = Some(reference);
+        self
+    }
+
+    /// Add search constraints.
+    pub fn with_search_constraints(mut self, constraints: SearchConstraints) -> Self {
+        self.search_constraints = Some(constraints);
         self
     }
 }
@@ -154,6 +371,12 @@ pub struct ExpectedTrack {
     /// Expected duration in seconds (optional, for validation).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub duration_secs: Option<u32>,
+    /// Expected duration in milliseconds (more precise, from MusicBrainz).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<u64>,
+    /// Disc number (for multi-disc albums).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disc_number: Option<u32>,
 }
 
 impl ExpectedTrack {
@@ -163,13 +386,34 @@ impl ExpectedTrack {
             number,
             title: title.into(),
             duration_secs: None,
+            duration_ms: None,
+            disc_number: None,
         }
     }
 
-    /// Set expected duration.
+    /// Set expected duration in seconds.
     pub fn with_duration(mut self, secs: u32) -> Self {
         self.duration_secs = Some(secs);
         self
+    }
+
+    /// Set expected duration in milliseconds (more precise).
+    pub fn with_duration_ms(mut self, ms: u64) -> Self {
+        self.duration_ms = Some(ms);
+        // Also set seconds for backward compatibility
+        self.duration_secs = Some((ms / 1000) as u32);
+        self
+    }
+
+    /// Set disc number.
+    pub fn with_disc(mut self, disc: u32) -> Self {
+        self.disc_number = Some(disc);
+        self
+    }
+
+    /// Get duration in milliseconds (prefer precise value, fall back to seconds).
+    pub fn duration_ms_or_secs(&self) -> Option<u64> {
+        self.duration_ms.or_else(|| self.duration_secs.map(|s| s as u64 * 1000))
     }
 }
 

@@ -110,6 +110,16 @@ mod tests {
     use crate::textbrain::TextBrainMode;
     use crate::ticket::{ExpectedContent, ExpectedTrack, TicketState};
 
+    fn make_query_context(description: &str, expected: Option<ExpectedContent>) -> QueryContext {
+        QueryContext {
+            tags: vec![],
+            description: description.to_string(),
+            expected,
+            catalog_reference: None,
+            search_constraints: None,
+        }
+    }
+
     fn make_config() -> TextBrainConfig {
         TextBrainConfig {
             mode: TextBrainMode::DumbOnly,
@@ -147,6 +157,8 @@ mod tests {
                 tags: vec![],
                 description: "test".to_string(),
                 expected,
+                catalog_reference: None,
+                search_constraints: None,
             },
             dest_path: "/tmp/test".to_string(),
             priority: 0,
@@ -164,15 +176,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_build_queries_dispatches_to_music_album() {
-        let context = QueryContext {
-            tags: vec![],
-            description: "Dark Side of the Moon by Pink Floyd".to_string(),
-            expected: Some(ExpectedContent::Album {
+        let context = make_query_context(
+            "Dark Side of the Moon by Pink Floyd",
+            Some(ExpectedContent::Album {
                 artist: Some("Pink Floyd".to_string()),
                 title: "Dark Side of the Moon".to_string(),
                 tracks: vec![],
             }),
-        };
+        );
 
         let result = build_queries(&context, &make_config()).await.unwrap();
         assert!(!result.queries.is_empty());
@@ -180,14 +191,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_build_queries_dispatches_to_music_track() {
-        let context = QueryContext {
-            tags: vec![],
-            description: "Comfortably Numb by Pink Floyd".to_string(),
-            expected: Some(ExpectedContent::Track {
+        let context = make_query_context(
+            "Comfortably Numb by Pink Floyd",
+            Some(ExpectedContent::Track {
                 artist: Some("Pink Floyd".to_string()),
                 title: "Comfortably Numb".to_string(),
             }),
-        };
+        );
 
         let result = build_queries(&context, &make_config()).await.unwrap();
         assert!(!result.queries.is_empty());
@@ -195,14 +205,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_build_queries_dispatches_to_video_movie() {
-        let context = QueryContext {
-            tags: vec![],
-            description: "Inception 2010".to_string(),
-            expected: Some(ExpectedContent::Movie {
+        let context = make_query_context(
+            "Inception 2010",
+            Some(ExpectedContent::Movie {
                 title: "Inception".to_string(),
                 year: Some(2010),
             }),
-        };
+        );
 
         let result = build_queries(&context, &make_config()).await.unwrap();
         assert!(!result.queries.is_empty());
@@ -210,15 +219,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_build_queries_dispatches_to_video_tv() {
-        let context = QueryContext {
-            tags: vec![],
-            description: "Breaking Bad S01E01".to_string(),
-            expected: Some(ExpectedContent::TvEpisode {
+        let context = make_query_context(
+            "Breaking Bad S01E01",
+            Some(ExpectedContent::TvEpisode {
                 series: "Breaking Bad".to_string(),
                 season: 1,
                 episodes: vec![1],
             }),
-        };
+        );
 
         let result = build_queries(&context, &make_config()).await.unwrap();
         assert!(!result.queries.is_empty());
@@ -226,11 +234,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_build_queries_dispatches_to_generic() {
-        let context = QueryContext {
-            tags: vec![],
-            description: "Some random content".to_string(),
-            expected: None,
-        };
+        let context = make_query_context("Some random content", None);
 
         let result = build_queries(&context, &make_config()).await.unwrap();
         assert!(!result.queries.is_empty());
@@ -242,15 +246,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_score_candidates_dispatches_to_music() {
-        let context = QueryContext {
-            tags: vec![],
-            description: "Dark Side of the Moon".to_string(),
-            expected: Some(ExpectedContent::Album {
+        let context = make_query_context(
+            "Dark Side of the Moon",
+            Some(ExpectedContent::Album {
                 artist: Some("Pink Floyd".to_string()),
                 title: "Dark Side of the Moon".to_string(),
                 tracks: vec![],
             }),
-        };
+        );
         let candidates = vec![make_candidate("Pink Floyd - Dark Side of the Moon FLAC")];
 
         let result = score_candidates(&context, &candidates, &make_config())
@@ -261,14 +264,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_score_candidates_dispatches_to_video() {
-        let context = QueryContext {
-            tags: vec![],
-            description: "Inception 2010".to_string(),
-            expected: Some(ExpectedContent::Movie {
+        let context = make_query_context(
+            "Inception 2010",
+            Some(ExpectedContent::Movie {
                 title: "Inception".to_string(),
                 year: Some(2010),
             }),
-        };
+        );
         let candidates = vec![make_candidate("Inception 2010 1080p BluRay")];
 
         let result = score_candidates(&context, &candidates, &make_config())
@@ -279,11 +281,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_score_candidates_dispatches_to_generic() {
-        let context = QueryContext {
-            tags: vec![],
-            description: "Some random content".to_string(),
-            expected: None,
-        };
+        let context = make_query_context("Some random content", None);
         let candidates = vec![make_candidate("Some random content")];
 
         let result = score_candidates(&context, &candidates, &make_config())
@@ -298,10 +296,9 @@ mod tests {
 
     #[test]
     fn test_map_files_dispatches_to_music() {
-        let context = QueryContext {
-            tags: vec![],
-            description: "Dark Side of the Moon".to_string(),
-            expected: Some(ExpectedContent::Album {
+        let context = make_query_context(
+            "Dark Side of the Moon",
+            Some(ExpectedContent::Album {
                 artist: Some("Pink Floyd".to_string()),
                 title: "Dark Side of the Moon".to_string(),
                 tracks: vec![
@@ -309,15 +306,19 @@ mod tests {
                         number: 1,
                         title: "Speak to Me".to_string(),
                         duration_secs: None,
+                        duration_ms: None,
+                        disc_number: None,
                     },
                     ExpectedTrack {
                         number: 2,
                         title: "Breathe".to_string(),
                         duration_secs: None,
+                        duration_ms: None,
+                        disc_number: None,
                     },
                 ],
             }),
-        };
+        );
         let files = vec![
             TorrentFile {
                 path: "01 - Speak to Me.flac".to_string(),
@@ -336,14 +337,13 @@ mod tests {
 
     #[test]
     fn test_map_files_dispatches_to_video() {
-        let context = QueryContext {
-            tags: vec![],
-            description: "Inception".to_string(),
-            expected: Some(ExpectedContent::Movie {
+        let context = make_query_context(
+            "Inception",
+            Some(ExpectedContent::Movie {
                 title: "Inception".to_string(),
                 year: Some(2010),
             }),
-        };
+        );
         let files = vec![TorrentFile {
             path: "Inception.2010.1080p.BluRay.mkv".to_string(),
             size_bytes: 5_000_000_000,
@@ -356,11 +356,7 @@ mod tests {
 
     #[test]
     fn test_map_files_with_no_expected_returns_empty() {
-        let context = QueryContext {
-            tags: vec![],
-            description: "test".to_string(),
-            expected: None,
-        };
+        let context = make_query_context("test", None);
 
         let files: Vec<TorrentFile> = vec![];
         let mappings = map_files(&context, &files);

@@ -323,7 +323,7 @@ mod tests {
             artist: Some("Pink Floyd".to_string()),
             title: "The Dark Side of the Moon".to_string(),
             tracks: vec![
-                ExpectedTrack { number: 1, title: "Speak to Me".to_string(), duration_secs: None },
+                ExpectedTrack { number: 1, title: "Speak to Me".to_string(), duration_secs: None, duration_ms: None, disc_number: None },
             ],
         });
 
