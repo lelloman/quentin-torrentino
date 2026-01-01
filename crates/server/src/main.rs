@@ -266,7 +266,11 @@ async fn run() -> Result<()> {
         })
         .await;
 
-    // Close the audit handle to signal the writer to stop
+    // Drop all holders of AuditHandle so the writer's channel closes.
+    // The orchestrator holds an AuditHandle clone, so we must drop it.
+    // The pipeline was moved into AppState which is already dropped.
+    // Order matters: we emit the final event BEFORE dropping handles.
+    drop(orchestrator);
     drop(audit_handle);
 
     // Wait for writer to finish processing remaining events

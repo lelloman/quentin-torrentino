@@ -259,4 +259,156 @@ mod tests {
         let records = store.get_records();
         assert_eq!(records.len(), 2);
     }
+
+    #[tokio::test]
+    async fn test_writer_waits_for_all_handles_to_drop() {
+        // This tests the scenario from main.rs shutdown:
+        // Multiple components hold cloned handles, writer must wait for ALL to drop.
+        let store = Arc::new(MockStore::new());
+        let store_dyn: Arc<dyn AuditStore> = Arc::clone(&store) as Arc<dyn AuditStore>;
+        let (main_handle, writer) = create_audit_system(store_dyn, 10);
+
+        // Simulate components holding cloned handles
+        let orchestrator_handle = main_handle.clone();
+        let pipeline_handle = main_handle.clone();
+        let state_handle = main_handle.clone();
+
+        let writer_handle = tokio::spawn(writer.run());
+
+        // Component emits event
+        orchestrator_handle
+            .emit(AuditEvent::TicketStateChanged {
+                ticket_id: "t-1".to_string(),
+                from_state: "pending".to_string(),
+                to_state: "acquiring".to_string(),
+                reason: None,
+            })
+            .await;
+
+        // Main emits final event
+        main_handle
+            .emit(AuditEvent::ServiceStopped {
+                reason: "graceful_shutdown".to_string(),
+            })
+            .await;
+
+        // Give time for events to process
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+
+        // Drop only some handles - writer should NOT exit yet
+        drop(main_handle);
+        drop(state_handle);
+
+        // Writer should still be running (use try_is_finished)
+        assert!(
+            !writer_handle.is_finished(),
+            "Writer should still be running with handles alive"
+        );
+
+        // Now drop remaining handles
+        drop(orchestrator_handle);
+        drop(pipeline_handle);
+
+        // Writer should now exit
+        let result = tokio::time::timeout(
+            tokio::time::Duration::from_secs(1),
+            writer_handle,
+        )
+        .await;
+
+        assert!(result.is_ok(), "Writer should have exited after all handles dropped");
+
+        // Verify all events were captured
+        let records = store.get_records();
+        assert_eq!(records.len(), 2, "Both events should be recorded");
+    }
+
+    #[tokio::test]
+    async fn test_events_emitted_just_before_drop_are_captured() {
+        // This tests that events emitted immediately before dropping handles
+        // are still captured by the writer (no race condition).
+        let store = Arc::new(MockStore::new());
+        let store_dyn: Arc<dyn AuditStore> = Arc::clone(&store) as Arc<dyn AuditStore>;
+        let (handle, writer) = create_audit_system(store_dyn, 100);
+
+        let writer_handle = tokio::spawn(writer.run());
+
+        // Emit final event and immediately drop
+        handle
+            .emit(AuditEvent::ServiceStopped {
+                reason: "graceful_shutdown".to_string(),
+            })
+            .await;
+        drop(handle);
+
+        // Wait for writer to finish
+        writer_handle.await.unwrap();
+
+        // The event should have been captured
+        let records = store.get_records();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].event_type, "service_stopped");
+    }
+
+    #[tokio::test]
+    async fn test_graceful_shutdown_sequence() {
+        // Simulates the exact shutdown sequence from main.rs
+        let store = Arc::new(MockStore::new());
+        let store_dyn: Arc<dyn AuditStore> = Arc::clone(&store) as Arc<dyn AuditStore>;
+        let (audit_handle, writer) = create_audit_system(store_dyn, 100);
+
+        // Simulate orchestrator holding a handle
+        let orchestrator_audit = Some(audit_handle.clone());
+
+        let writer_handle = tokio::spawn(writer.run());
+
+        // Service started event
+        audit_handle
+            .emit(AuditEvent::ServiceStarted {
+                version: "0.1.0".to_string(),
+                config_hash: "test".to_string(),
+            })
+            .await;
+
+        // Some work happens...
+        audit_handle
+            .emit(AuditEvent::TicketCreated {
+                ticket_id: "t-1".to_string(),
+                requested_by: "user".to_string(),
+                priority: 100,
+                tags: vec![],
+                description: "test".to_string(),
+                dest_path: "/test".to_string(),
+            })
+            .await;
+
+        // Shutdown sequence begins:
+        // 1. Orchestrator.stop() is called (doesn't emit events in current impl)
+        // 2. Final ServiceStopped event is emitted
+        audit_handle
+            .emit(AuditEvent::ServiceStopped {
+                reason: "graceful_shutdown".to_string(),
+            })
+            .await;
+
+        // 3. Drop all handle holders (order: orchestrator, then main handle)
+        drop(orchestrator_audit);
+        drop(audit_handle);
+
+        // 4. Wait for writer to finish
+        let result = tokio::time::timeout(
+            tokio::time::Duration::from_secs(2),
+            writer_handle,
+        )
+        .await;
+
+        assert!(result.is_ok(), "Writer should exit after all handles dropped");
+
+        // Verify all events were captured in order
+        let records = store.get_records();
+        assert_eq!(records.len(), 3, "All 3 events should be recorded");
+        assert_eq!(records[0].event_type, "service_started");
+        assert_eq!(records[1].event_type, "ticket_created");
+        assert_eq!(records[2].event_type, "service_stopped");
+    }
 }
