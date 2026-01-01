@@ -15,7 +15,8 @@ use chrono::Utc;
 use tokio::sync::{broadcast, RwLock};
 use tracing::{debug, error, info, warn};
 
-use crate::audit::AuditHandle;
+use crate::audit::{AuditEvent, AuditHandle};
+use crate::textbrain::training::create_acquisition_training_events;
 use crate::processor::{PipelineJob, PipelineProcessor, SourceFile};
 use crate::searcher::Searcher;
 use crate::textbrain::{
@@ -41,7 +42,6 @@ where
     searcher: Arc<dyn Searcher>,
     torrent_client: Arc<dyn TorrentClient>,
     pipeline: Arc<PipelineProcessor<C, P>>,
-    #[allow(dead_code)]
     audit: Option<AuditHandle>,
     textbrain_config: TextBrainConfig,
 
@@ -206,6 +206,7 @@ where
         let searcher = Arc::clone(&self.searcher);
         let config = self.config.clone();
         let textbrain_config = self.textbrain_config.clone();
+        let audit = self.audit.clone();
         let mut shutdown_rx = self.shutdown_tx.subscribe();
 
         tokio::spawn(async move {
@@ -225,6 +226,7 @@ where
                             &searcher,
                             &config,
                             &textbrain_config,
+                            &audit,
                         ).await {
                             warn!("Acquisition error: {}", e);
                         }
@@ -291,6 +293,7 @@ where
         searcher: &Arc<dyn Searcher>,
         config: &OrchestratorConfig,
         textbrain_config: &TextBrainConfig,
+        audit: &Option<AuditHandle>,
     ) -> Result<(), OrchestratorError> {
         // Get highest priority pending ticket
         let filter = TicketFilter::new().with_state("pending").with_limit(1);
@@ -323,6 +326,43 @@ where
 
         match result {
             Ok(acq) => {
+                // Emit audit events for the acquisition
+                if let Some(ref audit_handle) = audit {
+                    // QueriesGenerated event
+                    let queries_event = AuditEvent::QueriesGenerated {
+                        ticket_id: ticket.id.clone(),
+                        queries: acq.queries_tried.clone(),
+                        method: acq.query_method.clone(),
+                        llm_input_tokens: acq.llm_usage.as_ref().map(|u| u.input_tokens),
+                        llm_output_tokens: acq.llm_usage.as_ref().map(|u| u.output_tokens),
+                        duration_ms: acq.duration_ms,
+                    };
+                    audit_handle.emit(queries_event).await;
+
+                    // CandidatesScored event
+                    let scored_event = AuditEvent::CandidatesScored {
+                        ticket_id: ticket.id.clone(),
+                        candidates_count: acq.candidates_evaluated,
+                        top_candidate_hash: acq.best_candidate.as_ref().map(|c| c.candidate.info_hash.clone()),
+                        top_candidate_score: acq.best_candidate.as_ref().map(|c| (c.score * 100.0) as u32),
+                        method: acq.score_method.clone(),
+                        llm_input_tokens: acq.llm_usage.as_ref().map(|u| u.input_tokens),
+                        llm_output_tokens: acq.llm_usage.as_ref().map(|u| u.output_tokens),
+                        duration_ms: acq.duration_ms,
+                    };
+                    audit_handle.emit(scored_event).await;
+
+                    // Training events (for LLM fine-tuning data)
+                    let training_events = create_acquisition_training_events(
+                        &ticket.id,
+                        &ticket.query_context,
+                        &acq,
+                    );
+                    for event in training_events {
+                        audit_handle.emit(event).await;
+                    }
+                }
+
                 if acq.auto_approved {
                     if let Some(ref candidate) = acq.best_candidate {
                         // Auto-approved - high confidence match
