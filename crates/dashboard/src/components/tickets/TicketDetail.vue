@@ -19,6 +19,7 @@ const actionError = ref<string | null>(null)
 const selectedCandidateIdx = ref(0)
 const rejectReason = ref('')
 const retryLoading = ref(false)
+const showFailoverCandidates = ref(false)
 
 // State variant for badge color
 const stateVariant = computed(() => {
@@ -235,6 +236,14 @@ async function handleRetry() {
           <span class="text-gray-600">Phase</span>
           <Badge variant="info">{{ ticket.state.phase.phase.replace(/_/g, ' ') }}</Badge>
         </div>
+        <div v-if="ticket.state.phase.phase === 'searching'" class="flex justify-between">
+          <span class="text-gray-600">Current Query</span>
+          <span class="font-mono text-sm">{{ ticket.state.phase.query }}</span>
+        </div>
+        <div v-if="ticket.state.phase.phase === 'scoring'" class="flex justify-between">
+          <span class="text-gray-600">Scoring Candidates</span>
+          <span>{{ ticket.state.phase.candidates_count }}</span>
+        </div>
         <div class="flex justify-between">
           <span class="text-gray-600">Queries Tried</span>
           <span>{{ ticket.state.queries_tried.length }}</span>
@@ -244,14 +253,15 @@ async function handleRetry() {
           <span>{{ ticket.state.candidates_found }}</span>
         </div>
         <div v-if="ticket.state.queries_tried.length > 0">
-          <p class="text-sm text-gray-500 mb-2">Queries:</p>
+          <p class="text-sm text-gray-500 mb-2">Generated Queries:</p>
           <div class="space-y-1">
             <div
               v-for="(query, idx) in ticket.state.queries_tried"
               :key="idx"
-              class="text-sm font-mono bg-gray-50 px-2 py-1 rounded"
+              class="text-sm font-mono bg-gray-50 px-2 py-1 rounded flex items-center gap-2"
             >
-              {{ query }}
+              <span class="text-gray-400">{{ idx + 1 }}.</span>
+              <span>{{ query }}</span>
             </div>
           </div>
         </div>
@@ -261,12 +271,31 @@ async function handleRetry() {
     <!-- Acquisition Failed State -->
     <div v-if="ticket.state.type === 'acquisition_failed'" class="card border-red-200 bg-red-50">
       <h3 class="text-lg font-semibold mb-4 text-red-800">Acquisition Failed</h3>
-      <div class="space-y-2 text-red-700">
-        <p>{{ ticket.state.reason }}</p>
-        <p class="text-sm">
-          Tried {{ ticket.state.queries_tried.length }} queries,
-          evaluated {{ ticket.state.candidates_seen }} candidates.
-        </p>
+      <div class="space-y-3">
+        <p class="text-red-700">{{ ticket.state.reason }}</p>
+        <div class="grid grid-cols-2 gap-4 text-sm">
+          <div>
+            <span class="text-gray-600">Queries Tried</span>
+            <p class="font-medium">{{ ticket.state.queries_tried.length }}</p>
+          </div>
+          <div>
+            <span class="text-gray-600">Candidates Evaluated</span>
+            <p class="font-medium">{{ ticket.state.candidates_seen }}</p>
+          </div>
+        </div>
+        <div v-if="ticket.state.queries_tried.length > 0">
+          <p class="text-sm text-gray-600 mb-2">Queries that were tried:</p>
+          <div class="space-y-1">
+            <div
+              v-for="(query, idx) in ticket.state.queries_tried"
+              :key="idx"
+              class="text-sm font-mono bg-red-100 px-2 py-1 rounded flex items-center gap-2"
+            >
+              <span class="text-red-400">{{ idx + 1 }}.</span>
+              <span class="text-red-800">{{ query }}</span>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -304,6 +333,7 @@ async function handleRetry() {
                 {{ formatBytes(candidate.size_bytes) }} · {{ candidate.seeders }} seeders
               </p>
               <p class="text-sm text-gray-600 mt-1">{{ candidate.reasoning }}</p>
+              <p class="text-xs font-mono text-gray-400 mt-1">{{ candidate.info_hash }}</p>
             </div>
             <div class="ml-3 flex flex-col items-end">
               <Badge v-if="idx === ticket.state.recommended_idx" variant="success" class="text-xs mb-1">
@@ -320,6 +350,10 @@ async function handleRetry() {
           </div>
         </div>
       </div>
+
+      <p class="text-sm text-gray-500 mb-4">
+        All {{ ticket.state.candidates.length }} candidates will be available for failover if the selected one fails.
+      </p>
 
       <div class="flex gap-3">
         <button
@@ -344,20 +378,76 @@ async function handleRetry() {
       <h3 class="text-lg font-semibold mb-4 text-green-800">
         {{ ticket.state.type === 'auto_approved' ? 'Auto-Approved' : 'Approved' }}
       </h3>
-      <div class="space-y-2">
-        <div>
-          <p class="text-sm text-gray-600">Selected Torrent</p>
-          <p class="font-medium">{{ ticket.state.selected.title }}</p>
-          <p class="text-sm text-gray-500">
-            {{ formatBytes(ticket.state.selected.size_bytes) }} ·
-            Score: {{ (ticket.state.selected.score * 100).toFixed(0) }}%
-          </p>
+      <div class="space-y-4">
+        <!-- Selected candidate -->
+        <div class="bg-white rounded-lg p-3 border border-green-300">
+          <div class="flex items-start justify-between">
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2 mb-1">
+                <Badge variant="success" class="text-xs">Selected</Badge>
+              </div>
+              <p class="font-medium truncate" :title="ticket.state.selected.title">
+                {{ ticket.state.selected.title }}
+              </p>
+              <p class="text-sm text-gray-500">
+                {{ formatBytes(ticket.state.selected.size_bytes) }} ·
+                Score: {{ (ticket.state.selected.score * 100).toFixed(0) }}%
+              </p>
+              <p class="text-xs font-mono text-gray-400 mt-1 truncate">
+                {{ ticket.state.selected.info_hash }}
+              </p>
+            </div>
+          </div>
         </div>
-        <div v-if="ticket.state.type === 'approved'" class="text-sm text-gray-600">
-          Approved by: {{ ticket.state.approved_by }}
+
+        <!-- Approval info -->
+        <div class="text-sm text-gray-600">
+          <span v-if="ticket.state.type === 'approved'">
+            Approved by {{ ticket.state.approved_by }} at {{ new Date(ticket.state.approved_at).toLocaleString() }}
+          </span>
+          <span v-else>
+            Auto-approved with {{ (ticket.state.confidence * 100).toFixed(0) }}% confidence at {{ new Date(ticket.state.approved_at).toLocaleString() }}
+          </span>
         </div>
-        <div v-else class="text-sm text-gray-600">
-          Confidence: {{ (ticket.state.confidence * 100).toFixed(0) }}%
+
+        <!-- Failover candidates -->
+        <div v-if="ticket.state.candidates && ticket.state.candidates.length > 1">
+          <button
+            @click="showFailoverCandidates = !showFailoverCandidates"
+            class="text-sm text-green-700 hover:text-green-900 flex items-center gap-1"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="h-4 w-4 transition-transform"
+              :class="{ 'rotate-90': showFailoverCandidates }"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+            </svg>
+            {{ ticket.state.candidates.length - 1 }} failover candidate{{ ticket.state.candidates.length > 2 ? 's' : '' }} available
+          </button>
+          <div v-if="showFailoverCandidates" class="mt-2 space-y-2">
+            <div
+              v-for="(candidate, idx) in ticket.state.candidates.slice(1)"
+              :key="candidate.info_hash"
+              class="bg-white rounded-lg p-2 border border-gray-200 text-sm"
+            >
+              <div class="flex items-start justify-between">
+                <div class="flex-1 min-w-0">
+                  <p class="font-medium truncate" :title="candidate.title">
+                    <span class="text-gray-400 mr-1">#{{ idx + 2 }}</span>
+                    {{ candidate.title }}
+                  </p>
+                  <p class="text-xs text-gray-500">
+                    {{ formatBytes(candidate.size_bytes) }} ·
+                    Score: {{ (candidate.score * 100).toFixed(0) }}%
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -375,7 +465,29 @@ async function handleRetry() {
     <!-- Downloading State -->
     <div v-if="ticket.state.type === 'downloading'" class="card border-blue-200 bg-blue-50">
       <h3 class="text-lg font-semibold mb-4 text-blue-800">Downloading</h3>
-      <div class="space-y-3">
+      <div class="space-y-4">
+        <!-- Current candidate being downloaded -->
+        <div v-if="ticket.state.candidates && ticket.state.candidates.length > 0" class="bg-white rounded-lg p-3 border border-blue-300">
+          <div class="flex items-center gap-2 mb-1">
+            <Badge variant="info" class="text-xs">
+              Candidate {{ ticket.state.candidate_idx + 1 }} of {{ ticket.state.candidates.length }}
+            </Badge>
+            <Badge v-if="ticket.state.failover_round > 1" variant="warning" class="text-xs">
+              Round {{ ticket.state.failover_round }}
+            </Badge>
+          </div>
+          <p class="font-medium truncate" :title="ticket.state.candidates[ticket.state.candidate_idx]?.title">
+            {{ ticket.state.candidates[ticket.state.candidate_idx]?.title || 'Unknown' }}
+          </p>
+          <p class="text-sm text-gray-500">
+            {{ formatBytes(ticket.state.candidates[ticket.state.candidate_idx]?.size_bytes || 0) }} ·
+            Score: {{ ((ticket.state.candidates[ticket.state.candidate_idx]?.score || 0) * 100).toFixed(0) }}%
+          </p>
+          <p class="text-xs font-mono text-gray-400 mt-1">
+            {{ ticket.state.info_hash }}
+          </p>
+        </div>
+
         <!-- Progress bar -->
         <div>
           <div class="flex justify-between text-sm mb-1">
@@ -403,8 +515,45 @@ async function handleRetry() {
           </div>
         </div>
 
-        <div v-if="ticket.state.failover_round > 1" class="text-sm text-orange-600">
-          Failover round {{ ticket.state.failover_round }}, candidate {{ ticket.state.candidate_idx + 1 }}
+        <!-- Failover candidates remaining -->
+        <div v-if="ticket.state.candidates && ticket.state.candidates.length > ticket.state.candidate_idx + 1">
+          <button
+            @click="showFailoverCandidates = !showFailoverCandidates"
+            class="text-sm text-blue-700 hover:text-blue-900 flex items-center gap-1"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="h-4 w-4 transition-transform"
+              :class="{ 'rotate-90': showFailoverCandidates }"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+            </svg>
+            {{ ticket.state.candidates.length - ticket.state.candidate_idx - 1 }} backup candidate{{ ticket.state.candidates.length - ticket.state.candidate_idx - 1 > 1 ? 's' : '' }} remaining
+          </button>
+          <div v-if="showFailoverCandidates" class="mt-2 space-y-2">
+            <div
+              v-for="(candidate, idx) in ticket.state.candidates.slice(ticket.state.candidate_idx + 1)"
+              :key="candidate.info_hash"
+              class="bg-white rounded-lg p-2 border border-gray-200 text-sm"
+            >
+              <p class="font-medium truncate" :title="candidate.title">
+                <span class="text-gray-400 mr-1">#{{ ticket.state.candidate_idx + idx + 2 }}</span>
+                {{ candidate.title }}
+              </p>
+              <p class="text-xs text-gray-500">
+                {{ formatBytes(candidate.size_bytes) }} ·
+                Score: {{ (candidate.score * 100).toFixed(0) }}%
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Already tried candidates -->
+        <div v-if="ticket.state.candidate_idx > 0" class="text-sm text-orange-600">
+          {{ ticket.state.candidate_idx }} candidate{{ ticket.state.candidate_idx > 1 ? 's' : '' }} already tried (failed or stalled)
         </div>
       </div>
     </div>

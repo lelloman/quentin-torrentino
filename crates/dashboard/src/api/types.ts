@@ -43,8 +43,10 @@ export interface SelectedCandidateState {
   title: string
   info_hash: string
   magnet_uri: string
+  torrent_url?: string
   size_bytes: number
   score: number
+  file_mappings?: FileMapping[]
 }
 
 // Completion stats
@@ -109,6 +111,7 @@ export type TicketState =
       started_at: string
       candidate_idx: number
       failover_round: number
+      candidates: SelectedCandidateState[]
     }
   | {
       type: 'converting'
