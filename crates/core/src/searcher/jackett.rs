@@ -125,6 +125,7 @@ impl Searcher for JackettSearcher {
 
         // Collect indexer errors from response
         let mut indexer_errors: HashMap<String, String> = HashMap::new();
+        let total_indexers = jackett_response.Indexers.as_ref().map(|i| i.len()).unwrap_or(0);
         if let Some(indexers) = jackett_response.Indexers {
             for indexer in indexers {
                 if let Some(error) = indexer.Error {
@@ -150,8 +151,10 @@ impl Searcher for JackettSearcher {
 
         let duration_ms = start.elapsed().as_millis() as u64;
 
-        // If no results and there were errors, return error
-        if candidates.is_empty() && !indexer_errors.is_empty() {
+        // Only error if ALL indexers failed (no successful searches at all).
+        // If some indexers succeeded but returned no results, that's a valid empty result.
+        let failed_indexers = indexer_errors.len();
+        if candidates.is_empty() && failed_indexers > 0 && failed_indexers == total_indexers {
             return Err(SearchError::AllIndexersFailed(indexer_errors));
         }
 
