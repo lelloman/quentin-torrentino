@@ -1781,11 +1781,14 @@ Implement music-specific logic in `content/music.rs`.
 - [x] `build_queries()`: Music-specific patterns
   - [x] `"{artist} {album}"`, `"{artist} {album} FLAC"`, `"{artist} discography"`
   - [x] Handle transliterations and alternate artist names
+  - [x] Use `SearchConstraints.audio.preferred_formats` to prioritize format-specific queries
 - [x] `score_candidate()`: Music-specific scoring
   - [x] Track count validation against `ExpectedContent::Album.tracks`
   - [x] Duration tolerance matching (±5 seconds per track)
   - [x] Audio format detection (FLAC, 320, V0, V2) from torrent title
   - [x] Red flag detection (karaoke, cover, tribute, compilation)
+  - [x] Constraint-based scoring (preferred formats, min bitrate, avoid compilations/live)
+  - [x] Catalog validation bonus (track count match from MusicBrainz reference)
 - [x] `map_files()`: Map torrent files to expected tracks
   - [x] Match by track number in filename
   - [x] Match by fuzzy title comparison
@@ -1795,14 +1798,19 @@ Implement music-specific logic in `content/music.rs`.
   - [ ] Discogs API (fallback, optional token)
   - [ ] Extract from torrent (folder.jpg, cover.*, embedded tags)
 - [x] External catalog integration:
-  - [x] MusicBrainz client with rate limiting (1 req/sec)
-  - [x] `CatalogReference` for linking tickets to MusicBrainz releases
-  - [x] `SearchConstraints` for audio format preferences
+  - [x] MusicBrainz client with rate limiting (configurable, default 1100ms)
+  - [x] `CatalogReference::MusicBrainz` for linking tickets to MusicBrainz releases
+  - [x] `AudioSearchConstraints` for format preferences, bitrate, avoid flags
 - [x] External catalog API endpoints:
+  - [x] `GET /api/v1/external-catalog/status` - Check catalog availability
   - [x] `GET /api/v1/external-catalog/musicbrainz/search` - Search MusicBrainz for releases
-  - [x] `GET /api/v1/external-catalog/musicbrainz/release/{mbid}` - Get release details
-- [ ] **Dashboard**: Music ticket creation wizard
-  - [ ] MusicBrainz search → select release → preview tracks → create ticket
+  - [x] `GET /api/v1/external-catalog/musicbrainz/release/{mbid}` - Get release details with tracks
+- [x] **Dashboard**: TypeScript types and composables
+  - [x] `MusicBrainzRelease`, `MusicBrainzTrack` types
+  - [x] `useCatalogLookup` composable for catalog search/selection
+  - [x] `useTicketWizard` composable for multi-step ticket creation
+- [ ] **Dashboard**: Music ticket creation wizard UI (Vue component)
+  - [ ] MusicBrainz search → select release → preview tracks → set constraints → create ticket
 
 *Phase 5d: Video Content*
 Implement video-specific logic in `content/video.rs`.
@@ -1810,12 +1818,14 @@ Implement video-specific logic in `content/video.rs`.
 - [x] `build_queries()`: Video-specific patterns
   - [x] Movies: `"{title} {year}"`, `"{title} {year} 1080p"`, `"{title} {year} {quality}"`
   - [x] TV: `"{series} S{season:02}"`, `"{series} S{season:02}E{episode:02}"`, `"{series} complete"`
-  - [x] Release group preferences (configurable)
+  - [x] Use `SearchConstraints.video.preferred_resolution/preferred_sources` for query hints
 - [x] `score_candidate()`: Video-specific scoring
   - [x] Resolution detection (480p, 720p, 1080p, 2160p/4K) from title
   - [x] Codec detection (x264, x265/HEVC, AV1) and preferences
   - [x] Source detection (BluRay, WEB-DL, HDTV, CAM)
-  - [x] Release group ranking (configurable trusted groups)
+  - [x] Constraint-based scoring (min/preferred resolution, source, codec bonuses)
+  - [x] Hardcoded subs exclusion penalty
+  - [x] Catalog validation bonus (episode count match from TMDB reference)
   - [x] Episode completeness check for season packs
 - [x] `map_files()`: Map torrent files to expected content
   - [x] Episode number extraction via regex (S01E01, 1x01, etc.)
@@ -1827,16 +1837,22 @@ Implement video-specific logic in `content/video.rs`.
   - [ ] Language detection and filtering
 - [x] External catalog integration:
   - [x] TMDB client (requires API key)
-  - [x] `CatalogReference` for linking tickets to TMDB movies/series
-  - [x] `SearchConstraints` for resolution, codec, source, language preferences
+  - [x] `CatalogReference::Tmdb` for linking tickets to TMDB movies/series
+  - [x] `VideoSearchConstraints` for resolution, codec, source, language preferences
 - [x] External catalog API endpoints:
+  - [x] `GET /api/v1/external-catalog/status` - Check catalog availability
   - [x] `GET /api/v1/external-catalog/tmdb/movies/search` - Search TMDB for movies
   - [x] `GET /api/v1/external-catalog/tmdb/movies/{id}` - Get movie details
   - [x] `GET /api/v1/external-catalog/tmdb/tv/search` - Search TMDB for TV series
-  - [x] `GET /api/v1/external-catalog/tmdb/tv/{id}` - Get series details
-  - [x] `GET /api/v1/external-catalog/tmdb/tv/{id}/season/{season}` - Get season details
-- [ ] **Dashboard**: Video ticket creation wizard
-  - [ ] TMDB search → select movie/show → select season/episodes → create ticket
+  - [x] `GET /api/v1/external-catalog/tmdb/tv/{id}` - Get series details with seasons
+  - [x] `GET /api/v1/external-catalog/tmdb/tv/{id}/season/{season}` - Get season with episodes
+- [x] **Dashboard**: TypeScript types and composables
+  - [x] `TmdbMovie`, `TmdbSeries`, `TmdbSeason`, `TmdbEpisode` types
+  - [x] `VideoSearchConstraints`, `Resolution`, `VideoSource`, `VideoSearchCodec` types
+  - [x] `useCatalogLookup` composable handles TMDB search/selection
+  - [x] `useTicketWizard` composable for multi-step ticket creation
+- [ ] **Dashboard**: Video ticket creation wizard UI (Vue component)
+  - [ ] TMDB search → select movie/show → select season/episodes → set constraints → create ticket
 
 *Phase 5e: Other Content Types (Stretch Goal)*
 - [ ] Add `content/software.rs`, `content/ebook.rs`, etc. as needed
