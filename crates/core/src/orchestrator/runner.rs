@@ -245,6 +245,7 @@ where
         let pipeline = Arc::clone(&self.pipeline);
         let active_downloads = Arc::clone(&self.active_downloads);
         let config = self.config.clone();
+        let audit = self.audit.clone();
         let mut shutdown_rx = self.shutdown_tx.subscribe();
 
         tokio::spawn(async move {
@@ -266,6 +267,7 @@ where
                             &torrent_client,
                             &active_downloads,
                             &config,
+                            &audit,
                         ).await {
                             warn!("Failed to start downloads: {}", e);
                         }
@@ -277,6 +279,7 @@ where
                             &pipeline,
                             &active_downloads,
                             &config,
+                            &audit,
                         ).await {
                             warn!("Failed to check downloads: {}", e);
                         }
@@ -315,6 +318,16 @@ where
                 phase: AcquisitionPhase::QueryBuilding,
             },
         )?;
+
+        // Emit state change event
+        if let Some(ref audit_handle) = audit {
+            audit_handle.emit(AuditEvent::TicketStateChanged {
+                ticket_id: ticket.id.clone(),
+                from_state: "pending".to_string(),
+                to_state: "acquiring".to_string(),
+                reason: Some("Starting acquisition".to_string()),
+            }).await;
+        }
 
         // Build TextBrain with configured implementations
         let textbrain = Self::build_textbrain(textbrain_config);
@@ -512,6 +525,7 @@ where
         torrent_client: &Arc<dyn TorrentClient>,
         active_downloads: &Arc<RwLock<HashMap<String, ActiveDownload>>>,
         config: &OrchestratorConfig,
+        audit: &Option<AuditHandle>,
     ) -> Result<(), OrchestratorError> {
         // Process both auto_approved and manually approved tickets
         for state_type in ["auto_approved", "approved"] {
@@ -595,6 +609,16 @@ where
                                 },
                             )?;
 
+                            // Emit state change event
+                            if let Some(ref audit_handle) = audit {
+                                audit_handle.emit(AuditEvent::TicketStateChanged {
+                                    ticket_id: ticket.id.clone(),
+                                    from_state: state_type.to_string(),
+                                    to_state: "downloading".to_string(),
+                                    reason: Some(format!("Started download: {}", result.hash)),
+                                }).await;
+                            }
+
                             info!(
                                 "Started download for ticket {} (candidate {}): {}",
                                 ticket.id, candidate_idx + 1, result.hash
@@ -615,6 +639,10 @@ where
 
                 // If all candidates failed, mark ticket as failed
                 if !success {
+                    let error_msg = format!(
+                        "All {} candidates failed to add. Last error: {}",
+                        candidates.len(), last_error
+                    );
                     error!(
                         "All {} candidates failed for ticket {}",
                         candidates.len(), ticket.id
@@ -622,15 +650,22 @@ where
                     ticket_store.update_state(
                         &ticket.id,
                         TicketState::Failed {
-                            error: format!(
-                                "All {} candidates failed to add. Last error: {}",
-                                candidates.len(), last_error
-                            ),
+                            error: error_msg.clone(),
                             retryable: true,
                             retry_count: 0,
                             failed_at: Utc::now(),
                         },
                     )?;
+
+                    // Emit state change event
+                    if let Some(ref audit_handle) = audit {
+                        audit_handle.emit(AuditEvent::TicketStateChanged {
+                            ticket_id: ticket.id.clone(),
+                            from_state: state_type.to_string(),
+                            to_state: "failed".to_string(),
+                            reason: Some(error_msg),
+                        }).await;
+                    }
                 }
             }
         }
@@ -645,6 +680,7 @@ where
         pipeline: &Arc<PipelineProcessor<C2, P2>>,
         active_downloads: &Arc<RwLock<HashMap<String, ActiveDownload>>>,
         config: &OrchestratorConfig,
+        audit: &Option<AuditHandle>,
     ) -> Result<(), OrchestratorError>
     where
         C2: crate::converter::Converter + 'static,
@@ -674,6 +710,7 @@ where
                             active_downloads,
                             &download,
                             config,
+                            audit,
                         ).await {
                             warn!(
                                 "Failed to handle deleted torrent for ticket {}: {}",
@@ -714,15 +751,26 @@ where
                         download.ticket_id, e
                     );
                     // Update ticket to failed state
+                    let error_msg = format!("Failed to start pipeline: {}", e);
                     let _ = ticket_store.update_state(
                         &download.ticket_id,
                         TicketState::Failed {
-                            error: format!("Failed to start pipeline: {}", e),
+                            error: error_msg.clone(),
                             retryable: true,
                             retry_count: 0,
                             failed_at: Utc::now(),
                         },
                     );
+
+                    // Emit state change event
+                    if let Some(ref audit_handle) = audit {
+                        audit_handle.emit(AuditEvent::TicketStateChanged {
+                            ticket_id: download.ticket_id.clone(),
+                            from_state: "downloading".to_string(),
+                            to_state: "failed".to_string(),
+                            reason: Some(error_msg),
+                        }).await;
+                    }
                 }
             } else {
                 let now = Utc::now();
@@ -747,6 +795,7 @@ where
                         active_downloads,
                         &download,
                         config,
+                        audit,
                     )
                     .await
                     {
@@ -1046,6 +1095,7 @@ where
         active_downloads: &Arc<RwLock<HashMap<String, ActiveDownload>>>,
         download: &ActiveDownload,
         config: &OrchestratorConfig,
+        audit: &Option<AuditHandle>,
     ) -> Result<(), OrchestratorError> {
         // Get ticket to access candidates
         let ticket = ticket_store
@@ -1065,6 +1115,7 @@ where
         let num_candidates = candidates.len();
         if num_candidates == 0 {
             // No candidates to failover to - fail immediately
+            let error_msg = "Download stalled: no candidates available".to_string();
             active_downloads.write().await.remove(&download.ticket_id);
             let _ = torrent_client
                 .remove_torrent(&download.info_hash, false)
@@ -1072,12 +1123,23 @@ where
             ticket_store.update_state(
                 &download.ticket_id,
                 TicketState::Failed {
-                    error: "Download stalled: no candidates available".to_string(),
+                    error: error_msg.clone(),
                     retryable: false,
                     retry_count: 0,
                     failed_at: Utc::now(),
                 },
             )?;
+
+            // Emit state change event
+            if let Some(ref audit_handle) = audit {
+                audit_handle.emit(AuditEvent::TicketStateChanged {
+                    ticket_id: download.ticket_id.clone(),
+                    from_state: "downloading".to_string(),
+                    to_state: "failed".to_string(),
+                    reason: Some(error_msg),
+                }).await;
+            }
+
             return Ok(());
         }
 
@@ -1093,6 +1155,14 @@ where
         // Check if we've exhausted all rounds
         if next_round > 3 {
             // All candidates tried in all rounds - fail permanently
+            let error_msg = format!(
+                "Download stalled: tried {} candidates over 3 rounds (~{} hours)",
+                num_candidates,
+                (config.stall_timeout_round1_secs * num_candidates as u64
+                    + config.stall_timeout_round2_secs * num_candidates as u64
+                    + config.stall_timeout_round3_secs * num_candidates as u64)
+                    / 3600
+            );
             active_downloads.write().await.remove(&download.ticket_id);
             let _ = torrent_client
                 .remove_torrent(&download.info_hash, false)
@@ -1101,19 +1171,22 @@ where
             ticket_store.update_state(
                 &download.ticket_id,
                 TicketState::Failed {
-                    error: format!(
-                        "Download stalled: tried {} candidates over 3 rounds (~{} hours)",
-                        num_candidates,
-                        (config.stall_timeout_round1_secs * num_candidates as u64
-                            + config.stall_timeout_round2_secs * num_candidates as u64
-                            + config.stall_timeout_round3_secs * num_candidates as u64)
-                            / 3600
-                    ),
+                    error: error_msg.clone(),
                     retryable: false,
                     retry_count: 0,
                     failed_at: Utc::now(),
                 },
             )?;
+
+            // Emit state change event
+            if let Some(ref audit_handle) = audit {
+                audit_handle.emit(AuditEvent::TicketStateChanged {
+                    ticket_id: download.ticket_id.clone(),
+                    from_state: "downloading".to_string(),
+                    to_state: "failed".to_string(),
+                    reason: Some(error_msg),
+                }).await;
+            }
 
             info!(
                 "Ticket {} failed after exhausting all failover attempts",

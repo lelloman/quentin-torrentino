@@ -297,6 +297,16 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
                     current_name: "Starting...".to_string(),
                 },
             );
+
+            // Emit state change event
+            if let Some(ref audit) = audit {
+                audit.emit(AuditEvent::TicketStateChanged {
+                    ticket_id: ticket_id.clone(),
+                    from_state: "downloading".to_string(),
+                    to_state: "converting".to_string(),
+                    reason: Some(format!("Starting conversion of {} files", total_files)),
+                }).await;
+            }
         }
 
         // Emit conversion started event
@@ -451,6 +461,16 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
                                     failed_at: chrono::Utc::now(),
                                 },
                             );
+
+                            // Emit state change event
+                            if let Some(ref audit) = audit {
+                                audit.emit(AuditEvent::TicketStateChanged {
+                                    ticket_id: ticket_id.clone(),
+                                    from_state: "converting".to_string(),
+                                    to_state: "failed".to_string(),
+                                    reason: Some(format!("Conversion failed: {}", e)),
+                                }).await;
+                            }
                         }
 
                         if let Some(ref audit) = audit {
@@ -567,6 +587,16 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
                     total_files: files_to_place,
                 },
             );
+
+            // Emit state change event
+            if let Some(ref audit) = audit {
+                audit.emit(AuditEvent::TicketStateChanged {
+                    ticket_id: ticket_id.clone(),
+                    from_state: "converting".to_string(),
+                    to_state: "placing".to_string(),
+                    reason: Some(format!("Placing {} files", files_to_place)),
+                }).await;
+            }
         }
 
         let _permit = placement_semaphore
@@ -644,6 +674,16 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
                             },
                         },
                     );
+
+                    // Emit state change event
+                    if let Some(ref audit) = audit {
+                        audit.emit(AuditEvent::TicketStateChanged {
+                            ticket_id: ticket_id.clone(),
+                            from_state: "placing".to_string(),
+                            to_state: "completed".to_string(),
+                            reason: Some(format!("Successfully placed {} files", files_placed.len())),
+                        }).await;
+                    }
                 }
 
                 Ok(PipelineResult {
@@ -671,6 +711,16 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
                             failed_at: chrono::Utc::now(),
                         },
                     );
+
+                    // Emit state change event
+                    if let Some(ref audit) = audit {
+                        audit.emit(AuditEvent::TicketStateChanged {
+                            ticket_id: ticket_id.clone(),
+                            from_state: "placing".to_string(),
+                            to_state: "failed".to_string(),
+                            reason: Some(format!("Placement failed: {}", e)),
+                        }).await;
+                    }
                 }
 
                 // Emit placement failed event
