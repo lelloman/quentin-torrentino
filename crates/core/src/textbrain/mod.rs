@@ -101,4 +101,4 @@ pub use types::{
 };
 
 // The coordinator
-pub use coordinator::TextBrain;
+pub use coordinator::{AcquisitionAuditContext, TextBrain};

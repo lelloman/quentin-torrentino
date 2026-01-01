@@ -3,6 +3,7 @@
 use std::sync::Arc;
 use std::time::Instant;
 
+use crate::audit::{AuditEvent, AuditHandle};
 use crate::searcher::{SearchQuery, Searcher, TorrentCandidate};
 use crate::ticket::QueryContext;
 use crate::textbrain::{
@@ -11,6 +12,14 @@ use crate::textbrain::{
     traits::{CandidateMatcher, QueryBuilder, TextBrainError},
     types::{AcquisitionResult, MatchResult, QueryBuildResult, ScoredCandidate},
 };
+
+/// Context for audit event emission during acquisition.
+pub struct AcquisitionAuditContext {
+    /// The ticket ID being processed
+    pub ticket_id: String,
+    /// The audit handle for emitting events
+    pub audit: AuditHandle,
+}
 
 /// TextBrain - the central intelligence for torrent acquisition.
 ///
@@ -213,6 +222,248 @@ impl TextBrain {
             candidates_evaluated,
             query_method,
             score_method: "dumb".to_string(), // Will be updated properly when we track this
+            auto_approved,
+            llm_usage: if total_llm_usage.input_tokens > 0 {
+                Some(total_llm_usage)
+            } else {
+                None
+            },
+            duration_ms,
+        })
+    }
+
+    /// Full acquisition flow with audit event emission.
+    ///
+    /// Same as `acquire`, but emits detailed audit events for observability.
+    pub async fn acquire_with_audit(
+        &self,
+        context: &QueryContext,
+        searcher: &dyn Searcher,
+        audit_ctx: &AcquisitionAuditContext,
+    ) -> Result<AcquisitionResult, TextBrainError> {
+        let start = Instant::now();
+        let mut total_llm_usage = LlmUsage::default();
+        let mut all_candidates: Vec<ScoredCandidate> = Vec::new();
+        let mut queries_tried: Vec<String> = Vec::new();
+        let mut candidates_evaluated: u32 = 0;
+        let mut last_score_method = "none".to_string();
+
+        // Emit acquisition started event
+        audit_ctx.audit.emit(AuditEvent::AcquisitionStarted {
+            ticket_id: audit_ctx.ticket_id.clone(),
+            mode: format!("{:?}", self.config.mode),
+            description: context.description.clone(),
+        }).await;
+
+        // Step 1: Build queries
+        let method_name = format!("{:?}", self.config.mode);
+        audit_ctx.audit.emit(AuditEvent::QueryBuildingStarted {
+            ticket_id: audit_ctx.ticket_id.clone(),
+            method: method_name.clone(),
+        }).await;
+
+        let query_start = Instant::now();
+        let query_result = self.build_queries(context).await;
+        let query_duration = query_start.elapsed().as_millis() as u64;
+
+        let query_result = match query_result {
+            Ok(result) => {
+                audit_ctx.audit.emit(AuditEvent::QueryBuildingCompleted {
+                    ticket_id: audit_ctx.ticket_id.clone(),
+                    queries: result.queries.clone(),
+                    method: result.method.clone(),
+                    duration_ms: query_duration,
+                }).await;
+                result
+            }
+            Err(e) => {
+                // Emit acquisition completed with failure
+                audit_ctx.audit.emit(AuditEvent::AcquisitionCompleted {
+                    ticket_id: audit_ctx.ticket_id.clone(),
+                    success: false,
+                    queries_tried: 0,
+                    candidates_evaluated: 0,
+                    best_score: None,
+                    duration_ms: start.elapsed().as_millis() as u64,
+                    outcome: "failed".to_string(),
+                }).await;
+                return Err(e);
+            }
+        };
+
+        if let Some(usage) = &query_result.llm_usage {
+            total_llm_usage.input_tokens += usage.input_tokens;
+            total_llm_usage.output_tokens += usage.output_tokens;
+        }
+        let query_method = query_result.method.clone();
+
+        if query_result.queries.is_empty() {
+            audit_ctx.audit.emit(AuditEvent::AcquisitionCompleted {
+                ticket_id: audit_ctx.ticket_id.clone(),
+                success: false,
+                queries_tried: 0,
+                candidates_evaluated: 0,
+                best_score: None,
+                duration_ms: start.elapsed().as_millis() as u64,
+                outcome: "no_queries".to_string(),
+            }).await;
+            return Err(TextBrainError::NoQueriesGenerated);
+        }
+
+        // Step 2: Iterate through queries
+        let max_queries = self.config.max_queries as usize;
+        let total_queries = query_result.queries.len().min(max_queries) as u32;
+
+        for (idx, query_str) in query_result.queries.iter().take(max_queries).enumerate() {
+            queries_tried.push(query_str.clone());
+
+            // Emit search started event
+            audit_ctx.audit.emit(AuditEvent::SearchStarted {
+                ticket_id: audit_ctx.ticket_id.clone(),
+                query: query_str.clone(),
+                query_index: (idx + 1) as u32,
+                total_queries,
+            }).await;
+
+            // Execute search
+            let search_query = SearchQuery {
+                query: query_str.clone(),
+                indexers: None,
+                categories: None,
+                limit: Some(50),
+            };
+
+            let search_start = Instant::now();
+            let search_result = searcher
+                .search(&search_query)
+                .await
+                .map_err(|e| TextBrainError::SearchFailed(e.to_string()))?;
+            let search_duration = search_start.elapsed().as_millis() as u64;
+
+            // Emit search completed event
+            audit_ctx.audit.emit(AuditEvent::SearchCompleted {
+                ticket_id: audit_ctx.ticket_id.clone(),
+                query: query_str.clone(),
+                candidates_found: search_result.candidates.len() as u32,
+                duration_ms: search_duration,
+            }).await;
+
+            if search_result.candidates.is_empty() {
+                continue; // Try next query
+            }
+
+            candidates_evaluated += search_result.candidates.len() as u32;
+
+            // Emit scoring started event
+            audit_ctx.audit.emit(AuditEvent::ScoringStarted {
+                ticket_id: audit_ctx.ticket_id.clone(),
+                candidates_count: search_result.candidates.len() as u32,
+                method: format!("{:?}", self.config.mode),
+            }).await;
+
+            // Score candidates
+            let score_start = Instant::now();
+            let match_result = self.score_candidates(context, &search_result.candidates).await?;
+            let score_duration = score_start.elapsed().as_millis() as u64;
+
+            // Emit scoring completed event
+            let top_candidate = match_result.candidates.first();
+            audit_ctx.audit.emit(AuditEvent::ScoringCompleted {
+                ticket_id: audit_ctx.ticket_id.clone(),
+                candidates_count: match_result.candidates.len() as u32,
+                top_candidate_hash: top_candidate.map(|c| c.candidate.info_hash.clone()),
+                top_candidate_score: top_candidate.map(|c| c.score),
+                method: match_result.method.clone(),
+                duration_ms: score_duration,
+            }).await;
+
+            if let Some(usage) = &match_result.llm_usage {
+                total_llm_usage.input_tokens += usage.input_tokens;
+                total_llm_usage.output_tokens += usage.output_tokens;
+            }
+            last_score_method = match_result.method.clone();
+
+            // Merge scored candidates (avoid duplicates by info_hash)
+            for scored in match_result.candidates {
+                if !all_candidates
+                    .iter()
+                    .any(|c| c.candidate.info_hash == scored.candidate.info_hash)
+                {
+                    all_candidates.push(scored);
+                }
+            }
+
+            // Check if we have a good enough match
+            if let Some(best) = all_candidates.first() {
+                if best.score >= self.config.auto_approve_threshold {
+                    // Found a good match, we're done
+                    let duration_ms = start.elapsed().as_millis() as u64;
+
+                    audit_ctx.audit.emit(AuditEvent::AcquisitionCompleted {
+                        ticket_id: audit_ctx.ticket_id.clone(),
+                        success: true,
+                        queries_tried: queries_tried.len() as u32,
+                        candidates_evaluated,
+                        best_score: Some(best.score),
+                        duration_ms,
+                        outcome: "auto_approved".to_string(),
+                    }).await;
+
+                    return Ok(AcquisitionResult {
+                        best_candidate: Some(best.clone()),
+                        all_candidates,
+                        queries_tried,
+                        candidates_evaluated,
+                        query_method,
+                        score_method: last_score_method,
+                        auto_approved: true,
+                        llm_usage: if total_llm_usage.input_tokens > 0 {
+                            Some(total_llm_usage)
+                        } else {
+                            None
+                        },
+                        duration_ms,
+                    });
+                }
+            }
+        }
+
+        // Re-sort all candidates by score
+        all_candidates.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+
+        let duration_ms = start.elapsed().as_millis() as u64;
+        let best_candidate = all_candidates.first().cloned();
+        let auto_approved = best_candidate
+            .as_ref()
+            .map(|c| c.score >= self.config.auto_approve_threshold)
+            .unwrap_or(false);
+
+        // Determine outcome
+        let outcome = if best_candidate.is_none() {
+            "no_candidates"
+        } else if auto_approved {
+            "auto_approved"
+        } else {
+            "needs_approval"
+        };
+
+        audit_ctx.audit.emit(AuditEvent::AcquisitionCompleted {
+            ticket_id: audit_ctx.ticket_id.clone(),
+            success: best_candidate.is_some(),
+            queries_tried: queries_tried.len() as u32,
+            candidates_evaluated,
+            best_score: best_candidate.as_ref().map(|c| c.score),
+            duration_ms,
+            outcome: outcome.to_string(),
+        }).await;
+
+        Ok(AcquisitionResult {
+            best_candidate,
+            all_candidates,
+            queries_tried,
+            candidates_evaluated,
+            query_method,
+            score_method: last_score_method,
             auto_approved,
             llm_usage: if total_llm_usage.input_tokens > 0 {
                 Some(total_llm_usage)

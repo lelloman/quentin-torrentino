@@ -179,6 +179,145 @@ pub enum AuditEvent {
     },
 
     // TextBrain events
+
+    /// Acquisition process started for a ticket.
+    AcquisitionStarted {
+        /// Associated ticket
+        ticket_id: String,
+        /// TextBrain mode being used
+        mode: String,
+        /// Description from query context
+        description: String,
+    },
+
+    /// Query building phase started.
+    QueryBuildingStarted {
+        /// Associated ticket
+        ticket_id: String,
+        /// Method being attempted: "dumb", "llm", or hybrid
+        method: String,
+    },
+
+    /// Query building phase completed.
+    QueryBuildingCompleted {
+        /// Associated ticket
+        ticket_id: String,
+        /// Generated queries
+        queries: Vec<String>,
+        /// Method that succeeded
+        method: String,
+        /// Duration in milliseconds
+        duration_ms: u64,
+    },
+
+    /// Search operation started.
+    SearchStarted {
+        /// Associated ticket
+        ticket_id: String,
+        /// The query being searched
+        query: String,
+        /// Query index (1-based)
+        query_index: u32,
+        /// Total queries to try
+        total_queries: u32,
+    },
+
+    /// Search operation completed.
+    SearchCompleted {
+        /// Associated ticket
+        ticket_id: String,
+        /// The query that was searched
+        query: String,
+        /// Number of candidates found
+        candidates_found: u32,
+        /// Duration in milliseconds
+        duration_ms: u64,
+    },
+
+    /// Scoring phase started.
+    ScoringStarted {
+        /// Associated ticket
+        ticket_id: String,
+        /// Number of candidates to score
+        candidates_count: u32,
+        /// Method being attempted: "dumb", "llm", or hybrid
+        method: String,
+    },
+
+    /// Scoring phase completed.
+    ScoringCompleted {
+        /// Associated ticket
+        ticket_id: String,
+        /// Number of candidates scored
+        candidates_count: u32,
+        /// Top candidate info hash (if any)
+        top_candidate_hash: Option<String>,
+        /// Top candidate score (0.0-1.0)
+        top_candidate_score: Option<f32>,
+        /// Method that succeeded
+        method: String,
+        /// Duration in milliseconds
+        duration_ms: u64,
+    },
+
+    /// LLM call started.
+    LlmCallStarted {
+        /// Associated ticket (if any)
+        ticket_id: Option<String>,
+        /// Purpose of the call: "query_building" or "scoring"
+        purpose: String,
+        /// LLM provider being used
+        provider: String,
+        /// Model being used
+        model: String,
+    },
+
+    /// LLM call completed successfully.
+    LlmCallCompleted {
+        /// Associated ticket (if any)
+        ticket_id: Option<String>,
+        /// Purpose of the call
+        purpose: String,
+        /// Input tokens used
+        input_tokens: u32,
+        /// Output tokens used
+        output_tokens: u32,
+        /// Duration in milliseconds
+        duration_ms: u64,
+    },
+
+    /// LLM call failed.
+    LlmCallFailed {
+        /// Associated ticket (if any)
+        ticket_id: Option<String>,
+        /// Purpose of the call
+        purpose: String,
+        /// Error message
+        error: String,
+        /// Duration before failure in milliseconds
+        duration_ms: u64,
+        /// Whether it was a timeout
+        is_timeout: bool,
+    },
+
+    /// Acquisition completed (summary event).
+    AcquisitionCompleted {
+        /// Associated ticket
+        ticket_id: String,
+        /// Whether a suitable candidate was found
+        success: bool,
+        /// Number of queries tried
+        queries_tried: u32,
+        /// Number of candidates evaluated
+        candidates_evaluated: u32,
+        /// Best candidate score (if any)
+        best_score: Option<f32>,
+        /// Total duration in milliseconds
+        duration_ms: u64,
+        /// Outcome: "auto_approved", "needs_approval", "no_candidates", "failed"
+        outcome: String,
+    },
+
     QueriesGenerated {
         /// Associated ticket
         ticket_id: String,
@@ -480,6 +619,18 @@ impl AuditEvent {
             Self::TorrentResumed { .. } => "torrent_resumed",
             Self::TorrentLimitChanged { .. } => "torrent_limit_changed",
             Self::TorrentRechecked { .. } => "torrent_rechecked",
+            // Acquisition events
+            Self::AcquisitionStarted { .. } => "acquisition_started",
+            Self::QueryBuildingStarted { .. } => "query_building_started",
+            Self::QueryBuildingCompleted { .. } => "query_building_completed",
+            Self::SearchStarted { .. } => "search_started",
+            Self::SearchCompleted { .. } => "search_completed",
+            Self::ScoringStarted { .. } => "scoring_started",
+            Self::ScoringCompleted { .. } => "scoring_completed",
+            Self::LlmCallStarted { .. } => "llm_call_started",
+            Self::LlmCallCompleted { .. } => "llm_call_completed",
+            Self::LlmCallFailed { .. } => "llm_call_failed",
+            Self::AcquisitionCompleted { .. } => "acquisition_completed",
             Self::QueriesGenerated { .. } => "queries_generated",
             Self::CandidatesScored { .. } => "candidates_scored",
             Self::CandidateSelected { .. } => "candidate_selected",
@@ -507,6 +658,15 @@ impl AuditEvent {
             | Self::TicketStateChanged { ticket_id, .. }
             | Self::TicketCancelled { ticket_id, .. }
             | Self::TicketDeleted { ticket_id, .. }
+            // Acquisition events
+            | Self::AcquisitionStarted { ticket_id, .. }
+            | Self::QueryBuildingStarted { ticket_id, .. }
+            | Self::QueryBuildingCompleted { ticket_id, .. }
+            | Self::SearchStarted { ticket_id, .. }
+            | Self::SearchCompleted { ticket_id, .. }
+            | Self::ScoringStarted { ticket_id, .. }
+            | Self::ScoringCompleted { ticket_id, .. }
+            | Self::AcquisitionCompleted { ticket_id, .. }
             | Self::QueriesGenerated { ticket_id, .. }
             | Self::CandidatesScored { ticket_id, .. }
             | Self::CandidateSelected { ticket_id, .. }
@@ -525,6 +685,10 @@ impl AuditEvent {
             | Self::PlacementFailed { ticket_id, .. }
             | Self::PlacementRolledBack { ticket_id, .. } => Some(ticket_id),
             Self::TorrentAdded { ticket_id, .. } => ticket_id.as_deref(),
+            // LLM events have optional ticket_id
+            Self::LlmCallStarted { ticket_id, .. }
+            | Self::LlmCallCompleted { ticket_id, .. }
+            | Self::LlmCallFailed { ticket_id, .. } => ticket_id.as_deref(),
             _ => None,
         }
     }

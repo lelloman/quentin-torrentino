@@ -20,8 +20,9 @@ use crate::textbrain::training::create_acquisition_training_events;
 use crate::processor::{PipelineJob, PipelineProcessor, SourceFile};
 use crate::searcher::Searcher;
 use crate::textbrain::{
-    AnthropicClient, DumbMatcher, DumbQueryBuilder, LlmMatcher, LlmProvider, LlmQueryBuilder,
-    OllamaClient, ScoredCandidate, ScoredCandidateSummary, TextBrain, TextBrainConfig,
+    AcquisitionAuditContext, AnthropicClient, DumbMatcher, DumbQueryBuilder, LlmMatcher,
+    LlmProvider, LlmQueryBuilder, OllamaClient, ScoredCandidate, ScoredCandidateSummary,
+    TextBrain, TextBrainConfig,
 };
 use crate::ticket::{
     AcquisitionPhase, SelectedCandidate, Ticket, TicketFilter, TicketState, TicketStore,
@@ -332,16 +333,29 @@ where
         // Build TextBrain with configured implementations
         let textbrain = Self::build_textbrain(textbrain_config);
 
-        // Execute acquisition
-        let result = textbrain
-            .acquire(&ticket.query_context, searcher.as_ref())
-            .await;
+        // Execute acquisition with or without audit
+        let result = if let Some(ref audit_handle) = audit {
+            // Use acquire_with_audit for detailed real-time events
+            let audit_ctx = AcquisitionAuditContext {
+                ticket_id: ticket.id.clone(),
+                audit: audit_handle.clone(),
+            };
+            textbrain
+                .acquire_with_audit(&ticket.query_context, searcher.as_ref(), &audit_ctx)
+                .await
+        } else {
+            // No audit configured, use regular acquire
+            textbrain
+                .acquire(&ticket.query_context, searcher.as_ref())
+                .await
+        };
 
         match result {
             Ok(acq) => {
-                // Emit audit events for the acquisition
+                // Emit summary audit events for the acquisition (QueriesGenerated, CandidatesScored)
+                // These are kept for backward compatibility and training data collection
                 if let Some(ref audit_handle) = audit {
-                    // QueriesGenerated event
+                    // QueriesGenerated event (summary)
                     let queries_event = AuditEvent::QueriesGenerated {
                         ticket_id: ticket.id.clone(),
                         queries: acq.queries_tried.clone(),
@@ -352,7 +366,7 @@ where
                     };
                     audit_handle.emit(queries_event).await;
 
-                    // CandidatesScored event
+                    // CandidatesScored event (summary)
                     let scored_event = AuditEvent::CandidatesScored {
                         ticket_id: ticket.id.clone(),
                         candidates_count: acq.candidates_evaluated,
