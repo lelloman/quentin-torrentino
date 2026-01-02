@@ -3,9 +3,11 @@
 use std::sync::Arc;
 use std::time::Instant;
 
+use chrono::{DateTime, Utc};
+
 use crate::audit::{AuditEvent, AuditHandle};
 use crate::searcher::{SearchQuery, Searcher, TorrentCandidate};
-use crate::ticket::QueryContext;
+use crate::ticket::{AcquisitionPhase, QueryContext};
 use crate::textbrain::{
     config::{TextBrainConfig, TextBrainMode},
     llm::LlmUsage,
@@ -13,12 +15,36 @@ use crate::textbrain::{
     types::{AcquisitionResult, MatchResult, QueryBuildResult, ScoredCandidate},
 };
 
+/// Progress update for acquisition state.
+///
+/// Sent to the state updater callback to persist intermediate progress.
+#[derive(Debug, Clone)]
+pub struct AcquisitionProgress {
+    /// Queries that have been tried so far.
+    pub queries_tried: Vec<String>,
+    /// Number of candidates found across all queries.
+    pub candidates_found: u32,
+    /// Current phase within acquisition.
+    pub phase: AcquisitionPhase,
+}
+
+/// Trait for updating acquisition state during the acquisition process.
+#[async_trait::async_trait]
+pub trait AcquisitionStateUpdater: Send + Sync {
+    /// Update the acquisition state with progress information.
+    async fn update_progress(&self, progress: AcquisitionProgress);
+}
+
 /// Context for audit event emission during acquisition.
 pub struct AcquisitionAuditContext {
     /// The ticket ID being processed
     pub ticket_id: String,
     /// The audit handle for emitting events
     pub audit: AuditHandle,
+    /// When acquisition started (for state updates)
+    pub started_at: DateTime<Utc>,
+    /// Optional state updater for persisting progress
+    pub state_updater: Option<Arc<dyn AcquisitionStateUpdater>>,
 }
 
 /// TextBrain - the central intelligence for torrent acquisition.
@@ -248,6 +274,20 @@ impl TextBrain {
         let mut candidates_evaluated: u32 = 0;
         let mut last_score_method = "none".to_string();
 
+        // Helper to update state if updater is available
+        let update_state = |queries: Vec<String>, candidates: u32, phase: AcquisitionPhase| {
+            let updater = audit_ctx.state_updater.clone();
+            async move {
+                if let Some(ref updater) = updater {
+                    updater.update_progress(AcquisitionProgress {
+                        queries_tried: queries,
+                        candidates_found: candidates,
+                        phase,
+                    }).await;
+                }
+            }
+        };
+
         // Emit acquisition started event
         audit_ctx.audit.emit(AuditEvent::AcquisitionStarted {
             ticket_id: audit_ctx.ticket_id.clone(),
@@ -261,6 +301,9 @@ impl TextBrain {
             ticket_id: audit_ctx.ticket_id.clone(),
             method: method_name.clone(),
         }).await;
+
+        // Update state: Query building phase
+        update_state(vec![], 0, AcquisitionPhase::QueryBuilding).await;
 
         let query_start = Instant::now();
         let query_result = self.build_queries(context).await;
@@ -317,6 +360,13 @@ impl TextBrain {
         for (idx, query_str) in query_result.queries.iter().take(max_queries).enumerate() {
             queries_tried.push(query_str.clone());
 
+            // Update state: Searching phase
+            update_state(
+                queries_tried.clone(),
+                candidates_evaluated,
+                AcquisitionPhase::Searching { query: query_str.clone() },
+            ).await;
+
             // Emit search started event
             audit_ctx.audit.emit(AuditEvent::SearchStarted {
                 ticket_id: audit_ctx.ticket_id.clone(),
@@ -353,6 +403,13 @@ impl TextBrain {
             }
 
             candidates_evaluated += search_result.candidates.len() as u32;
+
+            // Update state: Scoring phase
+            update_state(
+                queries_tried.clone(),
+                candidates_evaluated,
+                AcquisitionPhase::Scoring { candidates_count: candidates_evaluated },
+            ).await;
 
             // Emit scoring started event
             audit_ctx.audit.emit(AuditEvent::ScoringStarted {

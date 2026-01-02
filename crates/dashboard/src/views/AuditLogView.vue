@@ -100,7 +100,9 @@ function getEventTypeColor(eventType: AuditEventType): string {
   if (eventTypeCategories.ticket.includes(eventType)) return 'bg-blue-500'
   if (eventTypeCategories.search.includes(eventType)) return 'bg-green-500'
   if (eventTypeCategories.torrent.includes(eventType)) return 'bg-purple-500'
+  if (eventTypeCategories.acquisition.includes(eventType)) return 'bg-teal-500'
   if (eventTypeCategories.textbrain.includes(eventType)) return 'bg-orange-500'
+  if (eventTypeCategories.training.includes(eventType)) return 'bg-pink-500'
   return 'bg-gray-500'
 }
 
@@ -117,7 +119,11 @@ function getEventIcon(eventType: AuditEventType): string {
       return 'i-carbon-arrows-horizontal'
     case 'ticket_cancelled':
       return 'i-carbon-close-outline'
+    case 'ticket_deleted':
+      return 'i-carbon-trash-can'
     case 'search_executed':
+    case 'search_started':
+    case 'search_completed':
       return 'i-carbon-search'
     case 'indexer_rate_limit_updated':
     case 'indexer_enabled_changed':
@@ -134,6 +140,15 @@ function getEventIcon(eventType: AuditEventType): string {
       return 'i-carbon-meter'
     case 'torrent_rechecked':
       return 'i-carbon-reset'
+    case 'acquisition_started':
+    case 'acquisition_completed':
+      return 'i-carbon-flow'
+    case 'query_building_started':
+    case 'query_building_completed':
+      return 'i-carbon-text-creation'
+    case 'scoring_started':
+    case 'scoring_completed':
+      return 'i-carbon-analytics'
     case 'queries_generated':
       return 'i-carbon-text-creation'
     case 'candidates_scored':
@@ -191,6 +206,22 @@ function getEventSummary(event: AuditRecord): string {
       return `User correction: ${data.correction_type}`
     case 'ticket_deleted':
       return `Deleted by ${data.deleted_by}${data.hard_delete ? ' (hard delete)' : ''}`
+    case 'acquisition_started':
+      return `${data.description} (mode: ${data.mode})`
+    case 'acquisition_completed':
+      return `Completed: ${data.result}`
+    case 'query_building_started':
+      return `Building queries (method: ${data.method})`
+    case 'query_building_completed':
+      return `${data.queries?.length ?? 0} queries via ${data.method} (${data.duration_ms}ms)`
+    case 'search_started':
+      return `"${data.query}" (${data.query_index + 1}/${data.total_queries})`
+    case 'search_completed':
+      return `"${data.query?.slice(0, 30)}${data.query?.length > 30 ? '...' : ''}" - ${data.candidates_found} results (${data.duration_ms}ms)`
+    case 'scoring_started':
+      return `Scoring ${data.candidates_count} candidates (${data.method})`
+    case 'scoring_completed':
+      return `Top score: ${data.top_candidate_score?.toFixed(2) ?? 'N/A'} (${data.candidates_count} candidates, ${data.duration_ms}ms)`
     default:
       return 'Unknown event'
   }
@@ -303,6 +334,15 @@ const showFilters = ref(true)
               <optgroup label="Torrents">
                 <option
                   v-for="type in eventTypeCategories.torrent"
+                  :key="type"
+                  :value="type"
+                >
+                  {{ eventTypeLabels[type] }}
+                </option>
+              </optgroup>
+              <optgroup label="Acquisition">
+                <option
+                  v-for="type in eventTypeCategories.acquisition"
                   :key="type"
                   :value="type"
                 >

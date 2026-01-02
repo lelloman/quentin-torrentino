@@ -415,6 +415,8 @@ export type AuditEventType =
   | 'ticket_cancelled'
   | 'ticket_deleted'
   | 'search_executed'
+  | 'search_started'
+  | 'search_completed'
   | 'indexer_rate_limit_updated'
   | 'indexer_enabled_changed'
   | 'torrent_added'
@@ -423,6 +425,12 @@ export type AuditEventType =
   | 'torrent_resumed'
   | 'torrent_limit_changed'
   | 'torrent_rechecked'
+  | 'acquisition_started'
+  | 'acquisition_completed'
+  | 'query_building_started'
+  | 'query_building_completed'
+  | 'scoring_started'
+  | 'scoring_completed'
   | 'queries_generated'
   | 'candidates_scored'
   | 'candidate_selected'
@@ -605,6 +613,58 @@ export type AuditEventData =
       original_value: string
       corrected_value: string
       user_id: string
+    }
+  | {
+      type: 'acquisition_started'
+      ticket_id: string
+      mode: string
+      description: string
+    }
+  | {
+      type: 'acquisition_completed'
+      ticket_id: string
+      result: string
+    }
+  | {
+      type: 'query_building_started'
+      ticket_id: string
+      method: string
+    }
+  | {
+      type: 'query_building_completed'
+      ticket_id: string
+      queries: string[]
+      method: string
+      duration_ms: number
+    }
+  | {
+      type: 'search_started'
+      ticket_id: string
+      query: string
+      query_index: number
+      total_queries: number
+    }
+  | {
+      type: 'search_completed'
+      ticket_id: string
+      query: string
+      candidates_found: number
+      duration_ms: number
+    }
+  | {
+      type: 'scoring_started'
+      ticket_id: string
+      candidates_count: number
+      method: string
+    }
+  | {
+      type: 'scoring_completed'
+      ticket_id: string
+      candidates_count: number
+      top_candidate_hash: string
+      top_candidate_score: number
+      method: string
+      duration_ms: number
     }
 
 export interface AuditRecord {
@@ -814,14 +874,15 @@ export interface MusicBrainzTrack {
 }
 
 export interface MusicBrainzRelease {
-  id: string
+  mbid: string
   title: string
   artist_credit: string
-  date?: string
+  release_date?: string
   country?: string
-  track_count: number
+  track_count?: number
   total_length_ms?: number
   tracks: MusicBrainzTrack[]
+  cover_art_available?: boolean
 }
 
 // TMDB types

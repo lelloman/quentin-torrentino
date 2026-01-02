@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use tokio::sync::{broadcast, RwLock};
 use tracing::{debug, error, info, warn};
 
@@ -20,9 +20,9 @@ use crate::textbrain::training::create_acquisition_training_events;
 use crate::processor::{PipelineJob, PipelineProcessor, SourceFile};
 use crate::searcher::Searcher;
 use crate::textbrain::{
-    AcquisitionAuditContext, AnthropicClient, DumbMatcher, DumbQueryBuilder, LlmMatcher,
-    LlmProvider, LlmQueryBuilder, OllamaClient, ScoredCandidate, ScoredCandidateSummary,
-    TextBrain, TextBrainConfig,
+    AcquisitionAuditContext, AcquisitionProgress, AcquisitionStateUpdater, AnthropicClient,
+    DumbMatcher, DumbQueryBuilder, LlmMatcher, LlmProvider, LlmQueryBuilder, OllamaClient,
+    ScoredCandidate, ScoredCandidateSummary, TextBrain, TextBrainConfig,
 };
 use crate::ticket::{
     AcquisitionPhase, SelectedCandidate, Ticket, TicketFilter, TicketState, TicketStore,
@@ -31,6 +31,33 @@ use crate::torrent_client::{AddTorrentRequest, TorrentClient, TorrentInfo, Torre
 
 use super::config::OrchestratorConfig;
 use super::types::{ActiveDownload, OrchestratorError, OrchestratorStatus};
+
+/// Implementation of AcquisitionStateUpdater that persists progress to the ticket store.
+struct TicketStateUpdater {
+    ticket_id: String,
+    started_at: DateTime<Utc>,
+    ticket_store: Arc<dyn TicketStore>,
+}
+
+#[async_trait::async_trait]
+impl AcquisitionStateUpdater for TicketStateUpdater {
+    async fn update_progress(&self, progress: AcquisitionProgress) {
+        let new_state = TicketState::Acquiring {
+            started_at: self.started_at,
+            queries_tried: progress.queries_tried,
+            candidates_found: progress.candidates_found,
+            phase: progress.phase,
+        };
+
+        if let Err(e) = self.ticket_store.update_state(&self.ticket_id, new_state) {
+            tracing::warn!(
+                "Failed to update acquisition progress for ticket {}: {}",
+                self.ticket_id,
+                e
+            );
+        }
+    }
+}
 
 /// The ticket orchestrator - drives tickets through the processing pipeline.
 pub struct TicketOrchestrator<C, P>
@@ -310,10 +337,11 @@ where
         debug!("Processing pending ticket: {}", ticket.id);
 
         // Transition to Acquiring
+        let started_at = Utc::now();
         ticket_store.update_state(
             &ticket.id,
             TicketState::Acquiring {
-                started_at: Utc::now(),
+                started_at,
                 queries_tried: vec![],
                 candidates_found: 0,
                 phase: AcquisitionPhase::QueryBuilding,
@@ -333,12 +361,21 @@ where
         // Build TextBrain with configured implementations
         let textbrain = Self::build_textbrain(textbrain_config);
 
+        // Create state updater for persisting acquisition progress
+        let state_updater: Arc<dyn AcquisitionStateUpdater> = Arc::new(TicketStateUpdater {
+            ticket_id: ticket.id.clone(),
+            started_at,
+            ticket_store: Arc::clone(ticket_store),
+        });
+
         // Execute acquisition with or without audit
         let result = if let Some(ref audit_handle) = audit {
             // Use acquire_with_audit for detailed real-time events
             let audit_ctx = AcquisitionAuditContext {
                 ticket_id: ticket.id.clone(),
                 audit: audit_handle.clone(),
+                started_at,
+                state_updater: Some(state_updater),
             };
             textbrain
                 .acquire_with_audit(&ticket.query_context, searcher.as_ref(), &audit_ctx)
