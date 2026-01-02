@@ -112,6 +112,13 @@ function formatDuration(secs: number): string {
   return `${hours}h ${mins}m`
 }
 
+// Format track duration (mm:ss)
+function formatTrackDuration(secs: number): string {
+  const mins = Math.floor(secs / 60)
+  const s = secs % 60
+  return `${mins}:${s.toString().padStart(2, '0')}`
+}
+
 // Handle approve action
 async function handleApprove() {
   actionLoading.value = true
@@ -196,6 +203,191 @@ async function handleRetry() {
             </span>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- Catalog Reference (from wizard) -->
+    <div v-if="ticket.query_context.catalog_reference" class="card border-purple-200 bg-purple-50">
+      <h3 class="text-lg font-semibold mb-4 text-purple-800">Catalog Reference</h3>
+      <div class="space-y-2">
+        <div class="flex justify-between py-2 border-b border-purple-100">
+          <span class="text-gray-600">Source</span>
+          <Badge variant="info">
+            {{ ticket.query_context.catalog_reference.type === 'music_brainz' ? 'MusicBrainz' : 'TMDB' }}
+          </Badge>
+        </div>
+        <template v-if="ticket.query_context.catalog_reference.type === 'music_brainz'">
+          <div class="flex justify-between py-2 border-b border-purple-100">
+            <span class="text-gray-600">Release ID</span>
+            <a
+              :href="`https://musicbrainz.org/release/${ticket.query_context.catalog_reference.release_id}`"
+              target="_blank"
+              class="font-mono text-sm text-purple-600 hover:text-purple-800"
+            >
+              {{ ticket.query_context.catalog_reference.release_id }}
+            </a>
+          </div>
+          <div class="flex justify-between py-2 border-b border-purple-100">
+            <span class="text-gray-600">Track Count</span>
+            <span>{{ ticket.query_context.catalog_reference.track_count }}</span>
+          </div>
+          <div v-if="ticket.query_context.catalog_reference.total_duration_ms" class="flex justify-between py-2">
+            <span class="text-gray-600">Total Duration</span>
+            <span>{{ formatDuration(Math.round(ticket.query_context.catalog_reference.total_duration_ms / 1000)) }}</span>
+          </div>
+        </template>
+        <template v-else-if="ticket.query_context.catalog_reference.type === 'tmdb'">
+          <div class="flex justify-between py-2 border-b border-purple-100">
+            <span class="text-gray-600">Media Type</span>
+            <Badge :variant="ticket.query_context.catalog_reference.media_type === 'movie' ? 'info' : 'success'">
+              {{ ticket.query_context.catalog_reference.media_type === 'movie' ? 'Movie' : 'TV Show' }}
+            </Badge>
+          </div>
+          <div class="flex justify-between py-2 border-b border-purple-100">
+            <span class="text-gray-600">TMDB ID</span>
+            <a
+              :href="`https://www.themoviedb.org/${ticket.query_context.catalog_reference.media_type}/${ticket.query_context.catalog_reference.id}`"
+              target="_blank"
+              class="font-mono text-sm text-purple-600 hover:text-purple-800"
+            >
+              {{ ticket.query_context.catalog_reference.id }}
+            </a>
+          </div>
+          <div v-if="ticket.query_context.catalog_reference.runtime_minutes" class="flex justify-between py-2 border-b border-purple-100">
+            <span class="text-gray-600">Runtime</span>
+            <span>{{ ticket.query_context.catalog_reference.runtime_minutes }} min</span>
+          </div>
+          <div v-if="ticket.query_context.catalog_reference.episode_count" class="flex justify-between py-2">
+            <span class="text-gray-600">Episodes</span>
+            <span>{{ ticket.query_context.catalog_reference.episode_count }}</span>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <!-- Expected Content (from wizard) -->
+    <div v-if="ticket.query_context.expected" class="card border-green-200 bg-green-50">
+      <h3 class="text-lg font-semibold mb-4 text-green-800">Expected Content</h3>
+
+      <!-- Album -->
+      <template v-if="ticket.query_context.expected.type === 'album'">
+        <div class="space-y-3">
+          <div v-if="ticket.query_context.expected.artist" class="flex justify-between">
+            <span class="text-gray-600">Artist</span>
+            <span class="font-medium">{{ ticket.query_context.expected.artist }}</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-gray-600">Album</span>
+            <span class="font-medium">{{ ticket.query_context.expected.title }}</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-gray-600">Tracks</span>
+            <span>{{ ticket.query_context.expected.tracks.length }}</span>
+          </div>
+          <div v-if="ticket.query_context.expected.tracks.length > 0" class="mt-3">
+            <p class="text-sm text-gray-600 mb-2">Track List:</p>
+            <div class="bg-white rounded-lg border border-green-200 overflow-hidden">
+              <div
+                v-for="track in ticket.query_context.expected.tracks"
+                :key="track.number"
+                class="flex items-center justify-between px-3 py-1.5 text-sm border-b border-green-100 last:border-b-0"
+              >
+                <div class="flex items-center gap-2 min-w-0 flex-1">
+                  <span class="text-gray-400 w-6 text-right">{{ track.number }}.</span>
+                  <span class="truncate">{{ track.title }}</span>
+                </div>
+                <span v-if="track.duration_secs || track.duration_ms" class="text-gray-500 text-xs ml-2">
+                  {{ formatTrackDuration(track.duration_ms ? Math.round(track.duration_ms / 1000) : track.duration_secs!) }}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <!-- Movie -->
+      <template v-else-if="ticket.query_context.expected.type === 'movie'">
+        <div class="space-y-2">
+          <div class="flex justify-between">
+            <span class="text-gray-600">Title</span>
+            <span class="font-medium">{{ ticket.query_context.expected.title }}</span>
+          </div>
+          <div v-if="ticket.query_context.expected.year" class="flex justify-between">
+            <span class="text-gray-600">Year</span>
+            <span>{{ ticket.query_context.expected.year }}</span>
+          </div>
+        </div>
+      </template>
+
+      <!-- TV Episode -->
+      <template v-else-if="ticket.query_context.expected.type === 'tv_episode'">
+        <div class="space-y-2">
+          <div class="flex justify-between">
+            <span class="text-gray-600">Series</span>
+            <span class="font-medium">{{ ticket.query_context.expected.series }}</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-gray-600">Season</span>
+            <span>{{ ticket.query_context.expected.season }}</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-gray-600">Episodes</span>
+            <span>{{ ticket.query_context.expected.episodes.join(', ') }}</span>
+          </div>
+        </div>
+      </template>
+    </div>
+
+    <!-- Search Constraints (from wizard) -->
+    <div v-if="ticket.query_context.search_constraints" class="card border-blue-200 bg-blue-50">
+      <h3 class="text-lg font-semibold mb-4 text-blue-800">Search Constraints</h3>
+      <div class="space-y-2">
+        <!-- Audio constraints -->
+        <template v-if="ticket.query_context.search_constraints.audio">
+          <div v-if="ticket.query_context.search_constraints.audio.preferred_formats?.length" class="flex justify-between py-2 border-b border-blue-100">
+            <span class="text-gray-600">Preferred Formats</span>
+            <span>{{ ticket.query_context.search_constraints.audio.preferred_formats.join(', ').toUpperCase() }}</span>
+          </div>
+          <div v-if="ticket.query_context.search_constraints.audio.min_bitrate_kbps" class="flex justify-between py-2 border-b border-blue-100">
+            <span class="text-gray-600">Min Bitrate</span>
+            <span>{{ ticket.query_context.search_constraints.audio.min_bitrate_kbps }} kbps</span>
+          </div>
+          <div v-if="ticket.query_context.search_constraints.audio.avoid_compilations" class="flex justify-between py-2 border-b border-blue-100">
+            <span class="text-gray-600">Avoid Compilations</span>
+            <Badge variant="warning">Yes</Badge>
+          </div>
+          <div v-if="ticket.query_context.search_constraints.audio.avoid_live" class="flex justify-between py-2">
+            <span class="text-gray-600">Avoid Live Recordings</span>
+            <Badge variant="warning">Yes</Badge>
+          </div>
+        </template>
+        <!-- Video constraints -->
+        <template v-if="ticket.query_context.search_constraints.video">
+          <div v-if="ticket.query_context.search_constraints.video.min_resolution" class="flex justify-between py-2 border-b border-blue-100">
+            <span class="text-gray-600">Min Resolution</span>
+            <span>{{ ticket.query_context.search_constraints.video.min_resolution.replace('r', '') }}</span>
+          </div>
+          <div v-if="ticket.query_context.search_constraints.video.preferred_resolution" class="flex justify-between py-2 border-b border-blue-100">
+            <span class="text-gray-600">Preferred Resolution</span>
+            <span>{{ ticket.query_context.search_constraints.video.preferred_resolution.replace('r', '') }}</span>
+          </div>
+          <div v-if="ticket.query_context.search_constraints.video.preferred_sources?.length" class="flex justify-between py-2 border-b border-blue-100">
+            <span class="text-gray-600">Preferred Sources</span>
+            <span>{{ ticket.query_context.search_constraints.video.preferred_sources.join(', ') }}</span>
+          </div>
+          <div v-if="ticket.query_context.search_constraints.video.preferred_codecs?.length" class="flex justify-between py-2 border-b border-blue-100">
+            <span class="text-gray-600">Preferred Codecs</span>
+            <span>{{ ticket.query_context.search_constraints.video.preferred_codecs.join(', ') }}</span>
+          </div>
+          <div v-if="ticket.query_context.search_constraints.video.preferred_language" class="flex justify-between py-2 border-b border-blue-100">
+            <span class="text-gray-600">Preferred Language</span>
+            <span>{{ ticket.query_context.search_constraints.video.preferred_language }}</span>
+          </div>
+          <div v-if="ticket.query_context.search_constraints.video.exclude_hardcoded_subs" class="flex justify-between py-2">
+            <span class="text-gray-600">Exclude Hardcoded Subs</span>
+            <Badge variant="warning">Yes</Badge>
+          </div>
+        </template>
       </div>
     </div>
 

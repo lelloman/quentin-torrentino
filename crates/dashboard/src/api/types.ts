@@ -20,6 +20,9 @@ export interface SanitizedConfig {
 export interface QueryContext {
   tags: string[]
   description: string
+  expected?: ExpectedContent
+  catalog_reference?: CatalogReference
+  search_constraints?: SearchConstraints
 }
 
 // Acquisition phase - tagged enum from Rust with #[serde(tag = "phase")]
@@ -699,6 +702,8 @@ export interface ExpectedTrack {
   number: number
   title: string
   duration_secs?: number
+  duration_ms?: number
+  disc_number?: number
 }
 
 export type ExpectedContent =
