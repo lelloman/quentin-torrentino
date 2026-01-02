@@ -20,7 +20,7 @@ use torrentino_core::{
     TorrentCatalog, TorrentClient, TorrentClientBackend,
 };
 
-use api::create_router;
+use api::{create_router, WsBroadcaster};
 use state::AppState;
 
 /// Application version
@@ -258,6 +258,10 @@ async fn run() -> Result<()> {
             None
         };
 
+    // Create WebSocket broadcaster for real-time updates
+    let ws_broadcaster = WsBroadcaster::default();
+    info!("WebSocket broadcaster initialized");
+
     // Create app state
     let state = Arc::new(AppState::new(
         config.clone(),
@@ -271,6 +275,7 @@ async fn run() -> Result<()> {
         pipeline,
         orchestrator.clone(),
         external_catalog,
+        ws_broadcaster,
     ));
 
     // Create router

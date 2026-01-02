@@ -5,6 +5,8 @@ use torrentino_core::{
     TorrentCatalog, TorrentClient,
 };
 
+use crate::api::WsBroadcaster;
+
 /// Type alias for the concrete pipeline processor we use
 pub type AppPipelineProcessor = PipelineProcessor<FfmpegConverter, FsPlacer>;
 
@@ -24,6 +26,7 @@ pub struct AppState {
     pipeline: Option<Arc<AppPipelineProcessor>>,
     orchestrator: Option<Arc<AppOrchestrator>>,
     external_catalog: Option<Arc<dyn ExternalCatalog>>,
+    ws_broadcaster: WsBroadcaster,
 }
 
 impl AppState {
@@ -40,6 +43,7 @@ impl AppState {
         pipeline: Option<Arc<AppPipelineProcessor>>,
         orchestrator: Option<Arc<AppOrchestrator>>,
         external_catalog: Option<Arc<dyn ExternalCatalog>>,
+        ws_broadcaster: WsBroadcaster,
     ) -> Self {
         Self {
             config,
@@ -53,6 +57,7 @@ impl AppState {
             pipeline,
             orchestrator,
             external_catalog,
+            ws_broadcaster,
         }
     }
 
@@ -108,5 +113,10 @@ impl AppState {
     /// Get the external catalog client (if configured)
     pub fn external_catalog(&self) -> Option<&Arc<dyn ExternalCatalog>> {
         self.external_catalog.as_ref()
+    }
+
+    /// Get the WebSocket broadcaster for real-time updates
+    pub fn ws_broadcaster(&self) -> &WsBroadcaster {
+        &self.ws_broadcaster
     }
 }

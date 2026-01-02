@@ -8,7 +8,7 @@ use tower_http::services::{ServeDir, ServeFile};
 
 use super::{
     audit, catalog, external_catalog, handlers, middleware::auth_middleware, orchestrator,
-    pipeline, searcher, textbrain, tickets, torrents,
+    pipeline, searcher, textbrain, tickets, torrents, ws,
 };
 use crate::state::AppState;
 
@@ -113,6 +113,8 @@ pub fn create_router(state: Arc<AppState>) -> Router {
             "/external-catalog/tmdb/tv/{id}/season/{season}",
             get(external_catalog::get_tmdb_season),
         )
+        // WebSocket (no auth middleware - handles its own connection)
+        .route("/ws", get(ws::ws_handler))
         .layer(middleware::from_fn_with_state(state.clone(), auth_middleware))
         .with_state(state);
 

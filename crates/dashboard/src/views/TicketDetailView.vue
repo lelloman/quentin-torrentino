@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, computed, watch } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useTickets } from '../composables/useTickets'
+import { useGlobalWebSocket, type WsMessage } from '../composables/useWebSocket'
 import { deleteTicket } from '../api/tickets'
 import TicketDetail from '../components/tickets/TicketDetail.vue'
 import LoadingSpinner from '../components/common/LoadingSpinner.vue'
@@ -19,43 +20,40 @@ const {
   clearError,
 } = useTickets()
 
+// WebSocket for real-time updates
+const ws = useGlobalWebSocket()
+
 const cancelReason = ref('')
 const showCancelDialog = ref(false)
 const showDeleteDialog = ref(false)
-let pollInterval: ReturnType<typeof setInterval> | null = null
 
-// Check if ticket is in an active state that needs polling
-const isActiveState = computed(() => {
-  if (!currentTicket.value) return false
-  const activeStates = ['acquiring', 'downloading', 'converting', 'placing']
-  return activeStates.includes(currentTicket.value.state.type)
-})
+// Handle WebSocket messages for this specific ticket
+function handleWsMessage(message: WsMessage) {
+  const ticketId = route.params.id as string
 
-// Check if any dialog is open (pause polling when dialogs are open)
-const isDialogOpen = computed(() => showCancelDialog.value || showDeleteDialog.value)
-
-// Start/stop polling based on active state and dialog state
-watch([isActiveState, isDialogOpen], ([active, dialogOpen]) => {
-  if (active && !dialogOpen && !pollInterval) {
-    pollInterval = setInterval(() => {
-      const id = route.params.id as string
-      fetchTicket(id)
-    }, 3000)
-  } else if ((!active || dialogOpen) && pollInterval) {
-    clearInterval(pollInterval)
-    pollInterval = null
+  if (message.type === 'ticket_update' && message.ticket_id === ticketId) {
+    // Refresh ticket data when it's updated
+    fetchTicket(ticketId)
+  } else if (message.type === 'ticket_deleted' && message.ticket_id === ticketId) {
+    // Navigate back if this ticket was deleted
+    router.push('/tickets')
+  } else if (message.type === 'torrent_progress' && message.ticket_id === ticketId) {
+    // Refresh to get updated progress
+    fetchTicket(ticketId)
+  } else if (message.type === 'pipeline_progress' && message.ticket_id === ticketId) {
+    // Refresh to get updated pipeline progress
+    fetchTicket(ticketId)
   }
-})
+}
 
 onMounted(() => {
   const id = route.params.id as string
   fetchTicket(id)
+  ws.addHandler(handleWsMessage)
 })
 
 onUnmounted(() => {
-  if (pollInterval) {
-    clearInterval(pollInterval)
-  }
+  ws.removeHandler(handleWsMessage)
 })
 
 function handleRefresh() {

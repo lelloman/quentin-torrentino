@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { useTickets } from '../composables/useTickets'
+import { useGlobalWebSocket, type WsMessage } from '../composables/useWebSocket'
 import TicketList from '../components/tickets/TicketList.vue'
 import TicketStateFilter from '../components/tickets/TicketStateFilter.vue'
 import CreateTicketForm from '../components/tickets/CreateTicketForm.vue'
@@ -21,11 +22,27 @@ const {
   clearError,
 } = useTickets()
 
+// WebSocket for real-time updates
+const ws = useGlobalWebSocket()
+
 // Creation mode: 'none' | 'choose' | 'simple' | 'music' | 'video'
 const creationMode = ref<'none' | 'choose' | 'simple' | 'music' | 'video'>('none')
 
+// Handle WebSocket messages
+function handleWsMessage(message: WsMessage) {
+  if (message.type === 'ticket_update' || message.type === 'ticket_deleted') {
+    // Refresh the ticket list when any ticket changes
+    fetchTickets()
+  }
+}
+
 onMounted(() => {
   fetchTickets()
+  ws.addHandler(handleWsMessage)
+})
+
+onUnmounted(() => {
+  ws.removeHandler(handleWsMessage)
 })
 
 watch(stateFilter, () => {

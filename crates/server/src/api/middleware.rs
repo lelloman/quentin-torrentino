@@ -86,6 +86,7 @@ mod tests {
         create_audit_system, ApiKeyAuthenticator, AuthConfig, AuthMethod, Config,
         DatabaseConfig, SqliteAuditStore, SqliteCatalog, SqliteTicketStore,
     };
+    use crate::api::WsBroadcaster;
     use torrentino_core::config::ServerConfig;
     use torrentino_core::textbrain::TextBrainConfig;
     use torrentino_core::orchestrator::OrchestratorConfig;
@@ -141,6 +142,7 @@ mod tests {
             None,
             None,
             None, // external_catalog
+            WsBroadcaster::default(),
         ))
     }
 

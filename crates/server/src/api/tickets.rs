@@ -183,6 +183,11 @@ pub async fn create_ticket(
                     dest_path: ticket.dest_path.clone(),
                 });
 
+            // Broadcast WebSocket update
+            state
+                .ws_broadcaster()
+                .ticket_updated(&ticket.id, ticket.state.state_type());
+
             Ok((StatusCode::CREATED, Json(TicketResponse::from(ticket))))
         }
         Err(e) => Err((
@@ -323,6 +328,11 @@ pub async fn cancel_ticket(
                     previous_state,
                 });
 
+            // Broadcast WebSocket update
+            state
+                .ws_broadcaster()
+                .ticket_updated(&ticket.id, ticket.state.state_type());
+
             Ok(Json(TicketResponse::from(ticket)))
         }
         Err(TicketError::NotFound(_)) => Err((
@@ -388,6 +398,9 @@ pub async fn delete_ticket(
                     deleted_by,
                     previous_state: ticket.state.state_type().to_string(),
                 });
+
+            // Broadcast WebSocket delete notification
+            state.ws_broadcaster().ticket_deleted(&ticket.id);
 
             Ok(Json(TicketResponse::from(ticket)))
         }
@@ -549,6 +562,11 @@ pub async fn approve_ticket(
                 reason: Some(format!("Approved candidate {} by {}", candidate_idx, approved_by)),
             });
 
+            // Broadcast WebSocket update
+            state
+                .ws_broadcaster()
+                .ticket_updated(&ticket.id, ticket.state.state_type());
+
             Ok(Json(TicketResponse::from(ticket)))
         }
         Err(e) => Err((
@@ -619,6 +637,11 @@ pub async fn retry_ticket(
                 to_state: "pending".to_string(),
                 reason: Some("Manual retry".to_string()),
             });
+
+            // Broadcast WebSocket update
+            state
+                .ws_broadcaster()
+                .ticket_updated(&ticket.id, ticket.state.state_type());
 
             Ok(Json(TicketResponse::from(ticket)))
         }
@@ -691,6 +714,11 @@ pub async fn reject_ticket(
                 to_state: "rejected".to_string(),
                 reason,
             });
+
+            // Broadcast WebSocket update
+            state
+                .ws_broadcaster()
+                .ticket_updated(&ticket.id, ticket.state.state_type());
 
             Ok(Json(TicketResponse::from(ticket)))
         }

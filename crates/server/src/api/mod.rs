@@ -10,5 +10,7 @@ pub mod searcher;
 pub mod textbrain;
 pub mod tickets;
 pub mod torrents;
+pub mod ws;
 
 pub use routes::create_router;
+pub use ws::WsBroadcaster;
