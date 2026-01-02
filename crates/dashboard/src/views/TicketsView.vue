@@ -4,8 +4,9 @@ import { useTickets } from '../composables/useTickets'
 import TicketList from '../components/tickets/TicketList.vue'
 import TicketStateFilter from '../components/tickets/TicketStateFilter.vue'
 import CreateTicketForm from '../components/tickets/CreateTicketForm.vue'
+import MusicTicketWizard from '../components/tickets/MusicTicketWizard.vue'
 import ErrorAlert from '../components/common/ErrorAlert.vue'
-import type { CreateTicketRequest } from '../api/types'
+import type { CreateTicketRequest, CreateTicketWithCatalogRequest } from '../api/types'
 
 const {
   tickets,
@@ -19,7 +20,8 @@ const {
   clearError,
 } = useTickets()
 
-const showCreateForm = ref(false)
+// Creation mode: 'none' | 'choose' | 'simple' | 'music'
+const creationMode = ref<'none' | 'choose' | 'simple' | 'music'>('none')
 
 onMounted(() => {
   fetchTickets()
@@ -37,11 +39,15 @@ function handleLoadMore() {
   fetchTickets(true)
 }
 
-async function handleCreateTicket(request: CreateTicketRequest) {
+async function handleCreateTicket(request: CreateTicketRequest | CreateTicketWithCatalogRequest) {
   const ticket = await createTicket(request)
   if (ticket) {
-    showCreateForm.value = false
+    creationMode.value = 'none'
   }
+}
+
+function handleCancelCreate() {
+  creationMode.value = 'none'
 }
 </script>
 
@@ -50,8 +56,8 @@ async function handleCreateTicket(request: CreateTicketRequest) {
     <div class="flex items-center justify-between mb-6">
       <h1 class="text-2xl font-bold">Tickets</h1>
       <button
-        v-if="!showCreateForm"
-        @click="showCreateForm = true"
+        v-if="creationMode === 'none'"
+        @click="creationMode = 'choose'"
         class="btn-primary"
       >
         Create Ticket
@@ -65,10 +71,58 @@ async function handleCreateTicket(request: CreateTicketRequest) {
       class="mb-4"
     />
 
+    <!-- Ticket Type Chooser -->
+    <div v-if="creationMode === 'choose'" class="card mb-6">
+      <h2 class="text-lg font-semibold mb-4">What do you want to download?</h2>
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <!-- Music Option -->
+        <button
+          @click="creationMode = 'music'"
+          class="p-4 border-2 border-gray-200 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors text-left"
+        >
+          <span class="i-carbon-music text-2xl text-blue-600 mb-2 block"></span>
+          <div class="font-medium">Music Album</div>
+          <div class="text-sm text-gray-500">Search MusicBrainz catalog</div>
+        </button>
+
+        <!-- Video Option (coming soon) -->
+        <button
+          disabled
+          class="p-4 border-2 border-gray-200 rounded-lg opacity-50 cursor-not-allowed text-left"
+        >
+          <span class="i-carbon-video text-2xl text-gray-400 mb-2 block"></span>
+          <div class="font-medium text-gray-400">Movie / TV Show</div>
+          <div class="text-sm text-gray-400">Coming soon</div>
+        </button>
+
+        <!-- Simple Form Option -->
+        <button
+          @click="creationMode = 'simple'"
+          class="p-4 border-2 border-gray-200 rounded-lg hover:border-gray-400 hover:bg-gray-50 transition-colors text-left"
+        >
+          <span class="i-carbon-document text-2xl text-gray-600 mb-2 block"></span>
+          <div class="font-medium">Manual Entry</div>
+          <div class="text-sm text-gray-500">Simple text description</div>
+        </button>
+      </div>
+      <div class="mt-4 flex justify-end">
+        <button @click="creationMode = 'none'" class="btn-secondary">Cancel</button>
+      </div>
+    </div>
+
+    <!-- Simple Create Form -->
     <CreateTicketForm
-      v-if="showCreateForm"
+      v-if="creationMode === 'simple'"
       @submit="handleCreateTicket"
-      @cancel="showCreateForm = false"
+      @cancel="handleCancelCreate"
+      class="mb-6"
+    />
+
+    <!-- Music Wizard -->
+    <MusicTicketWizard
+      v-if="creationMode === 'music'"
+      @submit="handleCreateTicket"
+      @cancel="handleCancelCreate"
       class="mb-6"
     />
 
