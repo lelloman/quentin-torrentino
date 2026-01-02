@@ -216,6 +216,9 @@ export interface CreateTicketRequest {
   query_context: {
     tags: string[]
     description: string
+    expected?: ExpectedContent
+    catalog_reference?: CatalogReference
+    search_constraints?: SearchConstraints
   }
   dest_path: string
   output_constraints?: OutputConstraints
