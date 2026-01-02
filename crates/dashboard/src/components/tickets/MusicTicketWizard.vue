@@ -231,16 +231,17 @@ const currentStepIdx = computed(() => {
           }"
         >
           <!-- Cover Art -->
-          <div class="w-12 h-12 flex-shrink-0 bg-gray-100 rounded overflow-hidden">
+          <div class="w-12 h-12 flex-shrink-0 bg-gray-100 rounded overflow-hidden relative">
             <img
-              v-if="release.cover_art_available"
               :src="`https://coverartarchive.org/release/${release.mbid}/front-250`"
               :alt="release.title"
-              class="w-full h-full object-cover"
+              class="w-full h-full object-cover absolute inset-0"
               loading="lazy"
-              @error="(e) => (e.target as HTMLImageElement).style.display = 'none'"
+              @error="(e) => (e.target as HTMLImageElement).style.opacity = '0'"
+              @load="(e) => (e.target as HTMLImageElement).style.opacity = '1'"
+              style="opacity: 0"
             />
-            <div v-else class="w-full h-full flex items-center justify-center text-gray-400">
+            <div class="w-full h-full flex items-center justify-center text-gray-400">
               <span class="i-carbon-music text-xl"></span>
             </div>
           </div>

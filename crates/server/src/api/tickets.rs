@@ -10,8 +10,9 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use torrentino_core::{
-    AuditEvent, CreateTicketRequest, OutputConstraints, QueryContext, SelectedCandidate, Ticket,
-    TicketError, TicketFilter, TicketState,
+    AuditEvent, CatalogReference, CreateTicketRequest, ExpectedContent, OutputConstraints,
+    QueryContext, SearchConstraints, SelectedCandidate, Ticket, TicketError, TicketFilter,
+    TicketState,
 };
 
 use crate::state::AppState;
@@ -46,6 +47,15 @@ pub struct QueryContextBody {
     pub tags: Vec<String>,
     /// Freeform description for matching
     pub description: String,
+    /// Expected content (tracks, episodes, etc.)
+    #[serde(default)]
+    pub expected: Option<ExpectedContent>,
+    /// Reference to external catalog (MusicBrainz, TMDB)
+    #[serde(default)]
+    pub catalog_reference: Option<CatalogReference>,
+    /// Search constraints (preferred formats, quality, etc.)
+    #[serde(default)]
+    pub search_constraints: Option<SearchConstraints>,
 }
 
 /// Query parameters for listing tickets
@@ -138,10 +148,23 @@ pub async fn create_ticket(
     State(state): State<Arc<AppState>>,
     Json(body): Json<CreateTicketBody>,
 ) -> Result<(StatusCode, Json<TicketResponse>), impl IntoResponse> {
+    // Build query context with optional catalog fields
+    let mut query_context =
+        QueryContext::new(body.query_context.tags.clone(), &body.query_context.description);
+    if let Some(expected) = body.query_context.expected {
+        query_context = query_context.with_expected(expected);
+    }
+    if let Some(catalog_ref) = body.query_context.catalog_reference {
+        query_context = query_context.with_catalog_reference(catalog_ref);
+    }
+    if let Some(constraints) = body.query_context.search_constraints {
+        query_context = query_context.with_search_constraints(constraints);
+    }
+
     let request = CreateTicketRequest {
         created_by: "anonymous".to_string(), // TODO: Get from auth
         priority: body.priority.unwrap_or(0),
-        query_context: QueryContext::new(body.query_context.tags.clone(), &body.query_context.description),
+        query_context,
         dest_path: body.dest_path.clone(),
         output_constraints: body.output_constraints,
     };
