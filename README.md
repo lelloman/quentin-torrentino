@@ -1855,8 +1855,12 @@ Implement video-specific logic in `content/video.rs`.
   - [x] `VideoSearchConstraints`, `Resolution`, `VideoSource`, `VideoSearchCodec` types
   - [x] `useCatalogLookup` composable handles TMDB search/selection
   - [x] `useTicketWizard` composable for multi-step ticket creation
-- [ ] **Dashboard**: Video ticket creation wizard UI (Vue component)
-  - [ ] TMDB search → select movie/show → select season/episodes → set constraints → create ticket
+- [x] **Dashboard**: Video ticket creation wizard UI (Vue component)
+  - [x] `VideoTicketWizard.vue` - Full wizard (Search → Quality → Details → Review)
+  - [x] Movie/TV toggle with TMDB search and poster display
+  - [x] TV series: Select show → Select season → View episodes
+  - [x] Video constraints (resolution, source, codec, hardcoded subs)
+  - [x] Ticket details (destination path, description, tags, priority)
 
 *Phase 5e: Other Content Types (Stretch Goal)*
 - [ ] Add `content/software.rs`, `content/ebook.rs`, etc. as needed

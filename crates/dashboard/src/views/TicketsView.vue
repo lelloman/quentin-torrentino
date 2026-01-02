@@ -5,6 +5,7 @@ import TicketList from '../components/tickets/TicketList.vue'
 import TicketStateFilter from '../components/tickets/TicketStateFilter.vue'
 import CreateTicketForm from '../components/tickets/CreateTicketForm.vue'
 import MusicTicketWizard from '../components/tickets/MusicTicketWizard.vue'
+import VideoTicketWizard from '../components/tickets/VideoTicketWizard.vue'
 import ErrorAlert from '../components/common/ErrorAlert.vue'
 import type { CreateTicketRequest, CreateTicketWithCatalogRequest } from '../api/types'
 
@@ -20,8 +21,8 @@ const {
   clearError,
 } = useTickets()
 
-// Creation mode: 'none' | 'choose' | 'simple' | 'music'
-const creationMode = ref<'none' | 'choose' | 'simple' | 'music'>('none')
+// Creation mode: 'none' | 'choose' | 'simple' | 'music' | 'video'
+const creationMode = ref<'none' | 'choose' | 'simple' | 'music' | 'video'>('none')
 
 onMounted(() => {
   fetchTickets()
@@ -85,14 +86,14 @@ function handleCancelCreate() {
           <div class="text-sm text-gray-500">Search MusicBrainz catalog</div>
         </button>
 
-        <!-- Video Option (coming soon) -->
+        <!-- Video Option -->
         <button
-          disabled
-          class="p-4 border-2 border-gray-200 rounded-lg opacity-50 cursor-not-allowed text-left"
+          @click="creationMode = 'video'"
+          class="p-4 border-2 border-gray-200 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors text-left"
         >
-          <span class="i-carbon-video text-2xl text-gray-400 mb-2 block"></span>
-          <div class="font-medium text-gray-400">Movie / TV Show</div>
-          <div class="text-sm text-gray-400">Coming soon</div>
+          <span class="i-carbon-video text-2xl text-blue-600 mb-2 block"></span>
+          <div class="font-medium">Movie / TV Show</div>
+          <div class="text-sm text-gray-500">Search TMDB catalog</div>
         </button>
 
         <!-- Simple Form Option -->
@@ -121,6 +122,14 @@ function handleCancelCreate() {
     <!-- Music Wizard -->
     <MusicTicketWizard
       v-if="creationMode === 'music'"
+      @submit="handleCreateTicket"
+      @cancel="handleCancelCreate"
+      class="mb-6"
+    />
+
+    <!-- Video Wizard -->
+    <VideoTicketWizard
+      v-if="creationMode === 'video'"
       @submit="handleCreateTicket"
       @cancel="handleCancelCreate"
       class="mb-6"
