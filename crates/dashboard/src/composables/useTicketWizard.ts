@@ -148,7 +148,9 @@ export function useTicketWizard() {
       case 'constraints':
         return true // Constraints are optional
       case 'details':
-        return description.value.trim().length > 0 && destPath.value.trim().length > 0
+        // Description is optional if we have a catalog selection (will be auto-generated)
+        const hasDescription = description.value.trim().length > 0 || hasSelection.value
+        return hasDescription && destPath.value.trim().length > 0
       case 'review':
         return true
       default:

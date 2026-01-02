@@ -57,9 +57,14 @@ export function useTickets() {
   }
 
   async function fetchTicket(id: string) {
-    loading.value = true
+    // Only show loading state if we don't already have the ticket loaded
+    // This prevents flickering and state reset during polling refreshes
+    const isRefresh = currentTicket.value?.id === id
+    if (!isRefresh) {
+      loading.value = true
+      currentTicket.value = null
+    }
     error.value = null
-    currentTicket.value = null
 
     try {
       currentTicket.value = await apiGetTicket(id)
