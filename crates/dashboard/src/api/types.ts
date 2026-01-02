@@ -444,6 +444,21 @@ export type AuditEventType =
   | 'training_scoring_context'
   | 'training_file_mapping_context'
   | 'user_correction'
+  // LLM events
+  | 'llm_call_started'
+  | 'llm_call_completed'
+  | 'llm_call_failed'
+  // Conversion events (Phase 4)
+  | 'conversion_started'
+  | 'conversion_progress'
+  | 'conversion_completed'
+  | 'conversion_failed'
+  // Placement events (Phase 4)
+  | 'placement_started'
+  | 'placement_progress'
+  | 'placement_completed'
+  | 'placement_failed'
+  | 'placement_rolled_back'
 
 // Discriminated union for audit event data
 export type AuditEventData =
@@ -671,6 +686,111 @@ export type AuditEventData =
       top_candidate_score: number
       method: string
       duration_ms: number
+    }
+  // LLM events
+  | {
+      type: 'llm_call_started'
+      ticket_id?: string
+      purpose: string
+      provider: string
+      model: string
+    }
+  | {
+      type: 'llm_call_completed'
+      ticket_id?: string
+      purpose: string
+      input_tokens: number
+      output_tokens: number
+      duration_ms: number
+    }
+  | {
+      type: 'llm_call_failed'
+      ticket_id?: string
+      purpose: string
+      error: string
+      duration_ms: number
+      is_timeout: boolean
+    }
+  // Conversion events (Phase 4)
+  | {
+      type: 'conversion_started'
+      ticket_id: string
+      job_id: string
+      input_path: string
+      output_path: string
+      target_format: string
+      total_files: number
+    }
+  | {
+      type: 'conversion_progress'
+      ticket_id: string
+      job_id: string
+      current_idx: number
+      total_files: number
+      current_file: string
+      percent: number
+    }
+  | {
+      type: 'conversion_completed'
+      ticket_id: string
+      job_id: string
+      files_converted: number
+      output_bytes: number
+      duration_ms: number
+      input_format: string
+      output_format: string
+    }
+  | {
+      type: 'conversion_failed'
+      ticket_id: string
+      job_id: string
+      failed_file?: string
+      error: string
+      files_completed: number
+      retryable: boolean
+    }
+  // Placement events (Phase 4)
+  | {
+      type: 'placement_started'
+      ticket_id: string
+      job_id: string
+      total_files: number
+      total_bytes: number
+    }
+  | {
+      type: 'placement_progress'
+      ticket_id: string
+      job_id: string
+      files_placed: number
+      total_files: number
+      bytes_placed: number
+      current_file: string
+    }
+  | {
+      type: 'placement_completed'
+      ticket_id: string
+      job_id: string
+      files_placed: number
+      total_bytes: number
+      duration_ms: number
+      dest_dir: string
+    }
+  | {
+      type: 'placement_failed'
+      ticket_id: string
+      job_id: string
+      failed_file?: string
+      error: string
+      files_completed: number
+    }
+  | {
+      type: 'placement_rolled_back'
+      ticket_id: string
+      job_id: string
+      files_removed: number
+      directories_removed: number
+      success: boolean
+      errors: string[]
     }
 
 export interface AuditRecord {

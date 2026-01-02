@@ -94,6 +94,15 @@ function formatRelativeTime(ts: string): string {
   return formatTimestamp(ts)
 }
 
+// Format bytes to human readable
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return '0 B'
+  const k = 1024
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
+}
+
 // Get event type badge color
 function getEventTypeColor(eventType: AuditEventType): string {
   if (eventTypeCategories.system.includes(eventType)) return 'bg-gray-500'
@@ -103,6 +112,7 @@ function getEventTypeColor(eventType: AuditEventType): string {
   if (eventTypeCategories.acquisition.includes(eventType)) return 'bg-teal-500'
   if (eventTypeCategories.textbrain.includes(eventType)) return 'bg-orange-500'
   if (eventTypeCategories.training.includes(eventType)) return 'bg-pink-500'
+  if (eventTypeCategories.pipeline.includes(eventType)) return 'bg-indigo-500'
   return 'bg-gray-500'
 }
 
@@ -155,6 +165,30 @@ function getEventIcon(eventType: AuditEventType): string {
       return 'i-carbon-star'
     case 'candidate_selected':
       return 'i-carbon-checkmark'
+    // LLM events
+    case 'llm_call_started':
+    case 'llm_call_completed':
+      return 'i-carbon-chat-bot'
+    case 'llm_call_failed':
+      return 'i-carbon-warning-alt'
+    // Conversion events
+    case 'conversion_started':
+    case 'conversion_progress':
+      return 'i-carbon-transform-binary'
+    case 'conversion_completed':
+      return 'i-carbon-checkmark-filled'
+    case 'conversion_failed':
+      return 'i-carbon-error'
+    // Placement events
+    case 'placement_started':
+    case 'placement_progress':
+      return 'i-carbon-folder-move-to'
+    case 'placement_completed':
+      return 'i-carbon-folder-add'
+    case 'placement_failed':
+      return 'i-carbon-error'
+    case 'placement_rolled_back':
+      return 'i-carbon-undo'
     default:
       return 'i-carbon-document'
   }
@@ -222,6 +256,33 @@ function getEventSummary(event: AuditRecord): string {
       return `Scoring ${data.candidates_count} candidates (${data.method})`
     case 'scoring_completed':
       return `Top score: ${data.top_candidate_score?.toFixed(2) ?? 'N/A'} (${data.candidates_count} candidates, ${data.duration_ms}ms)`
+    // LLM events
+    case 'llm_call_started':
+      return `${data.purpose} via ${data.provider}/${data.model}`
+    case 'llm_call_completed':
+      return `${data.purpose}: ${data.input_tokens}→${data.output_tokens} tokens (${data.duration_ms}ms)`
+    case 'llm_call_failed':
+      return `${data.purpose} failed${data.is_timeout ? ' (timeout)' : ''}: ${data.error}`
+    // Conversion events
+    case 'conversion_started':
+      return `Converting ${data.total_files} file(s) → ${data.target_format}`
+    case 'conversion_progress':
+      return `Converting ${data.current_file} (${data.current_idx + 1}/${data.total_files}, ${data.percent}%)`
+    case 'conversion_completed':
+      return `Converted ${data.files_converted} file(s): ${data.input_format} → ${data.output_format} (${data.duration_ms}ms)`
+    case 'conversion_failed':
+      return `Conversion failed${data.failed_file ? ` on ${data.failed_file}` : ''}: ${data.error}`
+    // Placement events
+    case 'placement_started':
+      return `Placing ${data.total_files} file(s) (${formatBytes(data.total_bytes)})`
+    case 'placement_progress':
+      return `Placing ${data.current_file} (${data.files_placed}/${data.total_files})`
+    case 'placement_completed':
+      return `Placed ${data.files_placed} file(s) to ${data.dest_dir} (${data.duration_ms}ms)`
+    case 'placement_failed':
+      return `Placement failed${data.failed_file ? ` on ${data.failed_file}` : ''}: ${data.error}`
+    case 'placement_rolled_back':
+      return `Rolled back: ${data.files_removed} files, ${data.directories_removed} dirs${data.success ? '' : ' (with errors)'}`
     default:
       return 'Unknown event'
   }
@@ -361,6 +422,15 @@ const showFilters = ref(true)
               <optgroup label="Training">
                 <option
                   v-for="type in eventTypeCategories.training"
+                  :key="type"
+                  :value="type"
+                >
+                  {{ eventTypeLabels[type] }}
+                </option>
+              </optgroup>
+              <optgroup label="Pipeline">
+                <option
+                  v-for="type in eventTypeCategories.pipeline"
                   :key="type"
                   :value="type"
                 >

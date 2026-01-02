@@ -50,6 +50,21 @@ export const allEventTypes: AuditEventType[] = [
   'training_scoring_context',
   'training_file_mapping_context',
   'user_correction',
+  // LLM events
+  'llm_call_started',
+  'llm_call_completed',
+  'llm_call_failed',
+  // Conversion events
+  'conversion_started',
+  'conversion_progress',
+  'conversion_completed',
+  'conversion_failed',
+  // Placement events
+  'placement_started',
+  'placement_progress',
+  'placement_completed',
+  'placement_failed',
+  'placement_rolled_back',
 ]
 
 // Group event types by category for the UI
@@ -73,8 +88,19 @@ export const eventTypeCategories = {
     'scoring_started',
     'scoring_completed',
   ] as AuditEventType[],
-  textbrain: ['queries_generated', 'candidates_scored', 'candidate_selected'] as AuditEventType[],
+  textbrain: ['queries_generated', 'candidates_scored', 'candidate_selected', 'llm_call_started', 'llm_call_completed', 'llm_call_failed'] as AuditEventType[],
   training: ['training_query_context', 'training_scoring_context', 'training_file_mapping_context', 'user_correction'] as AuditEventType[],
+  pipeline: [
+    'conversion_started',
+    'conversion_progress',
+    'conversion_completed',
+    'conversion_failed',
+    'placement_started',
+    'placement_progress',
+    'placement_completed',
+    'placement_failed',
+    'placement_rolled_back',
+  ] as AuditEventType[],
 }
 
 // Human-readable labels for event types
@@ -109,4 +135,19 @@ export const eventTypeLabels: Record<AuditEventType, string> = {
   training_scoring_context: 'Training: Scoring Context',
   training_file_mapping_context: 'Training: File Mapping',
   user_correction: 'User Correction',
+  // LLM events
+  llm_call_started: 'LLM Call Started',
+  llm_call_completed: 'LLM Call Completed',
+  llm_call_failed: 'LLM Call Failed',
+  // Conversion events
+  conversion_started: 'Conversion Started',
+  conversion_progress: 'Conversion Progress',
+  conversion_completed: 'Conversion Completed',
+  conversion_failed: 'Conversion Failed',
+  // Placement events
+  placement_started: 'Placement Started',
+  placement_progress: 'Placement Progress',
+  placement_completed: 'Placement Completed',
+  placement_failed: 'Placement Failed',
+  placement_rolled_back: 'Placement Rolled Back',
 }
