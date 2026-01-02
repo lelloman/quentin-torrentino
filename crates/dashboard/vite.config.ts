@@ -13,7 +13,7 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: process.env.API_URL || 'http://localhost:8080',
+        target: process.env.API_URL || 'http://localhost:8808',
         changeOrigin: true,
       },
     },

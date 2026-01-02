@@ -223,19 +223,35 @@ const currentStepIdx = computed(() => {
       >
         <button
           v-for="release in wizard.musicBrainzResults.value"
-          :key="release.id"
-          @click="handleSelectRelease(release.id)"
-          class="w-full p-3 text-left hover:bg-gray-50 transition-colors"
+          :key="release.mbid"
+          @click="handleSelectRelease(release.mbid)"
+          class="w-full p-3 text-left hover:bg-gray-50 transition-colors flex gap-3"
           :class="{
-            'bg-blue-50 border-l-4 border-l-blue-600': wizard.selectedRelease.value?.id === release.id,
+            'bg-blue-50 border-l-4 border-l-blue-600': wizard.selectedRelease.value?.mbid === release.mbid,
           }"
         >
-          <div class="font-medium text-gray-900">{{ release.title }}</div>
-          <div class="text-sm text-gray-600">{{ release.artist_credit }}</div>
-          <div class="text-xs text-gray-500 mt-1 flex items-center gap-3">
-            <span v-if="release.date">{{ release.date.substring(0, 4) }}</span>
-            <span>{{ release.track_count }} tracks</span>
-            <span v-if="release.country">{{ release.country }}</span>
+          <!-- Cover Art -->
+          <div class="w-12 h-12 flex-shrink-0 bg-gray-100 rounded overflow-hidden">
+            <img
+              v-if="release.cover_art_available"
+              :src="`https://coverartarchive.org/release/${release.mbid}/front-250`"
+              :alt="release.title"
+              class="w-full h-full object-cover"
+              loading="lazy"
+              @error="(e) => (e.target as HTMLImageElement).style.display = 'none'"
+            />
+            <div v-else class="w-full h-full flex items-center justify-center text-gray-400">
+              <span class="i-carbon-music text-xl"></span>
+            </div>
+          </div>
+          <!-- Info -->
+          <div class="flex-1 min-w-0">
+            <div class="font-medium text-gray-900 truncate">{{ release.title }}</div>
+            <div class="text-sm text-gray-600 truncate">{{ release.artist_credit }}</div>
+            <div class="text-xs text-gray-500 mt-1 flex items-center gap-3">
+              <span v-if="release.release_date">{{ release.release_date.substring(0, 4) }}</span>
+              <span v-if="release.country" class="uppercase">{{ release.country }}</span>
+            </div>
           </div>
         </button>
       </div>
@@ -370,23 +386,41 @@ const currentStepIdx = computed(() => {
     <!-- Step 3: Ticket Details -->
     <div v-else-if="wizard.currentStep.value === 'details'" class="space-y-4">
       <p class="text-sm text-gray-600">
-        Specify where to save the files and any additional details.
+        Specify where to save the files. Only the destination path is required.
       </p>
 
-      <!-- Description (auto-filled from selection) -->
+      <!-- Selected Album Summary -->
+      <div v-if="wizard.selectedRelease.value" class="bg-blue-50 rounded-lg p-3 flex gap-3 items-center">
+        <div class="w-10 h-10 flex-shrink-0 bg-gray-200 rounded overflow-hidden">
+          <img
+            v-if="wizard.selectedRelease.value.cover_art_available"
+            :src="`https://coverartarchive.org/release/${wizard.selectedRelease.value.mbid}/front-250`"
+            class="w-full h-full object-cover"
+          />
+          <div v-else class="w-full h-full flex items-center justify-center text-gray-400">
+            <span class="i-carbon-music"></span>
+          </div>
+        </div>
+        <div class="min-w-0">
+          <div class="font-medium text-gray-900 truncate">{{ wizard.selectedRelease.value.title }}</div>
+          <div class="text-sm text-gray-600 truncate">{{ wizard.selectedRelease.value.artist_credit }}</div>
+        </div>
+      </div>
+
+      <!-- Description (optional) -->
       <div>
         <label for="description" class="block text-sm font-medium text-gray-700 mb-1">
-          Description
+          Description <span class="text-gray-400 font-normal">(optional)</span>
         </label>
         <textarea
           id="description"
           v-model="wizard.description.value"
           class="input w-full"
           rows="2"
-          :placeholder="wizard.selectedItemSummary.value ? `${wizard.selectedItemSummary.value.title} - ${wizard.selectedItemSummary.value.subtitle}` : 'What are you looking for?'"
+          placeholder="Additional notes or search hints..."
         ></textarea>
         <p class="text-xs text-gray-500 mt-1">
-          Leave empty to auto-generate from selected album
+          Auto-generated from album if left empty
         </p>
       </div>
 
@@ -531,8 +565,8 @@ const currentStepIdx = computed(() => {
           <div class="text-gray-600">{{ wizard.selectedRelease.value?.artist_credit }}</div>
           <div class="text-gray-500 text-xs mt-1">
             {{ wizard.selectedRelease.value?.track_count }} tracks
-            <span v-if="wizard.selectedRelease.value?.date">
-              &middot; {{ wizard.selectedRelease.value.date.substring(0, 4) }}
+            <span v-if="wizard.selectedRelease.value?.release_date">
+              &middot; {{ wizard.selectedRelease.value.release_date.substring(0, 4) }}
             </span>
           </div>
         </div>
@@ -607,7 +641,7 @@ const currentStepIdx = computed(() => {
       <button
         v-if="wizard.currentStep.value !== 'search'"
         @click="handlePrevStep"
-        class="btn-secondary"
+        class="btn-secondary flex items-center gap-2"
       >
         <span class="i-carbon-arrow-left"></span>
         Back
@@ -620,7 +654,7 @@ const currentStepIdx = computed(() => {
         <button
           v-if="wizard.currentStep.value !== 'review'"
           @click="wizard.nextStep()"
-          class="btn-primary"
+          class="btn-primary flex items-center gap-2"
           :disabled="!wizard.canProceed.value"
         >
           Next

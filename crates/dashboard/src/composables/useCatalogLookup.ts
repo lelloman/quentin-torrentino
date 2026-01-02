@@ -171,8 +171,8 @@ export function useCatalogLookup() {
     if (selectedRelease.value) {
       return {
         type: 'music_brainz',
-        release_id: selectedRelease.value.id,
-        track_count: selectedRelease.value.track_count,
+        release_id: selectedRelease.value.mbid,
+        track_count: selectedRelease.value.track_count ?? selectedRelease.value.tracks.length,
         total_duration_ms: selectedRelease.value.total_length_ms,
       }
     }
