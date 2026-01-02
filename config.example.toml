@@ -196,3 +196,103 @@ path = "quentin.db"
 #
 # # Base URL (optional)
 # # base_url = "https://api.themoviedb.org/3"
+
+# ==============================================================================
+# CONVERTER (OPTIONAL)
+# ==============================================================================
+# Configuration for the FFmpeg-based audio/video converter.
+# These settings control how files are transcoded during the pipeline.
+
+# [converter]
+# # Path to ffmpeg binary (default: "ffmpeg" - uses PATH)
+# ffmpeg_path = "/usr/bin/ffmpeg"
+#
+# # Path to ffprobe binary (default: "ffprobe" - uses PATH)
+# ffprobe_path = "/usr/bin/ffprobe"
+#
+# # Temporary directory for intermediate files
+# # Default: system temp dir + "quentin-converter"
+# temp_dir = "/tmp/quentin-converter"
+#
+# # Maximum parallel conversions (default: 4)
+# max_parallel_conversions = 4
+#
+# # Timeout for a single conversion job in seconds (default: 3600 = 1 hour)
+# timeout_secs = 3600
+#
+# # Whether to preserve original files after conversion (default: false)
+# preserve_originals = false
+#
+# # FFmpeg log level: quiet, panic, fatal, error, warning, info, verbose, debug, trace
+# ffmpeg_log_level = "warning"
+#
+# # Additional global ffmpeg arguments (optional)
+# extra_ffmpeg_args = ["-threads", "2"]
+
+# ==============================================================================
+# PLACER (OPTIONAL)
+# ==============================================================================
+# Configuration for the file placer that moves converted files to destinations.
+
+# [placer]
+# # Buffer size for file copies in bytes (default: 8MB)
+# buffer_size = 8388608
+#
+# # Whether to use atomic moves when possible (default: true)
+# prefer_atomic_moves = true
+#
+# # Whether to verify checksums after copying (default: false)
+# verify_checksums = false
+#
+# # Whether to clean up source files after placement (default: false)
+# cleanup_sources = false
+#
+# # Whether to create directories with intermediate paths (default: true)
+# create_parents = true
+#
+# # Maximum parallel file operations (default: 4)
+# max_parallel_operations = 4
+#
+# # Permissions for created directories (Unix only, octal, default: 0755)
+# directory_mode = 493  # 0o755 in decimal
+#
+# # Backup directory for replaced files (optional)
+# # backup_dir = "/data/backups"
+
+# ==============================================================================
+# PROCESSOR (OPTIONAL)
+# ==============================================================================
+# Configuration for the processing pipeline that handles conversion and placement.
+
+# [processor]
+# # Maximum parallel conversions (default: 4)
+# max_parallel_conversions = 4
+#
+# # Maximum parallel placements (default: 8)
+# max_parallel_placements = 8
+#
+# # Temporary directory for intermediate files
+# temp_dir = "/tmp/quentin-processor"
+#
+# # Whether to clean up source files after successful placement (default: false)
+# cleanup_after_placement = false
+#
+# # Conversion timeout in seconds (default: 3600 = 1 hour)
+# conversion_timeout_secs = 3600
+#
+# # Progress update interval in milliseconds (default: 1000)
+# progress_interval_ms = 1000
+#
+# # Retry configuration
+# [processor.retry]
+# # Maximum retry attempts (default: 3)
+# max_attempts = 3
+#
+# # Initial delay between retries in seconds (default: 60)
+# initial_delay_secs = 60
+#
+# # Maximum delay between retries in seconds (default: 3600)
+# max_delay_secs = 3600
+#
+# # Exponential backoff multiplier (default: 2.0)
+# backoff_multiplier = 2.0

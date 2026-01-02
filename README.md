@@ -1339,15 +1339,16 @@ Cover art is fetched from multiple sources with fallback:
 
 ## Configuration
 
+See `config.example.toml` for a complete reference with all options documented. Below is a minimal example:
+
 ```toml
 # ==============================================================================
-# AUTHENTICATION (REQUIRED - service will not start without this)
+# AUTHENTICATION (REQUIRED)
 # ==============================================================================
 
 [auth]
-method = "none"  # "none", "oidc", "address", "cert", "plugin"
-
-# See Authentication section for method-specific config
+method = "none"  # "none" or "api_key"
+# api_key = "your-secret-key"  # Required when method = "api_key"
 
 # ==============================================================================
 # SERVER
@@ -1362,85 +1363,78 @@ port = 8080
 # ==============================================================================
 
 [database]
-path = "/data/quentin.db"
+path = "quentin.db"
 
 # ==============================================================================
-# TORRENT SEARCH
+# TORRENT SEARCH (required for ticket processing)
 # ==============================================================================
 
 [searcher]
-backend = "jackett"  # or "prowlarr" (future)
+backend = "jackett"
 
 [searcher.jackett]
 url = "http://localhost:9117"
 api_key = "your-jackett-api-key"
 timeout_secs = 30
 
-[[searcher.jackett.indexers]]
-name = "rutracker"
-rate_limit_requests_per_min = 10
-
-[[searcher.jackett.indexers]]
-name = "redacted"
-rate_limit_requests_per_min = 5
-
 # ==============================================================================
-# TORRENT CLIENT
+# TORRENT CLIENT (required for downloading)
 # ==============================================================================
 
-[qbittorrent]
-url = "http://localhost:8081"
-username = "admin"
-password = "adminadmin"
-download_path = "/downloads/incomplete"
-seed_ratio_target = 1.0
-seed_time_limit_mins = 0  # 0 = no limit
-cleanup_policy = "after_ratio"  # "immediate", "after_ratio", "manual"
+# Option 1: Embedded librqbit (no external service needed)
+[torrent_client]
+backend = "librqbit"
+
+[torrent_client.librqbit]
+download_path = "/downloads"
+enable_dht = true
+
+# Option 2: External qBittorrent
+# [torrent_client]
+# backend = "qbittorrent"
+#
+# [torrent_client.qbittorrent]
+# url = "http://localhost:8080"
+# username = "admin"
+# password = "adminadmin"
 
 # ==============================================================================
-# MATCHER
+# TEXTBRAIN (intelligent matching)
 # ==============================================================================
 
-[matcher]
-type = "dumb"  # or "llm"
+[textbrain]
+mode = "dumb_only"  # "dumb_only", "dumb_first", "llm_first", "llm_only"
 auto_approve_threshold = 0.85
 
-# Optional LLM configuration
-[matcher.llm]
-provider = "anthropic"  # "openai", "deepseek", "ollama"
-model = "claude-3-haiku-20240307"
-api_key = "your-api-key"
-api_base = "https://api.anthropic.com"  # optional
+# Optional LLM configuration (for dumb_first, llm_first, llm_only modes)
+# [textbrain.llm]
+# provider = "ollama"  # "anthropic", "openai", "ollama"
+# model = "llama2"
+# timeout_secs = 60
 
 # ==============================================================================
-# CONVERTER
+# ORCHESTRATOR (automatic ticket processing)
 # ==============================================================================
 
-[converter]
-ffmpeg_path = "/usr/bin/ffmpeg"
-ffprobe_path = "/usr/bin/ffprobe"
-temp_dir = "/tmp/quentin"
-max_parallel_conversions = 4
+[orchestrator]
+enabled = true
+acquisition_poll_interval_ms = 5000
+download_poll_interval_ms = 3000
+auto_approve_threshold = 0.85
+max_concurrent_downloads = 3
 
 # ==============================================================================
-# PROCESSING
+# EXTERNAL CATALOGS (for ticket wizard)
 # ==============================================================================
 
-[processing]
-max_parallel_downloads = 2
-check_interval_secs = 10
-retry_max_attempts = 3
-retry_initial_delay_secs = 60
-retry_max_delay_secs = 3600
+# MusicBrainz - No API key required
+[external_catalogs.musicbrainz]
+user_agent = "QuentinTorrentino/0.1.0 ( https://github.com/your-username )"
+rate_limit_ms = 1100
 
-# ==============================================================================
-# AUDIT LOG
-# ==============================================================================
-
-[audit]
-# SQLite storage is automatic (same DB as tickets)
-# Structured log output (optional)
-log_file = "/var/log/quentin/audit.jsonl"  # optional
+# TMDB - Requires free API key from themoviedb.org
+# [external_catalogs.tmdb]
+# api_key = "your-tmdb-api-key"
 ```
 
 ## Crate Structure (Workspace)
@@ -1727,53 +1721,59 @@ Each phase includes corresponding admin dashboard work. The dashboard evolves al
 
 **Phase 5: Orchestrator + Content Modules** ⬅️ CURRENT
 
-*Phase 5a: Ticket Orchestrator* ← START HERE
-The missing piece that connects all existing components into an automated end-to-end pipeline.
+*Phase 5a: Ticket Orchestrator* ✅
+The orchestrator connects all components into an automated end-to-end pipeline.
 
-- [ ] `TicketOrchestrator` background service spawned on server startup
-- [ ] **Acquisition Worker**:
-  - [ ] Poll for `Pending` tickets (respecting priority order)
-  - [ ] Call `TextBrain.acquire()` for each ticket
-  - [ ] Transition to `NeedsApproval` or `AutoApproved` based on confidence threshold
-  - [ ] Handle `AcquisitionFailed` state when no suitable torrent found
-  - [ ] Configurable polling interval and concurrency limits
-- [ ] **Download Worker**:
-  - [ ] Watch for `Approved`/`AutoApproved` tickets
-  - [ ] Add torrent to TorrentClient (librqbit/qBittorrent)
-  - [ ] Transition to `Downloading` state
-  - [ ] Poll download progress, update ticket state with progress/speed/ETA
-  - [ ] Detect download completion, transition to `Converting`
-  - [ ] Handle download failures with retry logic
-- [ ] **Pipeline Integration**:
-  - [ ] Watch for tickets entering `Converting` state (or download complete)
-  - [ ] Build `PipelineJob` from downloaded files + ticket constraints
-  - [ ] Submit to existing `PipelineProcessor`
-  - [ ] Pipeline already handles `Converting` → `Placing` → `Completed`
-- [ ] **State Machine Enforcement**:
-  - [ ] Ensure valid transitions only
-  - [ ] Handle edge cases (user cancellation, manual overrides)
-  - [ ] Graceful shutdown (complete in-flight work, persist state)
-- [ ] **Configuration**:
+- [x] `TicketOrchestrator` background service spawned on server startup
+- [x] **Acquisition Worker**:
+  - [x] Poll for `Pending` tickets (respecting priority order)
+  - [x] Call `TextBrain.acquire()` for each ticket
+  - [x] Transition to `NeedsApproval` or `AutoApproved` based on confidence threshold
+  - [x] Handle `AcquisitionFailed` state when no suitable torrent found
+  - [x] Configurable polling interval and concurrency limits
+- [x] **Download Worker**:
+  - [x] Watch for `Approved`/`AutoApproved` tickets
+  - [x] Add torrent to TorrentClient (librqbit/qBittorrent)
+  - [x] Transition to `Downloading` state
+  - [x] Poll download progress, update ticket state with progress/speed/ETA
+  - [x] Detect download completion, transition to `Converting`
+  - [x] Handle download failures with retry logic
+  - [x] Stall detection with multi-round failover to alternate candidates
+  - [x] Support for both magnet URIs and .torrent file URLs
+- [x] **Pipeline Integration**:
+  - [x] Watch for tickets entering `Converting` state (or download complete)
+  - [x] Build `PipelineJob` from downloaded files + ticket constraints
+  - [x] Submit to existing `PipelineProcessor`
+  - [x] Pipeline handles `Converting` → `Placing` → `Completed`
+- [x] **State Machine Enforcement**:
+  - [x] Ensure valid transitions only
+  - [x] Handle edge cases (user cancellation, manual overrides)
+  - [x] Graceful shutdown (complete in-flight work, persist state)
+  - [x] Recovery of in-progress downloads on restart
+- [x] **Configuration**:
   ```toml
   [orchestrator]
   enabled = true
-  acquisition_poll_interval_secs = 5
-  acquisition_max_concurrent = 2
-  download_poll_interval_secs = 10
-  download_max_concurrent = 3
+  acquisition_poll_interval_ms = 5000
+  download_poll_interval_ms = 3000
+  max_concurrent_downloads = 3
   auto_approve_threshold = 0.85
+  max_failover_candidates = 5
+  stall_timeout_round1_secs = 300
+  stall_timeout_round2_secs = 600
+  stall_timeout_round3_secs = 1800
   ```
-- [ ] **Dashboard**: Orchestrator status panel, enable/disable toggle, worker stats
+- [x] **Dashboard**: Orchestrator status panel, start/stop controls, worker stats
 
 *Phase 5b: Content Dispatch Infrastructure*
-Add the `content` module with dispatch functions and generic fallback (see "Content-Specific Logic" section above).
+Content-specific logic is currently integrated directly into TextBrain's query builders and matchers.
+The formal `content` module with dispatch functions is deferred - current implementation works well.
 
-- [ ] `content/mod.rs` with dispatch functions (`build_queries`, `score_candidate`, `map_files`, `post_process`)
-- [ ] `content/types.rs` with `PostProcessResult`, `ContentError`
-- [ ] `content/generic.rs` wrapping existing `DumbQueryBuilder`/`DumbMatcher`/`DumbFileMapper`
-- [ ] Stub `content/music.rs` and `content/video.rs` (delegate to generic initially)
-- [ ] Update orchestrator to use `content::*` dispatch instead of direct TextBrain calls
-- [ ] Verify existing behavior unchanged
+- [x] Content-specific query building in `DumbQueryBuilder` (music vs video patterns)
+- [x] Content-specific scoring in `DumbMatcher` (format detection, constraint matching)
+- [x] Content-specific file mapping in `DumbFileMapper` (track/episode detection)
+- [ ] (Deferred) Formal `content/mod.rs` with dispatch functions
+- [ ] (Deferred) `post_process()` hook for cover art / subtitle fetching
 
 *Phase 5c: Music Content*
 Implement music-specific logic in `content/music.rs`.
@@ -1809,8 +1809,12 @@ Implement music-specific logic in `content/music.rs`.
   - [x] `MusicBrainzRelease`, `MusicBrainzTrack` types
   - [x] `useCatalogLookup` composable for catalog search/selection
   - [x] `useTicketWizard` composable for multi-step ticket creation
-- [ ] **Dashboard**: Music ticket creation wizard UI (Vue component)
-  - [ ] MusicBrainz search → select release → preview tracks → set constraints → create ticket
+- [x] **Dashboard**: Music ticket creation wizard UI (Vue component)
+  - [x] `MusicTicketWizard.vue` - Full 4-step wizard (Search → Constraints → Details → Review)
+  - [x] MusicBrainz search with cover art display
+  - [x] Audio constraints (preferred formats, min bitrate, avoid compilations/live)
+  - [x] Output format selection (keep original or convert to FLAC/MP3/Ogg/Opus/AAC)
+  - [x] Ticket details (destination path, description, tags, priority)
 
 *Phase 5d: Video Content*
 Implement video-specific logic in `content/video.rs`.
