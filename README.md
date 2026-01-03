@@ -1490,6 +1490,13 @@ quentin-torrentino/
 │   │       │   ├── matcher.rs
 │   │       │   ├── converter.rs
 │   │       │   └── ticket.rs
+│   │       ├── testing/              # Mock implementations for E2E tests
+│   │       │   ├── mod.rs
+│   │       │   ├── mock_torrent_client.rs
+│   │       │   ├── mock_searcher.rs
+│   │       │   ├── mock_external_catalog.rs
+│   │       │   ├── mock_converter.rs
+│   │       │   └── mock_placer.rs
 │   │       └── models/
 │   │           ├── mod.rs
 │   │           ├── state.rs
@@ -1643,10 +1650,32 @@ services:
 - Auth validation
 
 ### Integration Tests (with mocks)
-- API endpoint tests
-- Queue processing with mocked external services
-- Converter with real ffmpeg but test files
-- Auth middleware with test tokens
+
+The `torrentino_core::testing` module provides mock implementations of all external service traits:
+
+| Mock | Trait | Features |
+|------|-------|----------|
+| `MockTorrentClient` | `TorrentClient` | Track added torrents, control progress, simulate failures |
+| `MockSearcher` | `Searcher` | Configurable results, query recording, custom filters |
+| `MockExternalCatalog` | `ExternalCatalog` | MusicBrainz/TMDB mock responses |
+| `MockConverter` | `Converter` | Track conversions, custom probe results, progress |
+| `MockPlacer` | `Placer` | Track placements/rollbacks, progress simulation |
+
+Test fixtures are available via `testing::fixtures`:
+- `torrent_candidate()`, `audio_candidate()`, `video_candidate()`
+- `musicbrainz_release()`, `tmdb_movie()`, `tmdb_series()`, `tmdb_season()`
+
+Example usage:
+```rust
+use torrentino_core::testing::{MockTorrentClient, MockSearcher, fixtures};
+
+let searcher = MockSearcher::new();
+searcher.set_results(vec![
+    fixtures::audio_candidate("The Beatles", "Abbey Road", "abc123"),
+]).await;
+
+// Inject into AppState for E2E tests...
+```
 
 ### End-to-End Tests
 - Docker compose with real Jackett + qBittorrent
@@ -1871,7 +1900,9 @@ Implement video-specific logic in `content/video.rs`.
 - [ ] Retry logic with exponential backoff (integrate with orchestrator)
 - [ ] Metrics/observability (Prometheus metrics for all workers)
 - [ ] Docker packaging
-- [ ] Comprehensive testing (unit, integration, E2E)
+- [x] Mock infrastructure for E2E testing (`torrentino_core::testing` module)
+- [ ] E2E test suite for server (using mock infrastructure)
+- [ ] E2E test suite for dashboard
 - [x] **Dashboard**: Real-time updates via WebSocket, audit log viewer, system health page
 
 ## Design Decisions
