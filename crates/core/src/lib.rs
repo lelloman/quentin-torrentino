@@ -13,6 +13,12 @@ pub mod textbrain;
 pub mod ticket;
 pub mod torrent_client;
 
+/// Testing utilities and mock implementations for E2E tests.
+///
+/// This module provides mock implementations of all external service traits,
+/// allowing comprehensive E2E testing without real infrastructure.
+pub mod testing;
+
 pub use audit::{
     create_audit_system, AuditError, AuditEvent, AuditEventEnvelope, AuditFilter, AuditHandle,
     AuditRecord, AuditStore, AuditWriter, SqliteAuditStore,
