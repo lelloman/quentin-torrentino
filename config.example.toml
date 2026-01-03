@@ -133,6 +133,27 @@ path = "quentin.db"
 # timeout_secs = 60                       # Request timeout
 # max_tokens = 1024                       # Max tokens for completions
 
+# File enrichment configuration
+# When enabled, fetches .torrent files to get actual file listings before scoring.
+# This allows accurate matching for discographies, season packs, etc.
+
+# [textbrain.file_enrichment]
+# # Enable file enrichment (default: true)
+# enabled = true
+#
+# # Maximum candidates to enrich with file listings
+# max_candidates = 15
+#
+# # Minimum preliminary score to qualify for enrichment (0.0-1.0)
+# # Only candidates scoring above this threshold get enriched
+# min_score_threshold = 0.4
+#
+# # Timeout for fetching each .torrent file (seconds)
+# fetch_timeout_secs = 10
+#
+# # Maximum concurrent .torrent file downloads
+# max_parallel_fetches = 5
+
 # ==============================================================================
 # ORCHESTRATOR (OPTIONAL)
 # ==============================================================================

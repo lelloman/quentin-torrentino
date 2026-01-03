@@ -2,6 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::searcher::FileEnricherConfig;
+
 /// TextBrain coordination mode.
 ///
 /// Determines how dumb (heuristic) and LLM methods are combined.
@@ -106,6 +108,10 @@ pub struct TextBrainConfig {
     /// LLM configuration (required for modes that use LLM).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub llm: Option<LlmConfig>,
+    /// File enrichment configuration.
+    /// Controls fetching and caching of torrent file listings.
+    #[serde(default)]
+    pub file_enrichment: FileEnricherConfig,
 }
 
 fn default_auto_approve_threshold() -> f32 {
@@ -128,6 +134,7 @@ impl Default for TextBrainConfig {
             confidence_threshold: default_confidence_threshold(),
             max_queries: default_max_queries(),
             llm: None,
+            file_enrichment: FileEnricherConfig::default(),
         }
     }
 }
@@ -172,6 +179,14 @@ impl TextBrainConfig {
                     ));
                 }
             }
+        }
+
+        // Validate file enrichment config
+        if !(0.0..=1.0).contains(&self.file_enrichment.min_score_threshold) {
+            return Err(format!(
+                "file_enrichment.min_score_threshold must be between 0.0 and 1.0, got {}",
+                self.file_enrichment.min_score_threshold
+            ));
         }
 
         Ok(())

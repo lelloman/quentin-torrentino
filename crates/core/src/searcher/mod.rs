@@ -4,7 +4,9 @@
 //! various backends (Jackett, Prowlarr, etc.).
 
 mod dedup;
+mod file_enricher;
 mod jackett;
+mod torrent_parser;
 mod types;
 
 // Rate limiter kept for potential future use
@@ -12,5 +14,7 @@ mod types;
 mod rate_limiter;
 
 pub use dedup::deduplicate_results;
+pub use file_enricher::{FileEnricher, FileEnricherConfig, EnrichmentStats};
 pub use jackett::JackettSearcher;
+pub use torrent_parser::{parse_torrent_files, parse_torrent_info_hash, TorrentParseError};
 pub use types::*;

@@ -67,6 +67,7 @@ regex-lite = "0.1"
 # BitTorrent
 librqbit = "8.1"
 librqbit-core = "5.0"
+librqbit-buffers = "4.2"
 
 # Testing
 tokio-test = "0.4"

@@ -2924,6 +2924,7 @@ dependencies = [
  "figment",
  "futures",
  "librqbit",
+ "librqbit-buffers",
  "librqbit-core",
  "md5",
  "regex-lite",

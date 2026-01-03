@@ -24,6 +24,7 @@ futures = { workspace = true }
 regex-lite = { workspace = true }
 librqbit = { workspace = true }
 librqbit-core = { workspace = true }
+librqbit-buffers = { workspace = true }
 
 [dev-dependencies]
 tokio-test = { workspace = true }

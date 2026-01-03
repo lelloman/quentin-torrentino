@@ -4,9 +4,10 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use chrono::{DateTime, Utc};
+use tracing::debug;
 
 use crate::audit::{AuditEvent, AuditHandle};
-use crate::searcher::{SearchQuery, Searcher, TorrentCandidate};
+use crate::searcher::{FileEnricher, SearchQuery, Searcher, TorrentCandidate};
 use crate::ticket::{AcquisitionPhase, QueryContext};
 use crate::textbrain::{
     config::{TextBrainConfig, TextBrainMode},
@@ -57,6 +58,7 @@ pub struct TextBrain {
     llm_query_builder: Option<Arc<dyn QueryBuilder>>,
     dumb_matcher: Option<Arc<dyn CandidateMatcher>>,
     llm_matcher: Option<Arc<dyn CandidateMatcher>>,
+    file_enricher: Option<Arc<FileEnricher>>,
 }
 
 impl TextBrain {
@@ -70,6 +72,7 @@ impl TextBrain {
             llm_query_builder: None,
             dumb_matcher: None,
             llm_matcher: None,
+            file_enricher: None,
         }
     }
 
@@ -94,6 +97,12 @@ impl TextBrain {
     /// Set the LLM-powered matcher.
     pub fn with_llm_matcher(mut self, matcher: Arc<dyn CandidateMatcher>) -> Self {
         self.llm_matcher = Some(matcher);
+        self
+    }
+
+    /// Set the file enricher for fetching torrent file listings.
+    pub fn with_file_enricher(mut self, enricher: Arc<FileEnricher>) -> Self {
+        self.file_enricher = Some(enricher);
         self
     }
 
@@ -138,10 +147,15 @@ impl TextBrain {
         }
     }
 
-    /// Full acquisition flow: query building -> search -> scoring.
+    /// Full acquisition flow: query building -> search -> scoring -> enrichment -> re-scoring.
     ///
-    /// Iterates through queries until a match is found or all queries are exhausted.
-    /// Returns the best candidate if score >= auto_approve_threshold.
+    /// The flow is:
+    /// 1. Build search queries from the ticket context
+    /// 2. Execute searches and collect candidates
+    /// 3. Score candidates (title-only since files aren't available from search)
+    /// 4. Enrich top candidates with file listings (if file_enricher is configured)
+    /// 5. Re-score enriched candidates with file information
+    /// 6. Return the best candidate if score >= auto_approve_threshold
     pub async fn acquire(
         &self,
         context: &QueryContext,
@@ -149,9 +163,10 @@ impl TextBrain {
     ) -> Result<AcquisitionResult, TextBrainError> {
         let start = Instant::now();
         let mut total_llm_usage = LlmUsage::default();
-        let mut all_candidates: Vec<ScoredCandidate> = Vec::new();
+        let mut all_scored: Vec<ScoredCandidate> = Vec::new();
         let mut queries_tried: Vec<String> = Vec::new();
         let mut candidates_evaluated: u32 = 0;
+        let mut last_score_method = "none".to_string();
 
         // Step 1: Build queries
         let query_result = self.build_queries(context).await?;
@@ -165,16 +180,15 @@ impl TextBrain {
             return Err(TextBrainError::NoQueriesGenerated);
         }
 
-        // Step 2: Iterate through queries
+        // Step 2: Search and collect candidates from all queries
         let max_queries = self.config.max_queries as usize;
         for query_str in query_result.queries.iter().take(max_queries) {
             queries_tried.push(query_str.clone());
 
-            // Execute search
             let search_query = SearchQuery {
                 query: query_str.clone(),
                 indexers: None,
-                categories: None, // Could be derived from context.tags
+                categories: None,
                 limit: Some(50),
             };
 
@@ -184,58 +198,120 @@ impl TextBrain {
                 .map_err(|e| TextBrainError::SearchFailed(e.to_string()))?;
 
             if search_result.candidates.is_empty() {
-                continue; // Try next query
+                continue;
             }
 
             candidates_evaluated += search_result.candidates.len() as u32;
 
-            // Score candidates
+            // Step 3: Score candidates (title-only since files = None from Jackett)
             let match_result = self.score_candidates(context, &search_result.candidates).await?;
             if let Some(usage) = &match_result.llm_usage {
                 total_llm_usage.input_tokens += usage.input_tokens;
                 total_llm_usage.output_tokens += usage.output_tokens;
             }
-            let score_method = match_result.method.clone();
+            last_score_method = match_result.method.clone();
 
             // Merge scored candidates (avoid duplicates by info_hash)
             for scored in match_result.candidates {
-                if !all_candidates
+                if !all_scored
                     .iter()
                     .any(|c| c.candidate.info_hash == scored.candidate.info_hash)
                 {
-                    all_candidates.push(scored);
-                }
-            }
-
-            // Check if we have a good enough match
-            if let Some(best) = all_candidates.first() {
-                if best.score >= self.config.auto_approve_threshold {
-                    // Found a good match, we're done
-                    let duration_ms = start.elapsed().as_millis() as u64;
-                    return Ok(AcquisitionResult {
-                        best_candidate: Some(best.clone()),
-                        all_candidates,
-                        queries_tried,
-                        candidates_evaluated,
-                        query_method,
-                        score_method,
-                        auto_approved: true,
-                        llm_usage: if total_llm_usage.input_tokens > 0 {
-                            Some(total_llm_usage)
-                        } else {
-                            None
-                        },
-                        duration_ms,
-                    });
+                    all_scored.push(scored);
                 }
             }
         }
 
-        // Re-sort all candidates by score
-        all_candidates.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        // Sort by preliminary score
+        all_scored.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+
+        // Step 4: File enrichment (if configured)
+        if let Some(ref enricher) = self.file_enricher {
+            if enricher.is_enabled() && !all_scored.is_empty() {
+                let enrichment_config = enricher.config();
+
+                // Filter candidates for enrichment: top N above threshold
+                let candidates_to_enrich: Vec<usize> = all_scored
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, c)| c.score >= enrichment_config.min_score_threshold)
+                    .take(enrichment_config.max_candidates)
+                    .map(|(idx, _)| idx)
+                    .collect();
+
+                if !candidates_to_enrich.is_empty() {
+                    debug!(
+                        count = candidates_to_enrich.len(),
+                        threshold = enrichment_config.min_score_threshold,
+                        "Enriching candidates with file listings"
+                    );
+
+                    // Extract candidates for enrichment
+                    let mut to_enrich: Vec<TorrentCandidate> = candidates_to_enrich
+                        .iter()
+                        .map(|&idx| all_scored[idx].candidate.clone())
+                        .collect();
+
+                    // Enrich with file listings
+                    let stats = enricher.enrich(&mut to_enrich).await;
+                    debug!(
+                        cache_hits = stats.cache_hits,
+                        fetched = stats.fetched,
+                        failed = stats.failed,
+                        skipped = stats.skipped_no_url,
+                        "File enrichment complete"
+                    );
+
+                    // Step 5: Re-score enriched candidates
+                    let enriched_with_files: Vec<&TorrentCandidate> = to_enrich
+                        .iter()
+                        .filter(|c| c.files.is_some())
+                        .collect();
+
+                    if !enriched_with_files.is_empty() {
+                        debug!(
+                            count = enriched_with_files.len(),
+                            "Re-scoring candidates with file information"
+                        );
+
+                        // Re-score candidates that now have files
+                        let enriched_refs: Vec<TorrentCandidate> = enriched_with_files
+                            .into_iter()
+                            .cloned()
+                            .collect();
+
+                        let rescore_result = self.score_candidates(context, &enriched_refs).await?;
+                        if let Some(usage) = &rescore_result.llm_usage {
+                            total_llm_usage.input_tokens += usage.input_tokens;
+                            total_llm_usage.output_tokens += usage.output_tokens;
+                        }
+                        last_score_method = format!("{}_with_files", rescore_result.method);
+
+                        // Update scores in all_scored for the re-scored candidates
+                        for rescored in rescore_result.candidates {
+                            if let Some(existing) = all_scored
+                                .iter_mut()
+                                .find(|c| c.candidate.info_hash == rescored.candidate.info_hash)
+                            {
+                                // Update with new score and file mappings
+                                existing.score = rescored.score;
+                                existing.reasoning = rescored.reasoning;
+                                existing.file_mappings = rescored.file_mappings;
+                                existing.candidate.files = rescored.candidate.files;
+                            }
+                        }
+
+                        // Re-sort after updating scores
+                        all_scored.sort_by(|a, b| {
+                            b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal)
+                        });
+                    }
+                }
+            }
+        }
 
         let duration_ms = start.elapsed().as_millis() as u64;
-        let best_candidate = all_candidates.first().cloned();
+        let best_candidate = all_scored.first().cloned();
         let auto_approved = best_candidate
             .as_ref()
             .map(|c| c.score >= self.config.auto_approve_threshold)
@@ -243,11 +319,11 @@ impl TextBrain {
 
         Ok(AcquisitionResult {
             best_candidate,
-            all_candidates,
+            all_candidates: all_scored,
             queries_tried,
             candidates_evaluated,
             query_method,
-            score_method: "dumb".to_string(), // Will be updated properly when we track this
+            score_method: last_score_method,
             auto_approved,
             llm_usage: if total_llm_usage.input_tokens > 0 {
                 Some(total_llm_usage)
@@ -449,44 +525,101 @@ impl TextBrain {
                     all_candidates.push(scored);
                 }
             }
+        }
 
-            // Check if we have a good enough match
-            if let Some(best) = all_candidates.first() {
-                if best.score >= self.config.auto_approve_threshold {
-                    // Found a good match, we're done
-                    let duration_ms = start.elapsed().as_millis() as u64;
+        // Sort by preliminary score
+        all_candidates.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
 
-                    audit_ctx.audit.emit(AuditEvent::AcquisitionCompleted {
-                        ticket_id: audit_ctx.ticket_id.clone(),
-                        success: true,
-                        queries_tried: queries_tried.len() as u32,
+        // Step 4: File enrichment (if configured)
+        if let Some(ref enricher) = self.file_enricher {
+            if enricher.is_enabled() && !all_candidates.is_empty() {
+                let enrichment_config = enricher.config();
+
+                // Filter candidates for enrichment: top N above threshold
+                let candidates_to_enrich: Vec<usize> = all_candidates
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, c)| c.score >= enrichment_config.min_score_threshold)
+                    .take(enrichment_config.max_candidates)
+                    .map(|(idx, _)| idx)
+                    .collect();
+
+                if !candidates_to_enrich.is_empty() {
+                    debug!(
+                        count = candidates_to_enrich.len(),
+                        threshold = enrichment_config.min_score_threshold,
+                        "Enriching candidates with file listings"
+                    );
+
+                    // Update state: Enriching phase
+                    update_state(
+                        queries_tried.clone(),
                         candidates_evaluated,
-                        best_score: Some(best.score),
-                        duration_ms,
-                        outcome: "auto_approved".to_string(),
-                    }).await;
+                        AcquisitionPhase::Scoring { candidates_count: candidates_to_enrich.len() as u32 },
+                    ).await;
 
-                    return Ok(AcquisitionResult {
-                        best_candidate: Some(best.clone()),
-                        all_candidates,
-                        queries_tried,
-                        candidates_evaluated,
-                        query_method,
-                        score_method: last_score_method,
-                        auto_approved: true,
-                        llm_usage: if total_llm_usage.input_tokens > 0 {
-                            Some(total_llm_usage)
-                        } else {
-                            None
-                        },
-                        duration_ms,
-                    });
+                    // Extract candidates for enrichment
+                    let mut to_enrich: Vec<TorrentCandidate> = candidates_to_enrich
+                        .iter()
+                        .map(|&idx| all_candidates[idx].candidate.clone())
+                        .collect();
+
+                    // Enrich with file listings
+                    let stats = enricher.enrich(&mut to_enrich).await;
+                    debug!(
+                        cache_hits = stats.cache_hits,
+                        fetched = stats.fetched,
+                        failed = stats.failed,
+                        skipped = stats.skipped_no_url,
+                        "File enrichment complete"
+                    );
+
+                    // Re-score enriched candidates
+                    let enriched_with_files: Vec<&TorrentCandidate> = to_enrich
+                        .iter()
+                        .filter(|c| c.files.is_some())
+                        .collect();
+
+                    if !enriched_with_files.is_empty() {
+                        debug!(
+                            count = enriched_with_files.len(),
+                            "Re-scoring candidates with file information"
+                        );
+
+                        // Re-score candidates that now have files
+                        let enriched_refs: Vec<TorrentCandidate> = enriched_with_files
+                            .into_iter()
+                            .cloned()
+                            .collect();
+
+                        let rescore_result = self.score_candidates(context, &enriched_refs).await?;
+                        if let Some(usage) = &rescore_result.llm_usage {
+                            total_llm_usage.input_tokens += usage.input_tokens;
+                            total_llm_usage.output_tokens += usage.output_tokens;
+                        }
+                        last_score_method = format!("{}_with_files", rescore_result.method);
+
+                        // Update scores in all_candidates for the re-scored candidates
+                        for rescored in rescore_result.candidates {
+                            if let Some(existing) = all_candidates
+                                .iter_mut()
+                                .find(|c| c.candidate.info_hash == rescored.candidate.info_hash)
+                            {
+                                existing.score = rescored.score;
+                                existing.reasoning = rescored.reasoning;
+                                existing.file_mappings = rescored.file_mappings;
+                                existing.candidate.files = rescored.candidate.files;
+                            }
+                        }
+
+                        // Re-sort after updating scores
+                        all_candidates.sort_by(|a, b| {
+                            b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal)
+                        });
+                    }
                 }
             }
         }
-
-        // Re-sort all candidates by score
-        all_candidates.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
 
         let duration_ms = start.elapsed().as_millis() as u64;
         let best_candidate = all_candidates.first().cloned();

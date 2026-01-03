@@ -10,7 +10,7 @@ use super::{
     CachedTorrent, CachedTorrentFile, CachedTorrentSource, CatalogError, CatalogSearchQuery,
     CatalogStats, TorrentCatalog,
 };
-use crate::searcher::TorrentCandidate;
+use crate::searcher::{TorrentCandidate, TorrentFile};
 
 /// SQLite-backed torrent catalog.
 pub struct SqliteCatalog {
@@ -319,6 +319,71 @@ impl TorrentCatalog for SqliteCatalog {
         torrent.files = if files.is_empty() { None } else { Some(files) };
 
         Ok(torrent)
+    }
+
+    fn store_files(&self, info_hash: &str, title: &str, files: &[TorrentFile]) -> Result<(), CatalogError> {
+        let conn = self.conn.lock().unwrap();
+        let info_hash = info_hash.to_lowercase();
+        let now = Utc::now();
+        let now_str = now.to_rfc3339();
+
+        // Ensure the torrent exists in the catalog (create minimal entry if not)
+        let exists: bool = conn
+            .query_row(
+                "SELECT 1 FROM torrent_cache WHERE info_hash = ?",
+                params![&info_hash],
+                |_| Ok(true),
+            )
+            .unwrap_or(false);
+
+        if !exists {
+            // Calculate total size from files
+            let total_size: u64 = files.iter().map(|f| f.size_bytes).sum();
+
+            conn.execute(
+                "INSERT INTO torrent_cache (info_hash, title, size_bytes, category, first_seen_at, last_seen_at, seen_count)
+                 VALUES (?, ?, ?, NULL, ?, ?, 1)",
+                params![
+                    &info_hash,
+                    title,
+                    total_size as i64,
+                    &now_str,
+                    &now_str,
+                ],
+            )
+            .map_err(|e| CatalogError::Database(e.to_string()))?;
+        }
+
+        // Delete existing files for this torrent (we're replacing them)
+        conn.execute(
+            "DELETE FROM torrent_cache_files WHERE info_hash = ?",
+            params![&info_hash],
+        )
+        .map_err(|e| CatalogError::Database(e.to_string()))?;
+
+        // Insert new files
+        for file in files {
+            conn.execute(
+                "INSERT INTO torrent_cache_files (info_hash, path, size_bytes) VALUES (?, ?, ?)",
+                params![&info_hash, &file.path, file.size_bytes as i64],
+            )
+            .map_err(|e| CatalogError::Database(e.to_string()))?;
+        }
+
+        Ok(())
+    }
+
+    fn get_files(&self, info_hash: &str) -> Result<Option<Vec<CachedTorrentFile>>, CatalogError> {
+        let conn = self.conn.lock().unwrap();
+        let info_hash = info_hash.to_lowercase();
+
+        let files = Self::load_files(&conn, &info_hash)?;
+
+        if files.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(files))
+        }
     }
 
     fn stats(&self) -> Result<CatalogStats, CatalogError> {
@@ -705,5 +770,74 @@ mod tests {
         // Get should work with any case
         let torrent = catalog.get("ABC123").unwrap();
         assert_eq!(torrent.info_hash, "abc123"); // Stored as lowercase
+    }
+
+    #[test]
+    fn test_store_files_creates_entry_if_not_exists() {
+        let catalog = create_test_catalog();
+
+        // Store files for a torrent that doesn't exist yet
+        let files = vec![
+            TorrentFile { path: "folder/file1.flac".to_string(), size_bytes: 100 },
+            TorrentFile { path: "folder/file2.flac".to_string(), size_bytes: 200 },
+        ];
+
+        catalog.store_files("newhash", "New Torrent", &files).unwrap();
+
+        // Should create the torrent entry
+        assert!(catalog.exists("newhash").unwrap());
+
+        // Should have the files
+        let retrieved_files = catalog.get_files("newhash").unwrap();
+        assert!(retrieved_files.is_some());
+        let retrieved_files = retrieved_files.unwrap();
+        assert_eq!(retrieved_files.len(), 2);
+        assert_eq!(retrieved_files[0].path, "folder/file1.flac");
+        assert_eq!(retrieved_files[0].size_bytes, 100);
+    }
+
+    #[test]
+    fn test_store_files_replaces_existing() {
+        let catalog = create_test_catalog();
+
+        // Store initial files
+        let files1 = vec![
+            TorrentFile { path: "old/file.flac".to_string(), size_bytes: 100 },
+        ];
+        catalog.store_files("hash123", "Test", &files1).unwrap();
+
+        // Store new files - should replace
+        let files2 = vec![
+            TorrentFile { path: "new/file1.flac".to_string(), size_bytes: 200 },
+            TorrentFile { path: "new/file2.flac".to_string(), size_bytes: 300 },
+        ];
+        catalog.store_files("hash123", "Test", &files2).unwrap();
+
+        // Should have only the new files
+        let retrieved = catalog.get_files("hash123").unwrap().unwrap();
+        assert_eq!(retrieved.len(), 2);
+        assert_eq!(retrieved[0].path, "new/file1.flac");
+    }
+
+    #[test]
+    fn test_get_files_returns_none_for_nonexistent() {
+        let catalog = create_test_catalog();
+
+        let files = catalog.get_files("nonexistent").unwrap();
+        assert!(files.is_none());
+    }
+
+    #[test]
+    fn test_get_files_returns_none_for_torrent_without_files() {
+        let catalog = create_test_catalog();
+
+        // Create a candidate without files
+        let mut candidate = create_test_candidate("abc123", "Test");
+        candidate.files = None;
+        catalog.store(&[candidate]).unwrap();
+
+        // Should return None (no files)
+        let files = catalog.get_files("abc123").unwrap();
+        assert!(files.is_none());
     }
 }

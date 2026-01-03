@@ -9,7 +9,7 @@ mod types;
 pub use sqlite::SqliteCatalog;
 pub use types::*;
 
-use crate::searcher::TorrentCandidate;
+use crate::searcher::{TorrentCandidate, TorrentFile};
 
 /// Trait for torrent catalog storage.
 pub trait TorrentCatalog: Send + Sync {
@@ -20,6 +20,17 @@ pub trait TorrentCatalog: Send + Sync {
     ///
     /// Returns the number of new torrents added (not updates).
     fn store(&self, candidates: &[TorrentCandidate]) -> Result<u32, CatalogError>;
+
+    /// Store file listings for a torrent.
+    ///
+    /// If the torrent doesn't exist in the catalog, creates a minimal entry.
+    /// If files already exist for this torrent, they are replaced.
+    fn store_files(&self, info_hash: &str, title: &str, files: &[TorrentFile]) -> Result<(), CatalogError>;
+
+    /// Get file listings for a torrent (if available).
+    ///
+    /// Returns None if the torrent is not in the catalog or has no files.
+    fn get_files(&self, info_hash: &str) -> Result<Option<Vec<CachedTorrentFile>>, CatalogError>;
 
     /// Search the catalog by query string.
     ///
