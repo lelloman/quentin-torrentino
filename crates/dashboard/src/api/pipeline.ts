@@ -119,3 +119,35 @@ export async function processTicket(
 export async function getTicketProgress(ticketId: string): Promise<TicketProgress> {
   return get<TicketProgress>(`/pipeline/progress/${ticketId}`)
 }
+
+// Encoder capabilities types
+export interface VideoFormatInfo {
+  id: string
+  name: string
+  codec: string
+  is_hardware: boolean
+}
+
+export interface EncoderCapabilities {
+  h264_nvenc: boolean
+  hevc_nvenc: boolean
+  av1_nvenc: boolean
+  h264_qsv: boolean
+  hevc_qsv: boolean
+  av1_qsv: boolean
+  h264_amf: boolean
+  hevc_amf: boolean
+  av1_amf: boolean
+  h264_videotoolbox: boolean
+  hevc_videotoolbox: boolean
+}
+
+export interface EncoderCapabilitiesResponse {
+  capabilities: EncoderCapabilities
+  available_video_formats: VideoFormatInfo[]
+  has_hardware_encoder: boolean
+}
+
+export async function getEncoderCapabilities(): Promise<EncoderCapabilitiesResponse> {
+  return get<EncoderCapabilitiesResponse>('/pipeline/encoders')
+}

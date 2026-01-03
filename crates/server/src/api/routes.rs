@@ -68,6 +68,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/pipeline/converter", get(pipeline::get_converter_info))
         .route("/pipeline/placer", get(pipeline::get_placer_info))
         .route("/pipeline/validate", get(pipeline::validate_ffmpeg))
+        .route("/pipeline/encoders", get(pipeline::get_encoder_capabilities))
         .route(
             "/pipeline/process/{ticket_id}",
             post(pipeline::process_ticket),

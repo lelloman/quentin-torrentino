@@ -177,8 +177,8 @@ export type AudioFormat =
   | 'wav'
   | 'alac'
 
-// Video codec options
-export type VideoCodec = 'h264' | 'h265' | 'vp9' | 'av1'
+// Video codec options (including hardware encoders)
+export type VideoCodec = 'h264' | 'h265' | 'vp9' | 'av1' | 'h264_nvenc' | 'h265_nvenc' | 'av1_nvenc'
 
 // Video container options
 export type VideoContainer = 'mkv' | 'mp4' | 'webm'

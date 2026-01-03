@@ -1,8 +1,8 @@
 use std::sync::Arc;
 use torrentino_core::{
-    AuditHandle, AuditStore, Authenticator, Config, ExternalCatalog, FfmpegConverter, FsPlacer,
-    PipelineProcessor, SanitizedConfig, Searcher, TicketOrchestrator, TicketStore,
-    TorrentCatalog, TorrentClient,
+    AuditHandle, AuditStore, Authenticator, Config, EncoderCapabilities, ExternalCatalog,
+    FfmpegConverter, FsPlacer, PipelineProcessor, SanitizedConfig, Searcher, TicketOrchestrator,
+    TicketStore, TorrentCatalog, TorrentClient,
 };
 
 use crate::api::WsBroadcaster;
@@ -27,6 +27,7 @@ pub struct AppState {
     orchestrator: Option<Arc<AppOrchestrator>>,
     external_catalog: Option<Arc<dyn ExternalCatalog>>,
     ws_broadcaster: WsBroadcaster,
+    encoder_capabilities: EncoderCapabilities,
 }
 
 impl AppState {
@@ -44,6 +45,7 @@ impl AppState {
         orchestrator: Option<Arc<AppOrchestrator>>,
         external_catalog: Option<Arc<dyn ExternalCatalog>>,
         ws_broadcaster: WsBroadcaster,
+        encoder_capabilities: EncoderCapabilities,
     ) -> Self {
         Self {
             config,
@@ -58,6 +60,7 @@ impl AppState {
             orchestrator,
             external_catalog,
             ws_broadcaster,
+            encoder_capabilities,
         }
     }
 
@@ -118,5 +121,10 @@ impl AppState {
     /// Get the WebSocket broadcaster for real-time updates
     pub fn ws_broadcaster(&self) -> &WsBroadcaster {
         &self.ws_broadcaster
+    }
+
+    /// Get the detected encoder capabilities
+    pub fn encoder_capabilities(&self) -> &EncoderCapabilities {
+        &self.encoder_capabilities
     }
 }

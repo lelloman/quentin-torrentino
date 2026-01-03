@@ -13,8 +13,8 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use torrentino_core::{
     create_audit_system, create_authenticator, load_config, validate_config, AuditEvent,
-    AuditStore, Authenticator, CombinedCatalogClient, ConverterConfig, ExternalCatalog,
-    FfmpegConverter, FsPlacer, JackettSearcher, LibrqbitClient, MusicBrainzClient,
+    AuditStore, Authenticator, CombinedCatalogClient, ConverterConfig, EncoderCapabilities,
+    ExternalCatalog, FfmpegConverter, FsPlacer, JackettSearcher, LibrqbitClient, MusicBrainzClient,
     PipelineProcessor, PlacerConfig, ProcessorConfig, QBittorrentClient, Searcher, SearcherBackend,
     SqliteAuditStore, SqliteCatalog, SqliteTicketStore, TicketOrchestrator, TicketStore, TmdbClient,
     TorrentCatalog, TorrentClient, TorrentClientBackend,
@@ -178,6 +178,21 @@ async fn run() -> Result<()> {
     let converter_config = ConverterConfig::default();
     let placer_config = PlacerConfig::default();
 
+    // Detect available hardware encoders
+    let encoder_capabilities = EncoderCapabilities::detect(&converter_config).await;
+    if encoder_capabilities.has_nvenc() {
+        info!(
+            "NVENC hardware encoding available: h264={}, hevc={}, av1={}",
+            encoder_capabilities.h264_nvenc,
+            encoder_capabilities.hevc_nvenc,
+            encoder_capabilities.av1_nvenc
+        );
+    } else if encoder_capabilities.has_hardware_encoder() {
+        info!("Hardware encoding available (non-NVENC)");
+    } else {
+        info!("No hardware encoders detected, using software encoding");
+    }
+
     let converter = FfmpegConverter::new(converter_config);
     let placer = FsPlacer::new(placer_config);
 
@@ -295,6 +310,7 @@ async fn run() -> Result<()> {
         orchestrator.clone(),
         external_catalog,
         ws_broadcaster,
+        encoder_capabilities,
     ));
 
     // Create router

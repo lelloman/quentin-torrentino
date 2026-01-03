@@ -72,6 +72,8 @@ pub use converter::{
     ConverterError,
     // Implementations
     FfmpegConverter,
+    // Capabilities
+    EncoderCapabilities,
     // Types
     AudioConstraints, AudioFormat, ContainerFormat, ConversionConstraints, ConversionJob,
     ConversionProgress, ConversionResult, EmbeddedMetadata, MediaInfo, VideoConstraints,

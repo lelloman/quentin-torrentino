@@ -143,6 +143,7 @@ mod tests {
             None,
             None, // external_catalog
             WsBroadcaster::default(),
+            torrentino_core::EncoderCapabilities::default(),
         ))
     }
 

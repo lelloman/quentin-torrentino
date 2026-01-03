@@ -11,7 +11,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use torrentino_core::{
-    AudioConstraints, AudioFormat, ConversionConstraints, PipelineJob, SourceFile, TicketState,
+    AudioConstraints, AudioFormat, ConversionConstraints, EncoderCapabilities, PipelineJob,
+    SourceFile, TicketState,
 };
 
 use crate::state::AppState;
@@ -557,4 +558,61 @@ pub async fn get_progress(
     };
 
     (StatusCode::OK, Json(response))
+}
+
+/// Response for encoder capabilities endpoint.
+#[derive(Debug, Serialize)]
+pub struct EncoderCapabilitiesResponse {
+    /// Raw encoder capabilities
+    pub capabilities: EncoderCapabilities,
+    /// Available video formats (filtered by detected hardware)
+    pub available_video_formats: Vec<VideoFormatInfo>,
+    /// Whether any hardware encoder is available
+    pub has_hardware_encoder: bool,
+}
+
+/// Video format info for the response.
+#[derive(Debug, Serialize)]
+pub struct VideoFormatInfo {
+    /// Format identifier (e.g., "h264_nvenc")
+    pub id: String,
+    /// Display name (e.g., "H.264 (NVENC)")
+    pub name: String,
+    /// FFmpeg codec string
+    pub codec: String,
+    /// Whether this is a hardware encoder
+    pub is_hardware: bool,
+}
+
+/// Get available encoder capabilities.
+///
+/// Returns detected hardware encoders and available video formats.
+pub async fn get_encoder_capabilities(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let capabilities = state.encoder_capabilities();
+    let available_formats = capabilities.available_video_formats();
+
+    let format_infos: Vec<VideoFormatInfo> = available_formats
+        .iter()
+        .map(|f| {
+            // Use serde to get the correct snake_case ID
+            let id = serde_json::to_value(f)
+                .ok()
+                .and_then(|v| v.as_str().map(|s| s.to_string()))
+                .unwrap_or_else(|| format!("{:?}", f).to_lowercase());
+            VideoFormatInfo {
+                id,
+                name: f.display_name().to_string(),
+                codec: f.ffmpeg_codec().to_string(),
+                is_hardware: f.is_hardware(),
+            }
+        })
+        .collect();
+
+    let response = EncoderCapabilitiesResponse {
+        capabilities: capabilities.clone(),
+        available_video_formats: format_infos,
+        has_hardware_encoder: capabilities.has_hardware_encoder(),
+    };
+
+    Json(response)
 }

@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useTicketWizard } from '../../composables/useTicketWizard'
 import LoadingSpinner from '../common/LoadingSpinner.vue'
 import ErrorAlert from '../common/ErrorAlert.vue'
 import type { CreateTicketWithCatalogRequest, Resolution, VideoSource, VideoSearchCodec, LanguagePreference, LanguagePriority } from '../../api/types'
+import { getEncoderCapabilities, type EncoderCapabilitiesResponse } from '../../api/pipeline'
 
 const emit = defineEmits<{
   submit: [request: CreateTicketWithCatalogRequest]
@@ -34,12 +35,60 @@ const sourceOptions: { value: VideoSource; label: string }[] = [
   { value: 'cam', label: 'CAM' },
 ]
 
-// Codec options
+// Codec options (for search preferences)
 const codecOptions: { value: VideoSearchCodec; label: string }[] = [
   { value: 'x265', label: 'x265/HEVC' },
   { value: 'x264', label: 'x264' },
   { value: 'av1', label: 'AV1' },
 ]
+
+// Encoder capabilities state
+const encoderCapabilities = ref<EncoderCapabilitiesResponse | null>(null)
+const encoderCapabilitiesLoading = ref(false)
+
+// Available output formats - computed from encoder capabilities
+const availableOutputFormats = computed(() => {
+  if (!encoderCapabilities.value) {
+    // Fallback to software encoders if capabilities not loaded yet
+    return [
+      { id: 'h264', name: 'H.264 (AVC)', codec: 'libx264', is_hardware: false },
+      { id: 'h265', name: 'H.265 (HEVC)', codec: 'libx265', is_hardware: false },
+      { id: 'vp9', name: 'VP9', codec: 'libvpx-vp9', is_hardware: false },
+      { id: 'av1', name: 'AV1', codec: 'libsvtav1', is_hardware: false },
+    ]
+  }
+  return encoderCapabilities.value.available_video_formats
+})
+
+// Group formats by hardware/software for display
+const softwareFormats = computed(() => availableOutputFormats.value.filter(f => !f.is_hardware))
+const hardwareFormats = computed(() => availableOutputFormats.value.filter(f => f.is_hardware))
+const hasHardwareEncoders = computed(() => hardwareFormats.value.length > 0)
+
+// Get display name for selected format
+function getFormatDisplayName(formatId: string): string {
+  const format = availableOutputFormats.value.find(f => f.id === formatId)
+  return format?.name || formatId.toUpperCase()
+}
+
+// Fetch encoder capabilities on mount
+onMounted(async () => {
+  encoderCapabilitiesLoading.value = true
+  try {
+    encoderCapabilities.value = await getEncoderCapabilities()
+    // If hardware encoder available, default to it
+    if (encoderCapabilities.value.has_hardware_encoder) {
+      const nvencH264 = encoderCapabilities.value.available_video_formats.find(f => f.id === 'h264_nvenc')
+      if (nvencH264) {
+        wizard.videoFormat.value = 'h264_nvenc'
+      }
+    }
+  } catch (err) {
+    console.error('Failed to fetch encoder capabilities:', err)
+  } finally {
+    encoderCapabilitiesLoading.value = false
+  }
+})
 
 // Language options (ISO 639-1 codes)
 const languageOptions: { code: string; label: string }[] = [
@@ -1096,12 +1145,23 @@ const canProceedVideo = computed(() => {
             <div>
               <label for="videoFormat" class="block text-xs font-medium text-gray-600 mb-1">
                 Codec
+                <span v-if="hasHardwareEncoders" class="text-green-600 font-normal ml-1">
+                  (HW available)
+                </span>
               </label>
               <select id="videoFormat" v-model="wizard.videoFormat.value" class="input w-full text-sm">
-                <option value="h264">H.264 (AVC)</option>
-                <option value="h265">H.265 (HEVC)</option>
-                <option value="vp9">VP9</option>
-                <option value="av1">AV1</option>
+                <!-- Hardware encoders (if available) -->
+                <optgroup v-if="hasHardwareEncoders" label="Hardware (Fast)">
+                  <option v-for="fmt in hardwareFormats" :key="fmt.id" :value="fmt.id">
+                    {{ fmt.name }}
+                  </option>
+                </optgroup>
+                <!-- Software encoders -->
+                <optgroup :label="hasHardwareEncoders ? 'Software (Slow)' : 'Encoders'">
+                  <option v-for="fmt in softwareFormats" :key="fmt.id" :value="fmt.id">
+                    {{ fmt.name }}
+                  </option>
+                </optgroup>
               </select>
             </div>
             <div>
@@ -1262,7 +1322,7 @@ const canProceedVideo = computed(() => {
             <span class="ml-2">
               <template v-if="wizard.outputType.value === 'original'">Keep original format</template>
               <template v-else>
-                Convert to {{ wizard.videoFormat.value.toUpperCase() }} ({{ wizard.videoContainer.value.toUpperCase() }})
+                Convert to {{ getFormatDisplayName(wizard.videoFormat.value) }} ({{ wizard.videoContainer.value.toUpperCase() }})
                 @ <template v-if="wizard.videoQualityMode.value === 'bitrate'">{{ wizard.videoBitrateKbps.value }} kbps</template>
                 <template v-else>CRF {{ wizard.videoCrf.value }}</template>
                 <span v-if="wizard.videoMaxHeight.value">, max {{ wizard.videoMaxHeight.value }}p</span>

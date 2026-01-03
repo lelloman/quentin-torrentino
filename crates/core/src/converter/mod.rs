@@ -47,12 +47,14 @@
 //! println!("Converted in {} ms", result.duration_ms);
 //! ```
 
+mod capabilities;
 mod config;
 mod error;
 mod ffmpeg;
 mod traits;
 mod types;
 
+pub use capabilities::EncoderCapabilities;
 pub use config::ConverterConfig;
 pub use error::ConverterError;
 pub use ffmpeg::FfmpegConverter;

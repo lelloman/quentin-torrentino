@@ -61,14 +61,20 @@ impl AudioFormat {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum VideoFormat {
-    /// H.264 / AVC
+    /// H.264 / AVC (software encoding)
     H264,
-    /// H.265 / HEVC
+    /// H.265 / HEVC (software encoding)
     H265,
     /// VP9
     Vp9,
-    /// AV1
+    /// AV1 (software encoding)
     Av1,
+    /// H.264 via NVIDIA NVENC (hardware)
+    H264Nvenc,
+    /// H.265 via NVIDIA NVENC (hardware)
+    H265Nvenc,
+    /// AV1 via NVIDIA NVENC (hardware, RTX 40 series+)
+    Av1Nvenc,
     /// Copy (no re-encoding)
     Copy,
 }
@@ -81,7 +87,29 @@ impl VideoFormat {
             Self::H265 => "libx265",
             Self::Vp9 => "libvpx-vp9",
             Self::Av1 => "libaom-av1",
+            Self::H264Nvenc => "h264_nvenc",
+            Self::H265Nvenc => "hevc_nvenc",
+            Self::Av1Nvenc => "av1_nvenc",
             Self::Copy => "copy",
+        }
+    }
+
+    /// Returns whether this format uses hardware encoding.
+    pub fn is_hardware(&self) -> bool {
+        matches!(self, Self::H264Nvenc | Self::H265Nvenc | Self::Av1Nvenc)
+    }
+
+    /// Returns the display name for this format.
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            Self::H264 => "H.264 (CPU)",
+            Self::H265 => "H.265/HEVC (CPU)",
+            Self::Vp9 => "VP9 (CPU)",
+            Self::Av1 => "AV1 (CPU)",
+            Self::H264Nvenc => "H.264 (NVENC)",
+            Self::H265Nvenc => "H.265/HEVC (NVENC)",
+            Self::Av1Nvenc => "AV1 (NVENC)",
+            Self::Copy => "Copy (no re-encode)",
         }
     }
 }
