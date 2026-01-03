@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use torrentino_core::{
     AnthropicClient, AuditEvent, CandidateMatcher, CompletionRequest, DumbMatcher, DumbQueryBuilder,
-    ExpectedContent, ExpectedTrack, LlmClient, LlmUsage, QueryBuilder, QueryContext, SearchQuery,
-    TextBrain, TextBrainConfig, TextBrainMode,
+    ExpectedContent, ExpectedTrack, FileEnricher, LlmClient, LlmUsage, QueryBuilder, QueryContext,
+    SearchQuery, TextBrain, TextBrainConfig, TextBrainMode,
 };
 
 use crate::state::AppState;
@@ -714,16 +714,21 @@ pub async fn acquire(
         }
     };
 
-    // Create TextBrain with dumb implementations
+    // Create TextBrain with dumb implementations and file enricher
     let config = TextBrainConfig {
         mode: TextBrainMode::DumbOnly,
         auto_approve_threshold: body.auto_approve_threshold,
         ..Default::default()
     };
 
+    // Create file enricher using catalog from state
+    let catalog = Arc::clone(state.catalog());
+    let enricher = FileEnricher::new(catalog, config.file_enrichment.clone());
+
     let brain = TextBrain::new(config)
         .with_dumb_query_builder(Arc::new(DumbQueryBuilder::new()))
-        .with_dumb_matcher(Arc::new(DumbMatcher::new()));
+        .with_dumb_matcher(Arc::new(DumbMatcher::new()))
+        .with_file_enricher(Arc::new(enricher));
 
     // Run acquisition
     match brain.acquire(&context, searcher.as_ref()).await {

@@ -16,9 +16,10 @@ use tokio::sync::{broadcast, RwLock};
 use tracing::{debug, error, info, warn};
 
 use crate::audit::{AuditEvent, AuditHandle};
+use crate::catalog::TorrentCatalog;
 use crate::textbrain::training::create_acquisition_training_events;
 use crate::processor::{PipelineJob, PipelineProcessor, SourceFile};
-use crate::searcher::Searcher;
+use crate::searcher::{FileEnricher, Searcher};
 use crate::textbrain::{
     AcquisitionAuditContext, AcquisitionProgress, AcquisitionStateUpdater, AnthropicClient,
     DumbMatcher, DumbQueryBuilder, LlmMatcher, LlmProvider, LlmQueryBuilder, OllamaClient,
@@ -70,6 +71,7 @@ where
     searcher: Arc<dyn Searcher>,
     torrent_client: Arc<dyn TorrentClient>,
     pipeline: Arc<PipelineProcessor<C, P>>,
+    catalog: Arc<dyn TorrentCatalog>,
     audit: Option<AuditHandle>,
     textbrain_config: TextBrainConfig,
 
@@ -91,6 +93,7 @@ where
         searcher: Arc<dyn Searcher>,
         torrent_client: Arc<dyn TorrentClient>,
         pipeline: Arc<PipelineProcessor<C, P>>,
+        catalog: Arc<dyn TorrentCatalog>,
         audit: Option<AuditHandle>,
         textbrain_config: TextBrainConfig,
     ) -> Self {
@@ -102,6 +105,7 @@ where
             searcher,
             torrent_client,
             pipeline,
+            catalog,
             audit,
             textbrain_config,
             running: Arc::new(AtomicBool::new(false)),
@@ -232,6 +236,7 @@ where
         let running = Arc::clone(&self.running);
         let ticket_store = Arc::clone(&self.ticket_store);
         let searcher = Arc::clone(&self.searcher);
+        let catalog = Arc::clone(&self.catalog);
         let config = self.config.clone();
         let textbrain_config = self.textbrain_config.clone();
         let audit = self.audit.clone();
@@ -252,6 +257,7 @@ where
                         if let Err(e) = Self::process_one_pending(
                             &ticket_store,
                             &searcher,
+                            &catalog,
                             &config,
                             &textbrain_config,
                             &audit,
@@ -322,6 +328,7 @@ where
     async fn process_one_pending(
         ticket_store: &Arc<dyn TicketStore>,
         searcher: &Arc<dyn Searcher>,
+        catalog: &Arc<dyn TorrentCatalog>,
         config: &OrchestratorConfig,
         textbrain_config: &TextBrainConfig,
         audit: &Option<AuditHandle>,
@@ -359,7 +366,7 @@ where
         }
 
         // Build TextBrain with configured implementations
-        let textbrain = Self::build_textbrain(textbrain_config);
+        let textbrain = Self::build_textbrain(textbrain_config, Arc::clone(catalog));
 
         // Create state updater for persisting acquisition progress
         let state_updater: Arc<dyn AcquisitionStateUpdater> = Arc::new(TicketStateUpdater {
@@ -1328,7 +1335,7 @@ where
 
     /// Build a TextBrain instance with appropriate query builder and matcher
     /// based on the configuration.
-    fn build_textbrain(config: &TextBrainConfig) -> TextBrain {
+    fn build_textbrain(config: &TextBrainConfig, catalog: Arc<dyn TorrentCatalog>) -> TextBrain {
         let mut textbrain = TextBrain::new(config.clone());
 
         // Always add dumb implementations (used as fallback in most modes)
@@ -1382,6 +1389,17 @@ where
             } else if config.mode.requires_llm() {
                 warn!("LLM mode requires LLM configuration but none provided");
             }
+        }
+
+        // Add file enricher if enabled
+        if config.file_enrichment.enabled {
+            let enricher = FileEnricher::new(catalog, config.file_enrichment.clone());
+            textbrain = textbrain.with_file_enricher(Arc::new(enricher));
+            info!(
+                "File enrichment enabled (max_candidates={}, min_score={})",
+                config.file_enrichment.max_candidates,
+                config.file_enrichment.min_score_threshold
+            );
         }
 
         textbrain

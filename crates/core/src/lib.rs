@@ -28,8 +28,9 @@ pub use config::{
     TorrentClientConfig,
 };
 pub use searcher::{
-    deduplicate_results, IndexerStatus, JackettSearcher, RawTorrentResult, SearchCategory,
-    SearchError, SearchQuery, SearchResult, Searcher, TorrentCandidate, TorrentFile, TorrentSource,
+    deduplicate_results, FileEnricher, FileEnricherConfig, IndexerStatus, JackettSearcher,
+    RawTorrentResult, SearchCategory, SearchError, SearchQuery, SearchResult, Searcher,
+    TorrentCandidate, TorrentFile, TorrentSource,
 };
 pub use ticket::{
     AcquisitionPhase, AudioSearchConstraints, CatalogReference, CompletionStats,

@@ -198,6 +198,7 @@ async fn run() -> Result<()> {
                     Arc::clone(s),
                     Arc::clone(tc),
                     Arc::clone(&pipeline),
+                    Arc::clone(&catalog),
                     Some(audit_handle.clone()),
                     config.textbrain.clone(),
                 );
