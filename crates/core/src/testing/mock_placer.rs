@@ -51,7 +51,7 @@ pub struct RecordedRollback {
 /// assert_eq!(placements.len(), 1);
 /// assert!(placements[0].success);
 /// ```
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MockPlacer {
     /// Recorded placements.
     placements: Arc<RwLock<Vec<RecordedPlacement>>>,

@@ -50,7 +50,7 @@ pub struct RecordedConversion {
 /// let conversions = converter.recorded_conversions().await;
 /// assert_eq!(conversions.len(), 1);
 /// ```
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MockConverter {
     /// Recorded conversions.
     conversions: Arc<RwLock<Vec<RecordedConversion>>>,
