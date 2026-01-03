@@ -16,6 +16,10 @@ use super::types::{
     PipelineJob, PipelineProgress, PipelineResult, PlacedFileInfo, PoolStatus, PipelineStatus,
 };
 
+/// Callback type for pipeline update notifications.
+/// Called with (ticket_id, state_type) when ticket state changes.
+pub type PipelineUpdateCallback = Arc<dyn Fn(&str, &str) + Send + Sync>;
+
 /// Error type for pipeline operations.
 #[derive(Debug, thiserror::Error)]
 pub enum PipelineError {
@@ -79,6 +83,7 @@ pub struct PipelineProcessor<C: Converter, P: Placer> {
     placer: Arc<P>,
     audit: Option<AuditHandle>,
     ticket_store: Option<Arc<dyn TicketStore>>,
+    on_update: Option<PipelineUpdateCallback>,
     conversion_semaphore: Arc<Semaphore>,
     placement_semaphore: Arc<Semaphore>,
     conversion_stats: Arc<PoolStats>,
@@ -115,6 +120,7 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
             placer: Arc::new(placer),
             audit: None,
             ticket_store: None,
+            on_update: None,
             conversion_semaphore,
             placement_semaphore,
             conversion_stats: Arc::new(PoolStats::default()),
@@ -133,6 +139,12 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
     /// Sets the ticket store for updating ticket state.
     pub fn with_ticket_store(mut self, store: Arc<dyn TicketStore>) -> Self {
         self.ticket_store = Some(store);
+        self
+    }
+
+    /// Sets the update callback for WebSocket notifications.
+    pub fn with_update_callback(mut self, callback: PipelineUpdateCallback) -> Self {
+        self.on_update = Some(callback);
         self
     }
 
@@ -205,6 +217,7 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
         let config = self.config.clone();
         let audit = self.audit.clone();
         let ticket_store = self.ticket_store.clone();
+        let on_update = self.on_update.clone();
         let conversion_semaphore = Arc::clone(&self.conversion_semaphore);
         let placement_semaphore = Arc::clone(&self.placement_semaphore);
         let conversion_stats = Arc::clone(&self.conversion_stats);
@@ -219,6 +232,7 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
                 config,
                 audit.clone(),
                 ticket_store.clone(),
+                on_update,
                 conversion_semaphore,
                 placement_semaphore,
                 conversion_stats,
@@ -268,6 +282,7 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
         config: ProcessorConfig,
         audit: Option<AuditHandle>,
         ticket_store: Option<Arc<dyn TicketStore>>,
+        on_update: Option<PipelineUpdateCallback>,
         conversion_semaphore: Arc<Semaphore>,
         placement_semaphore: Arc<Semaphore>,
         conversion_stats: Arc<PoolStats>,
@@ -279,10 +294,21 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
         let ticket_id = job.ticket_id.clone();
         let total_files = job.source_files.len();
 
-        // Helper to update ticket state
+        // Helper to notify WebSocket clients
+        let notify_update = |state_type: &str| {
+            if let Some(ref cb) = on_update {
+                cb(&ticket_id, state_type);
+            }
+        };
+
+        // Helper to update ticket state and notify
         let update_ticket_state = |store: &Arc<dyn TicketStore>, state: TicketState| {
+            let state_type = state.state_type();
             if let Err(e) = store.update_state(&ticket_id, state) {
                 tracing::warn!("Failed to update ticket state for {}: {}", ticket_id, e);
+            }
+            if let Some(ref cb) = on_update {
+                cb(&ticket_id, state_type);
             }
         };
 

@@ -167,6 +167,10 @@ async fn run() -> Result<()> {
         }
     };
 
+    // Create WebSocket broadcaster for real-time updates (before pipeline and orchestrator)
+    let ws_broadcaster = WsBroadcaster::default();
+    info!("WebSocket broadcaster initialized");
+
     // Create pipeline processor
     // The processor is always created with default config for now
     // Future: Add [processor] config section to config.toml
@@ -177,19 +181,23 @@ async fn run() -> Result<()> {
     let converter = FfmpegConverter::new(converter_config);
     let placer = FsPlacer::new(placer_config);
 
+    // Create pipeline update callback that broadcasts via WebSocket
+    let pipeline_broadcaster = ws_broadcaster.clone();
+    let pipeline_callback: torrentino_core::processor::PipelineUpdateCallback =
+        Arc::new(move |ticket_id: &str, state_type: &str| {
+            pipeline_broadcaster.ticket_updated(ticket_id, state_type);
+        });
+
     let pipeline = PipelineProcessor::new(processor_config, converter, placer)
         .with_audit(audit_handle.clone())
-        .with_ticket_store(Arc::clone(&ticket_store));
+        .with_ticket_store(Arc::clone(&ticket_store))
+        .with_update_callback(pipeline_callback);
 
     // Start the pipeline processor
     pipeline.start().await;
     info!("Pipeline processor started");
 
     let pipeline = Arc::new(pipeline);
-
-    // Create WebSocket broadcaster for real-time updates (before orchestrator so we can pass callback)
-    let ws_broadcaster = WsBroadcaster::default();
-    info!("WebSocket broadcaster initialized");
 
     // Create orchestrator if enabled
     let orchestrator = if config.orchestrator.enabled {
