@@ -605,9 +605,10 @@ pub async fn retry_ticket(
     };
 
     // Check that ticket is in a retryable state
+    // Manual retry allows any Failed state, not just retryable: true
     let can_retry = matches!(
         &current_ticket.state,
-        TicketState::Failed { retryable: true, .. }
+        TicketState::Failed { .. }
             | TicketState::AcquisitionFailed { .. }
             | TicketState::Rejected { .. }
             | TicketState::Cancelled { .. }
