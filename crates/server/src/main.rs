@@ -187,11 +187,23 @@ async fn run() -> Result<()> {
 
     let pipeline = Arc::new(pipeline);
 
+    // Create WebSocket broadcaster for real-time updates (before orchestrator so we can pass callback)
+    let ws_broadcaster = WsBroadcaster::default();
+    info!("WebSocket broadcaster initialized");
+
     // Create orchestrator if enabled
     let orchestrator = if config.orchestrator.enabled {
         match (&searcher, &torrent_client) {
             (Some(s), Some(tc)) => {
                 info!("Initializing ticket orchestrator");
+
+                // Create update callback that broadcasts via WebSocket
+                let broadcaster_for_callback = ws_broadcaster.clone();
+                let update_callback: torrentino_core::orchestrator::TicketUpdateCallback =
+                    Arc::new(move |ticket_id: &str, state_type: &str| {
+                        broadcaster_for_callback.ticket_updated(ticket_id, state_type);
+                    });
+
                 let orch = TicketOrchestrator::new(
                     config.orchestrator.clone(),
                     Arc::clone(&ticket_store),
@@ -201,7 +213,9 @@ async fn run() -> Result<()> {
                     Arc::clone(&catalog),
                     Some(audit_handle.clone()),
                     config.textbrain.clone(),
-                );
+                )
+                .with_update_callback(update_callback);
+
                 orch.start().await;
                 info!("Ticket orchestrator started");
                 Some(Arc::new(orch))
@@ -258,10 +272,6 @@ async fn run() -> Result<()> {
             info!("External catalogs not configured");
             None
         };
-
-    // Create WebSocket broadcaster for real-time updates
-    let ws_broadcaster = WsBroadcaster::default();
-    info!("WebSocket broadcaster initialized");
 
     // Create app state
     let state = Arc::new(AppState::new(

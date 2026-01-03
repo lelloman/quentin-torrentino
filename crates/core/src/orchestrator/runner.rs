@@ -33,11 +33,36 @@ use crate::torrent_client::{AddTorrentRequest, TorrentClient, TorrentInfo, Torre
 use super::config::OrchestratorConfig;
 use super::types::{ActiveDownload, OrchestratorError, OrchestratorStatus};
 
+/// Callback type for ticket update notifications.
+/// Called with (ticket_id, state_type) whenever a ticket's state changes.
+pub type TicketUpdateCallback = Arc<dyn Fn(&str, &str) + Send + Sync>;
+
+/// Helper to notify about ticket updates if callback is present.
+fn notify_update(callback: &Option<TicketUpdateCallback>, ticket_id: &str, state_type: &str) {
+    if let Some(ref cb) = callback {
+        cb(ticket_id, state_type);
+    }
+}
+
+/// Helper to update ticket state and notify.
+fn update_and_notify_static(
+    ticket_store: &Arc<dyn TicketStore>,
+    callback: &Option<TicketUpdateCallback>,
+    ticket_id: &str,
+    new_state: TicketState,
+) -> Result<(), OrchestratorError> {
+    let state_type = new_state.state_type();
+    ticket_store.update_state(ticket_id, new_state)?;
+    notify_update(callback, ticket_id, state_type);
+    Ok(())
+}
+
 /// Implementation of AcquisitionStateUpdater that persists progress to the ticket store.
 struct TicketStateUpdater {
     ticket_id: String,
     started_at: DateTime<Utc>,
     ticket_store: Arc<dyn TicketStore>,
+    on_update: Option<TicketUpdateCallback>,
 }
 
 #[async_trait::async_trait]
@@ -56,6 +81,8 @@ impl AcquisitionStateUpdater for TicketStateUpdater {
                 self.ticket_id,
                 e
             );
+        } else {
+            notify_update(&self.on_update, &self.ticket_id, "acquiring");
         }
     }
 }
@@ -74,6 +101,9 @@ where
     catalog: Arc<dyn TorrentCatalog>,
     audit: Option<AuditHandle>,
     textbrain_config: TextBrainConfig,
+
+    /// Optional callback for ticket update notifications (for WebSocket broadcast)
+    on_ticket_update: Option<TicketUpdateCallback>,
 
     // Runtime state
     running: Arc<AtomicBool>,
@@ -108,10 +138,17 @@ where
             catalog,
             audit,
             textbrain_config,
+            on_ticket_update: None,
             running: Arc::new(AtomicBool::new(false)),
             active_downloads: Arc::new(RwLock::new(HashMap::new())),
             shutdown_tx,
         }
+    }
+
+    /// Set the callback for ticket update notifications.
+    pub fn with_update_callback(mut self, callback: TicketUpdateCallback) -> Self {
+        self.on_ticket_update = Some(callback);
+        self
     }
 
     /// Start the orchestrator (spawns background tasks).
@@ -240,6 +277,7 @@ where
         let config = self.config.clone();
         let textbrain_config = self.textbrain_config.clone();
         let audit = self.audit.clone();
+        let on_update = self.on_ticket_update.clone();
         let mut shutdown_rx = self.shutdown_tx.subscribe();
 
         tokio::spawn(async move {
@@ -261,6 +299,7 @@ where
                             &config,
                             &textbrain_config,
                             &audit,
+                            &on_update,
                         ).await {
                             warn!("Acquisition error: {}", e);
                         }
@@ -280,6 +319,7 @@ where
         let active_downloads = Arc::clone(&self.active_downloads);
         let config = self.config.clone();
         let audit = self.audit.clone();
+        let on_update = self.on_ticket_update.clone();
         let mut shutdown_rx = self.shutdown_tx.subscribe();
 
         tokio::spawn(async move {
@@ -302,6 +342,7 @@ where
                             &active_downloads,
                             &config,
                             &audit,
+                            &on_update,
                         ).await {
                             warn!("Failed to start downloads: {}", e);
                         }
@@ -314,6 +355,7 @@ where
                             &active_downloads,
                             &config,
                             &audit,
+                            &on_update,
                         ).await {
                             warn!("Failed to check downloads: {}", e);
                         }
@@ -332,6 +374,7 @@ where
         config: &OrchestratorConfig,
         textbrain_config: &TextBrainConfig,
         audit: &Option<AuditHandle>,
+        on_update: &Option<TicketUpdateCallback>,
     ) -> Result<(), OrchestratorError> {
         // Get highest priority pending ticket
         let filter = TicketFilter::new().with_state("pending").with_limit(1);
@@ -345,7 +388,9 @@ where
 
         // Transition to Acquiring
         let started_at = Utc::now();
-        ticket_store.update_state(
+        update_and_notify_static(
+            ticket_store,
+            on_update,
             &ticket.id,
             TicketState::Acquiring {
                 started_at,
@@ -373,6 +418,7 @@ where
             ticket_id: ticket.id.clone(),
             started_at,
             ticket_store: Arc::clone(ticket_store),
+            on_update: on_update.clone(),
         });
 
         // Execute acquisition with or without audit
@@ -446,7 +492,9 @@ where
                             .collect();
 
                         let selected = Self::build_selected_candidate(candidate);
-                        ticket_store.update_state(
+                        update_and_notify_static(
+                            &ticket_store,
+                            &on_update,
                             &ticket.id,
                             TicketState::AutoApproved {
                                 selected,
@@ -472,7 +520,9 @@ where
                         );
                     } else {
                         // No candidate found
-                        ticket_store.update_state(
+                        update_and_notify_static(
+                            &ticket_store,
+                            &on_update,
                             &ticket.id,
                             TicketState::AcquisitionFailed {
                                 queries_tried: acq.queries_tried.clone(),
@@ -501,7 +551,9 @@ where
                         .map(ScoredCandidateSummary::from)
                         .collect();
 
-                    ticket_store.update_state(
+                    update_and_notify_static(
+                        &ticket_store,
+                        &on_update,
                         &ticket.id,
                         TicketState::NeedsApproval {
                             candidates: summaries,
@@ -527,7 +579,9 @@ where
                     );
                 } else {
                     // No candidate found
-                    ticket_store.update_state(
+                    update_and_notify_static(
+                        &ticket_store,
+                        &on_update,
                         &ticket.id,
                         TicketState::AcquisitionFailed {
                             queries_tried: acq.queries_tried.clone(),
@@ -550,7 +604,9 @@ where
             }
             Err(e) => {
                 let error_reason = e.to_string();
-                ticket_store.update_state(
+                update_and_notify_static(
+                    &ticket_store,
+                    &on_update,
                     &ticket.id,
                     TicketState::AcquisitionFailed {
                         queries_tried: vec![],
@@ -584,6 +640,7 @@ where
         active_downloads: &Arc<RwLock<HashMap<String, ActiveDownload>>>,
         config: &OrchestratorConfig,
         audit: &Option<AuditHandle>,
+        on_update: &Option<TicketUpdateCallback>,
     ) -> Result<(), OrchestratorError> {
         // Process both auto_approved and manually approved tickets
         for state_type in ["auto_approved", "approved"] {
@@ -651,7 +708,9 @@ where
                             }
 
                             // Update ticket state with failover fields
-                            ticket_store.update_state(
+                            update_and_notify_static(
+                                &ticket_store,
+                                &on_update,
                                 &ticket.id,
                                 TicketState::Downloading {
                                     info_hash: result.hash.clone(),
@@ -705,7 +764,9 @@ where
                         "All {} candidates failed for ticket {}",
                         candidates.len(), ticket.id
                     );
-                    ticket_store.update_state(
+                    update_and_notify_static(
+                        &ticket_store,
+                        &on_update,
                         &ticket.id,
                         TicketState::Failed {
                             error: error_msg.clone(),
@@ -739,6 +800,7 @@ where
         active_downloads: &Arc<RwLock<HashMap<String, ActiveDownload>>>,
         config: &OrchestratorConfig,
         audit: &Option<AuditHandle>,
+        on_update: &Option<TicketUpdateCallback>,
     ) -> Result<(), OrchestratorError>
     where
         C2: crate::converter::Converter + 'static,
@@ -769,6 +831,7 @@ where
                             &download,
                             config,
                             audit,
+                            on_update,
                         ).await {
                             warn!(
                                 "Failed to handle deleted torrent for ticket {}: {}",
@@ -810,7 +873,9 @@ where
                     );
                     // Update ticket to failed state
                     let error_msg = format!("Failed to start pipeline: {}", e);
-                    let _ = ticket_store.update_state(
+                    let _ = update_and_notify_static(
+                        &ticket_store,
+                        &on_update,
                         &download.ticket_id,
                         TicketState::Failed {
                             error: error_msg.clone(),
@@ -854,6 +919,7 @@ where
                         &download,
                         config,
                         audit,
+                        on_update,
                     )
                     .await
                     {
@@ -880,7 +946,9 @@ where
                         };
 
                         // Update ticket state with new progress
-                        let _ = ticket_store.update_state(
+                        let _ = update_and_notify_static(
+                            &ticket_store,
+                            &on_update,
                             &download.ticket_id,
                             TicketState::Downloading {
                                 info_hash: download.info_hash.clone(),
@@ -1154,6 +1222,7 @@ where
         download: &ActiveDownload,
         config: &OrchestratorConfig,
         audit: &Option<AuditHandle>,
+        on_update: &Option<TicketUpdateCallback>,
     ) -> Result<(), OrchestratorError> {
         // Get ticket to access candidates
         let ticket = ticket_store
@@ -1178,7 +1247,9 @@ where
             let _ = torrent_client
                 .remove_torrent(&download.info_hash, false)
                 .await;
-            ticket_store.update_state(
+            update_and_notify_static(
+                &ticket_store,
+                &on_update,
                 &download.ticket_id,
                 TicketState::Failed {
                     error: error_msg.clone(),
@@ -1226,7 +1297,9 @@ where
                 .remove_torrent(&download.info_hash, false)
                 .await;
 
-            ticket_store.update_state(
+            update_and_notify_static(
+                &ticket_store,
+                &on_update,
                 &download.ticket_id,
                 TicketState::Failed {
                     error: error_msg.clone(),
@@ -1292,7 +1365,9 @@ where
                 }
 
                 // Update ticket state
-                ticket_store.update_state(
+                update_and_notify_static(
+                    &ticket_store,
+                    &on_update,
                     &download.ticket_id,
                     TicketState::Downloading {
                         info_hash: result.hash,

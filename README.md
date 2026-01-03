@@ -1867,12 +1867,12 @@ Implement video-specific logic in `content/video.rs`.
 - [ ] Follow same pattern: add match arm in dispatch, implement content-specific logic
 
 **Phase 6: Production Ready**
-- [ ] WebSocket real-time updates (snapshot-on-connect + subscriptions)
+- [x] WebSocket real-time updates (snapshot-on-connect + subscriptions)
 - [ ] Retry logic with exponential backoff (integrate with orchestrator)
 - [ ] Metrics/observability (Prometheus metrics for all workers)
 - [ ] Docker packaging
 - [ ] Comprehensive testing (unit, integration, E2E)
-- [ ] **Dashboard**: Real-time updates via WebSocket, audit log viewer, system health page
+- [x] **Dashboard**: Real-time updates via WebSocket, audit log viewer, system health page
 
 ## Design Decisions
 
