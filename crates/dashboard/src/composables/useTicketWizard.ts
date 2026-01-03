@@ -5,6 +5,8 @@ import type {
   AudioSearchConstraints,
   VideoSearchConstraints,
   AudioFormat,
+  VideoCodec,
+  VideoContainer,
   OutputConstraints,
   CreateTicketWithCatalogRequest,
 } from '@/api/types'
@@ -47,9 +49,18 @@ export function useTicketWizard() {
   const tagsInput = ref('')
   const destPath = ref('')
   const priority = ref(0)
-  const outputType = ref<'original' | 'audio'>('original')
+  const outputType = ref<'original' | 'audio' | 'video'>('original')
+  // Audio output options
   const audioFormat = ref<AudioFormat>('ogg_vorbis')
   const audioBitrate = ref<number | undefined>(320)
+  // Video output options
+  const videoFormat = ref<VideoCodec>('h264')
+  const videoContainer = ref<VideoContainer>('mp4')
+  const videoQualityMode = ref<'crf' | 'bitrate'>('bitrate')
+  const videoCrf = ref<number>(23)
+  const videoBitrateKbps = ref<number>(5000)
+  const videoMaxWidth = ref<number | undefined>(undefined)
+  const videoMaxHeight = ref<number | undefined>(undefined)
 
   // Computed values
   const tags = computed(() => {
@@ -136,6 +147,17 @@ export function useTicketWizard() {
         type: 'audio',
         format: audioFormat.value,
         bitrate_kbps: audioBitrate.value,
+      }
+    }
+    if (outputType.value === 'video') {
+      return {
+        type: 'video',
+        format: videoFormat.value,
+        container: videoContainer.value,
+        crf: videoQualityMode.value === 'crf' ? videoCrf.value : undefined,
+        bitrate_kbps: videoQualityMode.value === 'bitrate' ? videoBitrateKbps.value : undefined,
+        max_width: videoMaxWidth.value,
+        max_height: videoMaxHeight.value,
       }
     }
     return undefined
@@ -249,8 +271,17 @@ export function useTicketWizard() {
     destPath.value = ''
     priority.value = 0
     outputType.value = 'original'
+    // Reset audio output options
     audioFormat.value = 'ogg_vorbis'
     audioBitrate.value = 320
+    // Reset video output options
+    videoFormat.value = 'h264'
+    videoContainer.value = 'mp4'
+    videoQualityMode.value = 'bitrate'
+    videoCrf.value = 23
+    videoBitrateKbps.value = 5000
+    videoMaxWidth.value = undefined
+    videoMaxHeight.value = undefined
 
     audioConstraints.value = {
       preferred_formats: [],
@@ -316,8 +347,17 @@ export function useTicketWizard() {
     destPath,
     priority,
     outputType,
+    // Audio output options
     audioFormat,
     audioBitrate,
+    // Video output options
+    videoFormat,
+    videoContainer,
+    videoQualityMode,
+    videoCrf,
+    videoBitrateKbps,
+    videoMaxWidth,
+    videoMaxHeight,
     outputConstraints,
 
     // Catalog actions

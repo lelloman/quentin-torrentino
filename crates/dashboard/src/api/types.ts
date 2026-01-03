@@ -194,12 +194,12 @@ export interface AudioConstraints {
 
 // Video constraints for conversion
 export interface VideoConstraints {
-  codec: VideoCodec
+  format: VideoCodec
   container: VideoContainer
   crf?: number
   bitrate_kbps?: number
-  width?: number
-  height?: number
+  max_width?: number
+  max_height?: number
   fps?: number
   preset?: string
   audio?: AudioConstraints

@@ -1065,6 +1065,118 @@ const canProceedVideo = computed(() => {
         />
         <p class="text-xs text-gray-500 mt-1">Higher priority tickets are processed first</p>
       </div>
+
+      <!-- Output Format -->
+      <div class="border-t pt-4">
+        <label class="block text-sm font-medium text-gray-700 mb-2">Output Format</label>
+        <div class="flex gap-4 mb-3">
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input
+              type="radio"
+              v-model="wizard.outputType.value"
+              value="original"
+              class="w-4 h-4 text-blue-600"
+            />
+            <span class="text-sm">Keep Original</span>
+          </label>
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input
+              type="radio"
+              v-model="wizard.outputType.value"
+              value="video"
+              class="w-4 h-4 text-blue-600"
+            />
+            <span class="text-sm">Convert Video</span>
+          </label>
+        </div>
+
+        <!-- Video conversion options -->
+        <div v-if="wizard.outputType.value === 'video'" class="bg-gray-50 p-3 rounded-lg space-y-3">
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label for="videoFormat" class="block text-xs font-medium text-gray-600 mb-1">
+                Codec
+              </label>
+              <select id="videoFormat" v-model="wizard.videoFormat.value" class="input w-full text-sm">
+                <option value="h264">H.264 (AVC)</option>
+                <option value="h265">H.265 (HEVC)</option>
+                <option value="vp9">VP9</option>
+                <option value="av1">AV1</option>
+              </select>
+            </div>
+            <div>
+              <label for="videoContainer" class="block text-xs font-medium text-gray-600 mb-1">
+                Container
+              </label>
+              <select id="videoContainer" v-model="wizard.videoContainer.value" class="input w-full text-sm">
+                <option value="mp4">MP4</option>
+                <option value="mkv">MKV</option>
+                <option value="webm">WebM</option>
+              </select>
+            </div>
+          </div>
+          <!-- Quality Mode Toggle -->
+          <div>
+            <label class="block text-xs font-medium text-gray-600 mb-1">Quality Mode</label>
+            <div class="flex gap-3">
+              <label class="flex items-center gap-1.5 cursor-pointer">
+                <input type="radio" v-model="wizard.videoQualityMode.value" value="bitrate" class="w-3.5 h-3.5" />
+                <span class="text-sm">Bitrate</span>
+              </label>
+              <label class="flex items-center gap-1.5 cursor-pointer">
+                <input type="radio" v-model="wizard.videoQualityMode.value" value="crf" class="w-3.5 h-3.5" />
+                <span class="text-sm">CRF (variable)</span>
+              </label>
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <!-- Bitrate mode -->
+            <div v-if="wizard.videoQualityMode.value === 'bitrate'">
+              <label for="videoBitrate" class="block text-xs font-medium text-gray-600 mb-1">
+                Bitrate (kbps)
+              </label>
+              <select id="videoBitrate" v-model.number="wizard.videoBitrateKbps.value" class="input w-full text-sm">
+                <option :value="1000">1,000 kbps (~650 MB/1.5h)</option>
+                <option :value="2500">2,500 kbps (~1.6 GB/1.5h)</option>
+                <option :value="5000">5,000 kbps (~3.3 GB/1.5h)</option>
+                <option :value="8000">8,000 kbps (~5.3 GB/1.5h)</option>
+                <option :value="10000">10,000 kbps (~6.6 GB/1.5h)</option>
+                <option :value="15000">15,000 kbps (~10 GB/1.5h)</option>
+                <option :value="20000">20,000 kbps (~13 GB/1.5h)</option>
+                <option :value="30000">30,000 kbps (~20 GB/1.5h)</option>
+                <option :value="50000">50,000 kbps (~33 GB/1.5h)</option>
+              </select>
+            </div>
+            <!-- CRF mode -->
+            <div v-else>
+              <label for="videoCrf" class="block text-xs font-medium text-gray-600 mb-1">
+                CRF: {{ wizard.videoCrf.value }} ({{ wizard.videoCrf.value <= 18 ? 'high' : wizard.videoCrf.value <= 23 ? 'medium' : 'low' }} quality)
+              </label>
+              <input
+                id="videoCrf"
+                type="range"
+                v-model.number="wizard.videoCrf.value"
+                min="0"
+                max="51"
+                class="w-full"
+              />
+              <p class="text-xs text-gray-500">Lower = better quality, larger file</p>
+            </div>
+            <div>
+              <label for="videoMaxHeight" class="block text-xs font-medium text-gray-600 mb-1">
+                Max Resolution
+              </label>
+              <select id="videoMaxHeight" v-model="wizard.videoMaxHeight.value" class="input w-full text-sm">
+                <option :value="undefined">Original</option>
+                <option :value="2160">4K (2160p)</option>
+                <option :value="1080">1080p</option>
+                <option :value="720">720p</option>
+                <option :value="480">480p</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Step 4: Review -->
@@ -1144,6 +1256,18 @@ const canProceedVideo = computed(() => {
           <div>
             <span class="text-gray-500">Priority:</span>
             <span class="ml-2">{{ wizard.priority.value }}</span>
+          </div>
+          <div>
+            <span class="text-gray-500">Output:</span>
+            <span class="ml-2">
+              <template v-if="wizard.outputType.value === 'original'">Keep original format</template>
+              <template v-else>
+                Convert to {{ wizard.videoFormat.value.toUpperCase() }} ({{ wizard.videoContainer.value.toUpperCase() }})
+                @ <template v-if="wizard.videoQualityMode.value === 'bitrate'">{{ wizard.videoBitrateKbps.value }} kbps</template>
+                <template v-else>CRF {{ wizard.videoCrf.value }}</template>
+                <span v-if="wizard.videoMaxHeight.value">, max {{ wizard.videoMaxHeight.value }}p</span>
+              </template>
+            </span>
           </div>
           <div v-if="wizard.tags.value.length">
             <span class="text-gray-500">Tags:</span>
