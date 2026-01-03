@@ -36,6 +36,8 @@ export interface PipelineProgressMessage {
   current: number
   total: number
   current_name: string
+  /** FFmpeg conversion percentage (0.0 - 100.0) for current file */
+  percent: number
 }
 
 export interface OrchestratorStatusMessage {

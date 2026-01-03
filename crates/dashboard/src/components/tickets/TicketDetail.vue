@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import type { Ticket } from '../../api/types'
+import type { PipelineProgressMessage } from '../../composables/useWebSocket'
 import { approveTicket, rejectTicket, retryTicket } from '../../api/tickets'
 import Badge from '../common/Badge.vue'
 
 const props = defineProps<{
   ticket: Ticket
+  liveProgress?: PipelineProgressMessage | null
 }>()
 
 const emit = defineEmits<{
@@ -758,23 +760,38 @@ async function handleRetry() {
     <div v-if="ticket.state.type === 'converting'" class="card border-purple-200 bg-purple-50">
       <h3 class="text-lg font-semibold mb-4 text-purple-800">Converting</h3>
       <div class="space-y-3">
+        <!-- Overall file progress -->
         <div>
           <div class="flex justify-between text-sm mb-1">
-            <span>File {{ ticket.state.current_idx + 1 }} of {{ ticket.state.total }}</span>
+            <span>File {{ (liveProgress?.current ?? ticket.state.current_idx) + 1 }} of {{ liveProgress?.total ?? ticket.state.total }}</span>
             <span class="font-medium">
-              {{ ((ticket.state.current_idx / ticket.state.total) * 100).toFixed(0) }}%
+              {{ (((liveProgress?.current ?? ticket.state.current_idx) / (liveProgress?.total ?? ticket.state.total)) * 100).toFixed(0) }}%
             </span>
           </div>
-          <div class="w-full bg-gray-200 rounded-full h-3">
+          <div class="w-full bg-gray-200 rounded-full h-2">
             <div
-              class="bg-purple-600 h-3 rounded-full transition-all duration-300"
-              :style="{ width: `${(ticket.state.current_idx / ticket.state.total) * 100}%` }"
+              class="bg-purple-400 h-2 rounded-full transition-all duration-300"
+              :style="{ width: `${((liveProgress?.current ?? ticket.state.current_idx) / (liveProgress?.total ?? ticket.state.total)) * 100}%` }"
             ></div>
           </div>
         </div>
-        <p class="text-sm text-gray-600 truncate">
-          Current: {{ ticket.state.current_name }}
-        </p>
+        <!-- Current file FFmpeg progress -->
+        <div>
+          <div class="flex justify-between text-sm mb-1">
+            <span class="text-gray-600 truncate flex-1 mr-2">
+              {{ liveProgress?.current_name || ticket.state.current_name }}
+            </span>
+            <span class="font-bold text-purple-700">
+              {{ (liveProgress?.percent ?? 0).toFixed(1) }}%
+            </span>
+          </div>
+          <div class="w-full bg-gray-200 rounded-full h-4">
+            <div
+              class="bg-purple-600 h-4 rounded-full transition-all duration-150"
+              :style="{ width: `${liveProgress?.percent ?? 0}%` }"
+            ></div>
+          </div>
+        </div>
       </div>
     </div>
 

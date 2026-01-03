@@ -42,6 +42,8 @@ pub enum WsMessage {
         current: usize,
         total: usize,
         current_name: String,
+        /// FFmpeg conversion percentage (0.0 - 100.0) for current file
+        percent: f32,
     },
     /// Orchestrator status changed.
     OrchestratorStatus { running: bool },
@@ -114,6 +116,7 @@ impl WsBroadcaster {
         current: usize,
         total: usize,
         current_name: &str,
+        percent: f32,
     ) {
         self.broadcast(WsMessage::PipelineProgress {
             ticket_id: ticket_id.to_string(),
@@ -121,6 +124,7 @@ impl WsBroadcaster {
             current,
             total,
             current_name: current_name.to_string(),
+            percent,
         });
     }
 

@@ -1,6 +1,3 @@
-mod api;
-mod state;
-
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -20,8 +17,8 @@ use torrentino_core::{
     TorrentCatalog, TorrentClient, TorrentClientBackend,
 };
 
-use api::{create_router, WsBroadcaster};
-use state::AppState;
+use torrentino_server::api::{create_router, WsBroadcaster};
+use torrentino_server::state::AppState;
 
 /// Application version
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -203,10 +200,18 @@ async fn run() -> Result<()> {
             pipeline_broadcaster.ticket_updated(ticket_id, state_type);
         });
 
+    // Create pipeline progress callback that broadcasts progress via WebSocket
+    let progress_broadcaster = ws_broadcaster.clone();
+    let progress_callback: torrentino_core::processor::PipelineProgressCallback =
+        Arc::new(move |ticket_id: &str, phase: &str, current: usize, total: usize, current_name: &str, percent: f32| {
+            progress_broadcaster.pipeline_progress(ticket_id, phase, current, total, current_name, percent);
+        });
+
     let pipeline = PipelineProcessor::new(processor_config, converter, placer)
         .with_audit(audit_handle.clone())
         .with_ticket_store(Arc::clone(&ticket_store))
-        .with_update_callback(pipeline_callback);
+        .with_update_callback(pipeline_callback)
+        .with_progress_callback(progress_callback);
 
     // Start the pipeline processor
     pipeline.start().await;

@@ -41,7 +41,7 @@ mod pipeline;
 mod types;
 
 pub use config::{ProcessorConfig, RetryConfig};
-pub use pipeline::{PipelineError, PipelineProcessor, PipelineUpdateCallback};
+pub use pipeline::{PipelineError, PipelineProcessor, PipelineProgressCallback, PipelineUpdateCallback};
 pub use types::{
     PipelineJob, PipelineMetadata, PipelineProgress, PipelineResult, PipelineStatus,
     PlacedFileInfo, PoolStatus, SourceFile,

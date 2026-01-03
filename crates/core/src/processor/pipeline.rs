@@ -7,7 +7,7 @@ use std::time::Instant;
 use tokio::sync::{mpsc, RwLock, Semaphore};
 
 use crate::audit::{AuditEvent, AuditHandle};
-use crate::converter::{ConversionConstraints, ConversionJob, Converter, EmbeddedMetadata};
+use crate::converter::{ConversionConstraints, ConversionJob, ConversionProgress, Converter, EmbeddedMetadata};
 use crate::placer::{FilePlacement, PlacementJob, Placer};
 use crate::ticket::{CompletionStats, TicketState, TicketStore};
 
@@ -19,6 +19,12 @@ use super::types::{
 /// Callback type for pipeline update notifications.
 /// Called with (ticket_id, state_type) when ticket state changes.
 pub type PipelineUpdateCallback = Arc<dyn Fn(&str, &str) + Send + Sync>;
+
+/// Callback type for pipeline progress notifications.
+/// Called with (ticket_id, phase, current, total, current_name, percent) for real-time progress.
+/// The percent field (0.0-100.0) shows intra-file progress from FFmpeg.
+pub type PipelineProgressCallback =
+    Arc<dyn Fn(&str, &str, usize, usize, &str, f32) + Send + Sync>;
 
 /// Error type for pipeline operations.
 #[derive(Debug, thiserror::Error)]
@@ -84,6 +90,7 @@ pub struct PipelineProcessor<C: Converter, P: Placer> {
     audit: Option<AuditHandle>,
     ticket_store: Option<Arc<dyn TicketStore>>,
     on_update: Option<PipelineUpdateCallback>,
+    on_progress: Option<PipelineProgressCallback>,
     conversion_semaphore: Arc<Semaphore>,
     placement_semaphore: Arc<Semaphore>,
     conversion_stats: Arc<PoolStats>,
@@ -121,6 +128,7 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
             audit: None,
             ticket_store: None,
             on_update: None,
+            on_progress: None,
             conversion_semaphore,
             placement_semaphore,
             conversion_stats: Arc::new(PoolStats::default()),
@@ -145,6 +153,12 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
     /// Sets the update callback for WebSocket notifications.
     pub fn with_update_callback(mut self, callback: PipelineUpdateCallback) -> Self {
         self.on_update = Some(callback);
+        self
+    }
+
+    /// Sets the progress callback for real-time progress updates.
+    pub fn with_progress_callback(mut self, callback: PipelineProgressCallback) -> Self {
+        self.on_progress = Some(callback);
         self
     }
 
@@ -218,6 +232,7 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
         let audit = self.audit.clone();
         let ticket_store = self.ticket_store.clone();
         let on_update = self.on_update.clone();
+        let on_progress = self.on_progress.clone();
         let conversion_semaphore = Arc::clone(&self.conversion_semaphore);
         let placement_semaphore = Arc::clone(&self.placement_semaphore);
         let conversion_stats = Arc::clone(&self.conversion_stats);
@@ -233,6 +248,7 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
                 audit.clone(),
                 ticket_store.clone(),
                 on_update,
+                on_progress,
                 conversion_semaphore,
                 placement_semaphore,
                 conversion_stats,
@@ -283,6 +299,7 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
         audit: Option<AuditHandle>,
         ticket_store: Option<Arc<dyn TicketStore>>,
         on_update: Option<PipelineUpdateCallback>,
+        on_progress: Option<PipelineProgressCallback>,
         conversion_semaphore: Arc<Semaphore>,
         placement_semaphore: Arc<Semaphore>,
         conversion_stats: Arc<PoolStats>,
@@ -423,7 +440,7 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
                     );
                 }
 
-                // Send progress
+                // Send progress via channel
                 if let Some(ref tx) = progress_tx {
                     let _ = tx
                         .send(PipelineProgress::Converting {
@@ -434,6 +451,11 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
                             percent: (idx as f32 / total_files as f32) * 100.0,
                         })
                         .await;
+                }
+
+                // Send initial progress via callback (for WebSocket) - 0% for this file
+                if let Some(ref cb) = on_progress {
+                    cb(&ticket_id, "converting", idx, total_files, &current_file_name, 0.0);
                 }
 
                 // Build conversion job
@@ -467,9 +489,42 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
                     cover_art_path: job.metadata.as_ref().and_then(|m| m.cover_art.clone()),
                 };
 
-                // Run conversion
-                match converter.convert(conv_job).await {
+                // Create channel for FFmpeg progress updates
+                let (conv_progress_tx, mut conv_progress_rx) = mpsc::channel::<ConversionProgress>(32);
+
+                // Spawn task to forward FFmpeg progress to the callback
+                let progress_ticket_id = ticket_id.clone();
+                let progress_file_name = current_file_name.clone();
+                let progress_cb = on_progress.clone();
+                let progress_idx = idx;
+                let progress_total = total_files;
+                let progress_forwarder = tokio::spawn(async move {
+                    while let Some(progress) = conv_progress_rx.recv().await {
+                        if let Some(ref cb) = progress_cb {
+                            cb(
+                                &progress_ticket_id,
+                                "converting",
+                                progress_idx,
+                                progress_total,
+                                &progress_file_name,
+                                progress.percent,
+                            );
+                        }
+                    }
+                });
+
+                // Run conversion with progress
+                let conv_result = converter.convert_with_progress(conv_job, conv_progress_tx).await;
+
+                // Wait for progress forwarder to complete
+                let _ = progress_forwarder.await;
+
+                match conv_result {
                     Ok(result) => {
+                        // Send 100% progress for this file
+                        if let Some(ref cb) = on_progress {
+                            cb(&ticket_id, "converting", idx, total_files, &current_file_name, 100.0);
+                        }
                         converted_files.push((source_file.clone(), result, output_path));
                     }
                     Err(e) => {
@@ -623,6 +678,11 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
                     reason: Some(format!("Placing {} files", files_to_place)),
                 }).await;
             }
+        }
+
+        // Send placing progress via callback (for WebSocket)
+        if let Some(ref cb) = on_progress {
+            cb(&ticket_id, "placing", 0, files_to_place, "", 0.0);
         }
 
         let _permit = placement_semaphore

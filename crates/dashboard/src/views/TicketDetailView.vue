@@ -2,7 +2,7 @@
 import { onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useTickets } from '../composables/useTickets'
-import { useGlobalWebSocket, type WsMessage } from '../composables/useWebSocket'
+import { useGlobalWebSocket, type WsMessage, type PipelineProgressMessage } from '../composables/useWebSocket'
 import { deleteTicket } from '../api/tickets'
 import TicketDetail from '../components/tickets/TicketDetail.vue'
 import LoadingSpinner from '../components/common/LoadingSpinner.vue'
@@ -27,6 +27,9 @@ const cancelReason = ref('')
 const showCancelDialog = ref(false)
 const showDeleteDialog = ref(false)
 
+// Live FFmpeg progress from WebSocket (updated in real-time)
+const liveProgress = ref<PipelineProgressMessage | null>(null)
+
 // Handle WebSocket messages for this specific ticket
 function handleWsMessage(message: WsMessage) {
   const ticketId = route.params.id as string
@@ -34,6 +37,8 @@ function handleWsMessage(message: WsMessage) {
   if (message.type === 'ticket_update' && message.ticket_id === ticketId) {
     // Refresh ticket data when it's updated
     fetchTicket(ticketId)
+    // Clear live progress when state changes
+    liveProgress.value = null
   } else if (message.type === 'ticket_deleted' && message.ticket_id === ticketId) {
     // Navigate back if this ticket was deleted
     router.push('/tickets')
@@ -41,8 +46,8 @@ function handleWsMessage(message: WsMessage) {
     // Refresh to get updated progress
     fetchTicket(ticketId)
   } else if (message.type === 'pipeline_progress' && message.ticket_id === ticketId) {
-    // Refresh to get updated pipeline progress
-    fetchTicket(ticketId)
+    // Update live progress directly (no fetch needed)
+    liveProgress.value = message
   }
 }
 
@@ -122,6 +127,7 @@ function goBack() {
 
       <TicketDetail
         :ticket="currentTicket"
+        :live-progress="liveProgress"
         @cancel="showCancelDialog = true"
         @showDelete="showDeleteDialog = true"
         @refresh="handleRefresh"
