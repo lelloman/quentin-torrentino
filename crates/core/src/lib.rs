@@ -30,8 +30,8 @@ pub use auth::{
 pub use config::{
     load_config, load_config_from_str, validate_config, AuthConfig, AuthMethod, Config,
     ConfigError, DatabaseConfig, ExternalCatalogsConfig, JackettConfig, LibrqbitConfig,
-    QBittorrentConfig, SanitizedConfig, SearcherBackend, SearcherConfig, TorrentClientBackend,
-    TorrentClientConfig,
+    QBittorrentConfig, SanitizedConfig, SearcherBackend, SearcherConfig, ServerConfig,
+    TorrentClientBackend, TorrentClientConfig,
 };
 pub use searcher::{
     deduplicate_results, FileEnricher, FileEnricherConfig, IndexerStatus, JackettSearcher,
