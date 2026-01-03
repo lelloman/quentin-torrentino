@@ -34,10 +34,10 @@ pub use searcher::{
 };
 pub use ticket::{
     AcquisitionPhase, AudioSearchConstraints, CatalogReference, CompletionStats,
-    CreateTicketRequest, ExpectedContent, ExpectedTrack, OutputConstraints, QueryContext,
-    Resolution, SearchConstraints, SelectedCandidate, SqliteTicketStore, Ticket, TicketError,
-    TicketFilter, TicketState, TicketStore, TmdbMediaType, VideoCodec, VideoSearchConstraints,
-    VideoSource,
+    CreateTicketRequest, ExpectedContent, ExpectedTrack, LanguagePreference, LanguagePriority,
+    OutputConstraints, QueryContext, Resolution, SearchConstraints, SelectedCandidate,
+    SqliteTicketStore, Ticket, TicketError, TicketFilter, TicketState, TicketStore, TmdbMediaType,
+    VideoCodec, VideoSearchConstraints, VideoSource,
 };
 pub use torrent_client::{
     AddTorrentRequest, AddTorrentResult, LibrqbitClient, QBittorrentClient, TorrentClient,

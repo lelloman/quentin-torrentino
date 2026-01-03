@@ -8,7 +8,7 @@ pub use sqlite_store::SqliteTicketStore;
 pub use store::{CreateTicketRequest, TicketError, TicketFilter, TicketStore};
 pub use types::{
     AcquisitionPhase, AudioSearchConstraints, CatalogReference, CompletionStats, ExpectedContent,
-    ExpectedTrack, OutputConstraints, QueryContext, Resolution, SearchConstraints,
-    SelectedCandidate, Ticket, TicketState, TmdbMediaType, VideoCodec, VideoSearchConstraints,
-    VideoSource,
+    ExpectedTrack, LanguagePreference, LanguagePriority, OutputConstraints, QueryContext,
+    Resolution, SearchConstraints, SelectedCandidate, Ticket, TicketState, TmdbMediaType,
+    VideoCodec, VideoSearchConstraints, VideoSource,
 };

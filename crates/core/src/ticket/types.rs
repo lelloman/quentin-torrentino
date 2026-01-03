@@ -112,9 +112,15 @@ pub struct VideoSearchConstraints {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub preferred_codecs: Vec<VideoCodec>,
 
-    /// Preferred audio language (e.g., "en", "it").
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub preferred_language: Option<String>,
+    /// Audio language preferences with priority levels.
+    /// Required languages get a stronger scoring boost than preferred.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub audio_languages: Vec<LanguagePreference>,
+
+    /// Subtitle language preferences with priority levels.
+    /// Required languages get a stronger scoring boost than preferred.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub subtitle_languages: Vec<LanguagePreference>,
 
     /// Exclude releases with hardcoded subtitles.
     #[serde(default)]
@@ -193,6 +199,47 @@ impl VideoCodec {
             VideoCodec::X265 => "x265",
             VideoCodec::Av1 => "AV1",
         }
+    }
+}
+
+/// Priority level for language preferences.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum LanguagePriority {
+    /// Preferred language - gives a moderate scoring boost.
+    #[default]
+    Preferred,
+    /// Required language - gives a stronger scoring boost.
+    Required,
+}
+
+/// A language preference with priority level.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LanguagePreference {
+    /// ISO 639-1 language code (e.g., "en", "it", "de").
+    pub code: String,
+    /// Priority level (required vs preferred).
+    #[serde(default)]
+    pub priority: LanguagePriority,
+}
+
+impl LanguagePreference {
+    /// Create a new language preference.
+    pub fn new(code: impl Into<String>, priority: LanguagePriority) -> Self {
+        Self {
+            code: code.into(),
+            priority,
+        }
+    }
+
+    /// Create a required language preference.
+    pub fn required(code: impl Into<String>) -> Self {
+        Self::new(code, LanguagePriority::Required)
+    }
+
+    /// Create a preferred language preference.
+    pub fn preferred(code: impl Into<String>) -> Self {
+        Self::new(code, LanguagePriority::Preferred)
     }
 }
 

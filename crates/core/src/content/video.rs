@@ -15,8 +15,8 @@ use crate::textbrain::{
     TextBrainError,
 };
 use crate::ticket::{
-    CatalogReference, ExpectedContent, QueryContext, Resolution, Ticket, VideoCodec,
-    VideoSearchConstraints, VideoSource,
+    CatalogReference, ExpectedContent, LanguagePriority, QueryContext, Resolution, Ticket,
+    VideoCodec, VideoSearchConstraints, VideoSource,
 };
 
 use super::generic;
@@ -558,6 +558,38 @@ impl<'a> VideoScorer<'a> {
             }
         }
 
+        // Check audio language preferences
+        if !constraints.audio_languages.is_empty() {
+            for lang_pref in &constraints.audio_languages {
+                if title_contains_language(title, &lang_pref.code, false) {
+                    match lang_pref.priority {
+                        LanguagePriority::Required => bonus += 0.12,
+                        LanguagePriority::Preferred => bonus += 0.06,
+                    }
+                }
+            }
+            // Bonus for MULTI/DUAL audio (likely to have multiple languages)
+            if title.contains("multi") || title.contains("dual") {
+                bonus += 0.04;
+            }
+        }
+
+        // Check subtitle language preferences
+        if !constraints.subtitle_languages.is_empty() {
+            for lang_pref in &constraints.subtitle_languages {
+                if title_contains_language(title, &lang_pref.code, true) {
+                    match lang_pref.priority {
+                        LanguagePriority::Required => bonus += 0.10,
+                        LanguagePriority::Preferred => bonus += 0.05,
+                    }
+                }
+            }
+            // Bonus for SUBS/SUBBED mentions (likely to have subtitles)
+            if title.contains("subs") || title.contains("subbed") {
+                bonus += 0.03;
+            }
+        }
+
         // Check hardcoded subs exclusion
         if constraints.exclude_hardcoded_subs {
             if title.contains("hc ") || title.contains("[hc]") || title.contains("hardcoded") {
@@ -1010,6 +1042,100 @@ fn is_stop_word(word: &str) -> bool {
         word,
         "the" | "a" | "an" | "and" | "or" | "of" | "in" | "on" | "at" | "to" | "for" | "by"
     )
+}
+
+/// Check if title contains a language indicator.
+///
+/// Matches various patterns:
+/// - ISO 639-1 codes (en, it, de, fr, etc.)
+/// - Common abbreviations (ENG, ITA, GER, FRE, etc.)
+/// - Full names (English, Italian, German, etc.)
+///
+/// The `for_subs` parameter adjusts matching for subtitles (e.g., "eng.subs").
+fn title_contains_language(title: &str, lang_code: &str, for_subs: bool) -> bool {
+    let lang_code = lang_code.to_lowercase();
+
+    // Define language patterns (ISO code -> [abbreviations, full names])
+    let patterns: &[(&str, &[&str])] = &[
+        ("en", &["eng", "english"]),
+        ("it", &["ita", "italian", "italiano"]),
+        ("de", &["ger", "deu", "german", "deutsch"]),
+        ("fr", &["fre", "fra", "french", "francais"]),
+        ("es", &["spa", "spanish", "espanol", "castellano"]),
+        ("pt", &["por", "portuguese", "portugues"]),
+        ("ru", &["rus", "russian"]),
+        ("ja", &["jpn", "jap", "japanese"]),
+        ("ko", &["kor", "korean"]),
+        ("zh", &["chi", "chn", "chinese", "mandarin", "cantonese"]),
+        ("nl", &["dut", "dutch", "nederlands"]),
+        ("pl", &["pol", "polish"]),
+        ("sv", &["swe", "swedish"]),
+        ("no", &["nor", "norwegian"]),
+        ("da", &["dan", "danish"]),
+        ("fi", &["fin", "finnish"]),
+        ("tr", &["tur", "turkish"]),
+        ("ar", &["ara", "arabic"]),
+        ("hi", &["hin", "hindi"]),
+        ("th", &["tha", "thai"]),
+    ];
+
+    // Find matching patterns for this language code
+    let search_terms: Vec<&str> = patterns
+        .iter()
+        .filter(|(code, _)| *code == lang_code)
+        .flat_map(|(code, aliases)| {
+            let mut terms: Vec<&str> = aliases.to_vec();
+            terms.push(code);
+            terms
+        })
+        .collect();
+
+    // If we don't recognize the language code, just search for it directly
+    let search_terms: Vec<&str> = if search_terms.is_empty() {
+        vec![lang_code.as_str()]
+    } else {
+        search_terms
+    };
+
+    for term in search_terms {
+        // For subtitles, look for patterns like "eng.subs", "english.srt", "subs.ita"
+        if for_subs {
+            let sub_patterns = [
+                format!("{}.sub", term),
+                format!("{}.srt", term),
+                format!("subs.{}", term),
+                format!("sub.{}", term),
+                format!("{} subs", term),
+                format!("{} sub", term),
+            ];
+            for pattern in &sub_patterns {
+                if title.contains(pattern) {
+                    return true;
+                }
+            }
+        }
+
+        // Look for the language term with word boundaries
+        // Common patterns: ".ENG.", "-ENG-", " ENG ", "[ENG]", "(ENG)"
+        let delimited_patterns = [
+            format!(".{}.", term),
+            format!("-{}-", term),
+            format!(" {} ", term),
+            format!("[{}]", term),
+            format!("({})", term),
+            format!(".{}-", term),
+            format!("-{}.", term),
+            format!(" {}.", term),
+            format!(".{} ", term),
+        ];
+        for pattern in &delimited_patterns {
+            if title.contains(pattern) {
+                return true;
+            }
+        }
+    }
+
+    false
 }
 
 // =============================================================================
@@ -1471,5 +1597,42 @@ mod tests {
             .unwrap();
 
         assert!(result.subtitle_paths.is_empty());
+    }
+
+    // =========================================================================
+    // Language Detection Tests
+    // =========================================================================
+
+    #[test]
+    fn test_title_contains_language_english() {
+        // Various patterns for English
+        assert!(title_contains_language("movie.eng.1080p", "en", false));
+        assert!(title_contains_language("movie-eng-1080p", "en", false));
+        assert!(title_contains_language("movie [eng] 1080p", "en", false));
+        assert!(title_contains_language("movie.english.1080p", "en", false));
+        assert!(!title_contains_language("movie.1080p", "en", false));
+    }
+
+    #[test]
+    fn test_title_contains_language_italian() {
+        assert!(title_contains_language("movie.ita.1080p", "it", false));
+        assert!(title_contains_language("movie.italian.1080p", "it", false));
+        assert!(title_contains_language("movie-ita-1080p", "it", false));
+        assert!(!title_contains_language("movie.eng.1080p", "it", false));
+    }
+
+    #[test]
+    fn test_title_contains_language_subtitles() {
+        assert!(title_contains_language("movie.eng.subs", "en", true));
+        assert!(title_contains_language("movie.english.srt", "en", true));
+        assert!(title_contains_language("movie eng subs", "en", true));
+        assert!(title_contains_language("subs.ita.included", "it", true));
+    }
+
+    #[test]
+    fn test_title_contains_language_unknown_code() {
+        // Unknown codes should still be searched directly
+        assert!(title_contains_language("movie.xyz.1080p", "xyz", false));
+        assert!(!title_contains_language("movie.1080p", "xyz", false));
     }
 }

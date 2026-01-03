@@ -37,7 +37,8 @@ export function useTicketWizard() {
     preferred_resolution: undefined,
     preferred_sources: [],
     preferred_codecs: [],
-    preferred_language: undefined,
+    audio_languages: [],
+    subtitle_languages: [],
     exclude_hardcoded_subs: false,
   })
 
@@ -115,7 +116,8 @@ export function useTicketWizard() {
         vc.preferred_resolution !== undefined ||
         (vc.preferred_sources?.length ?? 0) > 0 ||
         (vc.preferred_codecs?.length ?? 0) > 0 ||
-        vc.preferred_language !== undefined ||
+        (vc.audio_languages?.length ?? 0) > 0 ||
+        (vc.subtitle_languages?.length ?? 0) > 0 ||
         vc.exclude_hardcoded_subs
 
       if (hasConstraints) {
@@ -262,7 +264,8 @@ export function useTicketWizard() {
       preferred_resolution: undefined,
       preferred_sources: [],
       preferred_codecs: [],
-      preferred_language: undefined,
+      audio_languages: [],
+      subtitle_languages: [],
       exclude_hardcoded_subs: false,
     }
 

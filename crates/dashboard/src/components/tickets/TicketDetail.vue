@@ -379,9 +379,13 @@ async function handleRetry() {
             <span class="text-gray-600">Preferred Codecs</span>
             <span>{{ ticket.query_context.search_constraints.video.preferred_codecs.join(', ') }}</span>
           </div>
-          <div v-if="ticket.query_context.search_constraints.video.preferred_language" class="flex justify-between py-2 border-b border-blue-100">
-            <span class="text-gray-600">Preferred Language</span>
-            <span>{{ ticket.query_context.search_constraints.video.preferred_language }}</span>
+          <div v-if="ticket.query_context.search_constraints.video.audio_languages?.length" class="flex justify-between py-2 border-b border-blue-100">
+            <span class="text-gray-600">Audio Languages</span>
+            <span>{{ ticket.query_context.search_constraints.video.audio_languages.map((l: any) => `${l.code} (${l.priority})`).join(', ') }}</span>
+          </div>
+          <div v-if="ticket.query_context.search_constraints.video.subtitle_languages?.length" class="flex justify-between py-2 border-b border-blue-100">
+            <span class="text-gray-600">Subtitle Languages</span>
+            <span>{{ ticket.query_context.search_constraints.video.subtitle_languages.map((l: any) => `${l.code} (${l.priority})`).join(', ') }}</span>
           </div>
           <div v-if="ticket.query_context.search_constraints.video.exclude_hardcoded_subs" class="flex justify-between py-2">
             <span class="text-gray-600">Exclude Hardcoded Subs</span>

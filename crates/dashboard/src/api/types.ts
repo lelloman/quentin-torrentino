@@ -1102,13 +1102,23 @@ export interface AudioSearchConstraints {
   avoid_live?: boolean
 }
 
+// Language priority for video constraints
+export type LanguagePriority = 'required' | 'preferred'
+
+// Language preference with priority
+export interface LanguagePreference {
+  code: string
+  priority: LanguagePriority
+}
+
 // Video search constraints
 export interface VideoSearchConstraints {
   min_resolution?: Resolution
   preferred_resolution?: Resolution
   preferred_sources?: VideoSource[]
   preferred_codecs?: VideoSearchCodec[]
-  preferred_language?: string
+  audio_languages?: LanguagePreference[]
+  subtitle_languages?: LanguagePreference[]
   exclude_hardcoded_subs?: boolean
 }
 

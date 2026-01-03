@@ -3,7 +3,7 @@ import { ref, computed } from 'vue'
 import { useTicketWizard } from '../../composables/useTicketWizard'
 import LoadingSpinner from '../common/LoadingSpinner.vue'
 import ErrorAlert from '../common/ErrorAlert.vue'
-import type { CreateTicketWithCatalogRequest, Resolution, VideoSource, VideoSearchCodec } from '../../api/types'
+import type { CreateTicketWithCatalogRequest, Resolution, VideoSource, VideoSearchCodec, LanguagePreference, LanguagePriority } from '../../api/types'
 
 const emit = defineEmits<{
   submit: [request: CreateTicketWithCatalogRequest]
@@ -40,6 +40,77 @@ const codecOptions: { value: VideoSearchCodec; label: string }[] = [
   { value: 'x264', label: 'x264' },
   { value: 'av1', label: 'AV1' },
 ]
+
+// Language options (ISO 639-1 codes)
+const languageOptions: { code: string; label: string }[] = [
+  { code: 'en', label: 'English' },
+  { code: 'it', label: 'Italian' },
+  { code: 'de', label: 'German' },
+  { code: 'fr', label: 'French' },
+  { code: 'es', label: 'Spanish' },
+  { code: 'pt', label: 'Portuguese' },
+  { code: 'ru', label: 'Russian' },
+  { code: 'ja', label: 'Japanese' },
+  { code: 'ko', label: 'Korean' },
+  { code: 'zh', label: 'Chinese' },
+  { code: 'nl', label: 'Dutch' },
+  { code: 'pl', label: 'Polish' },
+  { code: 'sv', label: 'Swedish' },
+  { code: 'no', label: 'Norwegian' },
+  { code: 'da', label: 'Danish' },
+  { code: 'fi', label: 'Finnish' },
+  { code: 'tr', label: 'Turkish' },
+  { code: 'ar', label: 'Arabic' },
+  { code: 'hi', label: 'Hindi' },
+  { code: 'th', label: 'Thai' },
+]
+
+// Helper to add a language preference
+function addLanguage(type: 'audio' | 'subtitle', code: string) {
+  const constraints = wizard.videoConstraints.value
+  const list = type === 'audio' ? constraints.audio_languages : constraints.subtitle_languages
+
+  // Check if already added
+  if (list?.some(l => l.code === code)) return
+
+  const newPref: LanguagePreference = { code, priority: 'preferred' }
+  if (type === 'audio') {
+    constraints.audio_languages = [...(list || []), newPref]
+  } else {
+    constraints.subtitle_languages = [...(list || []), newPref]
+  }
+}
+
+// Helper to remove a language preference
+function removeLanguage(type: 'audio' | 'subtitle', code: string) {
+  const constraints = wizard.videoConstraints.value
+  if (type === 'audio') {
+    constraints.audio_languages = constraints.audio_languages?.filter(l => l.code !== code)
+  } else {
+    constraints.subtitle_languages = constraints.subtitle_languages?.filter(l => l.code !== code)
+  }
+}
+
+// Helper to toggle language priority
+function togglePriority(type: 'audio' | 'subtitle', code: string) {
+  const constraints = wizard.videoConstraints.value
+  const list = type === 'audio' ? constraints.audio_languages : constraints.subtitle_languages
+  const updated = list?.map(l =>
+    l.code === code
+      ? { ...l, priority: (l.priority === 'required' ? 'preferred' : 'required') as LanguagePriority }
+      : l
+  )
+  if (type === 'audio') {
+    constraints.audio_languages = updated
+  } else {
+    constraints.subtitle_languages = updated
+  }
+}
+
+// Helper to get language label from code
+function getLanguageLabel(code: string): string {
+  return languageOptions.find(l => l.code === code)?.label || code.toUpperCase()
+}
 
 // Initialize based on video mode
 function setVideoMode(mode: 'movie' | 'tv') {
@@ -599,6 +670,104 @@ const canProceedVideo = computed(() => {
         </div>
       </div>
 
+      <!-- Audio Languages -->
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-2">Audio Languages</label>
+        <div class="flex flex-wrap gap-2 mb-2">
+          <div
+            v-for="lang in wizard.videoConstraints.value.audio_languages"
+            :key="lang.code"
+            class="flex items-center gap-1 px-2 py-1 rounded-lg text-sm"
+            :class="{
+              'bg-blue-100 text-blue-800': lang.priority === 'required',
+              'bg-gray-100 text-gray-700': lang.priority === 'preferred',
+            }"
+          >
+            <span>{{ getLanguageLabel(lang.code) }}</span>
+            <button
+              @click="togglePriority('audio', lang.code)"
+              class="px-1.5 py-0.5 text-xs rounded"
+              :class="{
+                'bg-blue-200 hover:bg-blue-300': lang.priority === 'required',
+                'bg-gray-200 hover:bg-gray-300': lang.priority === 'preferred',
+              }"
+              :title="lang.priority === 'required' ? 'Click for preferred' : 'Click for required'"
+            >
+              {{ lang.priority === 'required' ? 'REQ' : 'PREF' }}
+            </button>
+            <button
+              @click="removeLanguage('audio', lang.code)"
+              class="ml-1 text-gray-500 hover:text-gray-700"
+            >
+              <span class="i-carbon-close text-xs"></span>
+            </button>
+          </div>
+        </div>
+        <select
+          @change="(e) => { addLanguage('audio', (e.target as HTMLSelectElement).value); (e.target as HTMLSelectElement).value = '' }"
+          class="input w-48"
+        >
+          <option value="">Add audio language...</option>
+          <option
+            v-for="lang in languageOptions.filter(l => !wizard.videoConstraints.value.audio_languages?.some(a => a.code === l.code))"
+            :key="lang.code"
+            :value="lang.code"
+          >
+            {{ lang.label }}
+          </option>
+        </select>
+        <p class="text-xs text-gray-500 mt-1">Required = stronger boost, Preferred = moderate boost</p>
+      </div>
+
+      <!-- Subtitle Languages -->
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-2">Subtitle Languages</label>
+        <div class="flex flex-wrap gap-2 mb-2">
+          <div
+            v-for="lang in wizard.videoConstraints.value.subtitle_languages"
+            :key="lang.code"
+            class="flex items-center gap-1 px-2 py-1 rounded-lg text-sm"
+            :class="{
+              'bg-green-100 text-green-800': lang.priority === 'required',
+              'bg-gray-100 text-gray-700': lang.priority === 'preferred',
+            }"
+          >
+            <span>{{ getLanguageLabel(lang.code) }}</span>
+            <button
+              @click="togglePriority('subtitle', lang.code)"
+              class="px-1.5 py-0.5 text-xs rounded"
+              :class="{
+                'bg-green-200 hover:bg-green-300': lang.priority === 'required',
+                'bg-gray-200 hover:bg-gray-300': lang.priority === 'preferred',
+              }"
+              :title="lang.priority === 'required' ? 'Click for preferred' : 'Click for required'"
+            >
+              {{ lang.priority === 'required' ? 'REQ' : 'PREF' }}
+            </button>
+            <button
+              @click="removeLanguage('subtitle', lang.code)"
+              class="ml-1 text-gray-500 hover:text-gray-700"
+            >
+              <span class="i-carbon-close text-xs"></span>
+            </button>
+          </div>
+        </div>
+        <select
+          @change="(e) => { addLanguage('subtitle', (e.target as HTMLSelectElement).value); (e.target as HTMLSelectElement).value = '' }"
+          class="input w-48"
+        >
+          <option value="">Add subtitle language...</option>
+          <option
+            v-for="lang in languageOptions.filter(l => !wizard.videoConstraints.value.subtitle_languages?.some(s => s.code === l.code))"
+            :key="lang.code"
+            :value="lang.code"
+          >
+            {{ lang.label }}
+          </option>
+        </select>
+        <p class="text-xs text-gray-500 mt-1">Required = stronger boost, Preferred = moderate boost</p>
+      </div>
+
       <!-- Exclude Hardcoded Subs -->
       <div class="space-y-3">
         <label class="flex items-center gap-3 cursor-pointer">
@@ -773,6 +942,12 @@ const canProceedVideo = computed(() => {
           </div>
           <div v-if="wizard.videoConstraints.value.preferred_codecs?.length">
             Codecs: {{ wizard.videoConstraints.value.preferred_codecs.join(', ').toUpperCase() }}
+          </div>
+          <div v-if="wizard.videoConstraints.value.audio_languages?.length">
+            Audio: {{ wizard.videoConstraints.value.audio_languages.map(l => `${getLanguageLabel(l.code)} (${l.priority})`).join(', ') }}
+          </div>
+          <div v-if="wizard.videoConstraints.value.subtitle_languages?.length">
+            Subtitles: {{ wizard.videoConstraints.value.subtitle_languages.map(l => `${getLanguageLabel(l.code)} (${l.priority})`).join(', ') }}
           </div>
           <div v-if="wizard.videoConstraints.value.exclude_hardcoded_subs">
             Excluding hardcoded subs
