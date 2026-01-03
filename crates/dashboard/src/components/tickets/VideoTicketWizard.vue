@@ -65,20 +65,89 @@ const languageOptions: { code: string; label: string }[] = [
   { code: 'th', label: 'Thai' },
 ]
 
-// Helper to add a language preference
-function addLanguage(type: 'audio' | 'subtitle', code: string) {
+// Language wizard modal state
+const showLanguageModal = ref(false)
+const modalLanguage = ref('')
+const modalType = ref<'audio' | 'subtitle' | 'both'>('audio')
+const modalPriority = ref<LanguagePriority>('preferred')
+
+// Combined list of all language preferences for display
+interface LanguageEntry {
+  code: string
+  label: string
+  audio: boolean
+  subtitle: boolean
+  audioPriority?: LanguagePriority
+  subtitlePriority?: LanguagePriority
+}
+
+const allLanguages = computed((): LanguageEntry[] => {
   const constraints = wizard.videoConstraints.value
-  const list = type === 'audio' ? constraints.audio_languages : constraints.subtitle_languages
+  const audioLangs = constraints.audio_languages || []
+  const subLangs = constraints.subtitle_languages || []
 
-  // Check if already added
-  if (list?.some(l => l.code === code)) return
+  // Build a map of all unique language codes
+  const langMap = new Map<string, LanguageEntry>()
 
-  const newPref: LanguagePreference = { code, priority: 'preferred' }
-  if (type === 'audio') {
-    constraints.audio_languages = [...(list || []), newPref]
-  } else {
-    constraints.subtitle_languages = [...(list || []), newPref]
+  for (const al of audioLangs) {
+    langMap.set(al.code, {
+      code: al.code,
+      label: getLanguageLabel(al.code),
+      audio: true,
+      subtitle: false,
+      audioPriority: al.priority,
+    })
   }
+
+  for (const sl of subLangs) {
+    const existing = langMap.get(sl.code)
+    if (existing) {
+      existing.subtitle = true
+      existing.subtitlePriority = sl.priority
+    } else {
+      langMap.set(sl.code, {
+        code: sl.code,
+        label: getLanguageLabel(sl.code),
+        audio: false,
+        subtitle: true,
+        subtitlePriority: sl.priority,
+      })
+    }
+  }
+
+  return Array.from(langMap.values())
+})
+
+// Open the language wizard modal
+function openLanguageModal() {
+  modalLanguage.value = ''
+  modalType.value = 'audio'
+  modalPriority.value = 'preferred'
+  showLanguageModal.value = true
+}
+
+// Confirm adding the language
+function confirmAddLanguage() {
+  if (!modalLanguage.value) return
+
+  const constraints = wizard.videoConstraints.value
+  const newPref: LanguagePreference = { code: modalLanguage.value, priority: modalPriority.value }
+
+  if (modalType.value === 'audio' || modalType.value === 'both') {
+    const existing = constraints.audio_languages || []
+    if (!existing.some(l => l.code === modalLanguage.value)) {
+      constraints.audio_languages = [...existing, newPref]
+    }
+  }
+
+  if (modalType.value === 'subtitle' || modalType.value === 'both') {
+    const existing = constraints.subtitle_languages || []
+    if (!existing.some(l => l.code === modalLanguage.value)) {
+      constraints.subtitle_languages = [...existing, newPref]
+    }
+  }
+
+  showLanguageModal.value = false
 }
 
 // Helper to remove a language preference
@@ -89,6 +158,13 @@ function removeLanguage(type: 'audio' | 'subtitle', code: string) {
   } else {
     constraints.subtitle_languages = constraints.subtitle_languages?.filter(l => l.code !== code)
   }
+}
+
+// Remove all language preferences for a code
+function removeAllLanguage(code: string) {
+  const constraints = wizard.videoConstraints.value
+  constraints.audio_languages = constraints.audio_languages?.filter(l => l.code !== code)
+  constraints.subtitle_languages = constraints.subtitle_languages?.filter(l => l.code !== code)
 }
 
 // Helper to toggle language priority
@@ -670,102 +746,201 @@ const canProceedVideo = computed(() => {
         </div>
       </div>
 
-      <!-- Audio Languages -->
+      <!-- Language Preferences -->
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-2">Audio Languages</label>
-        <div class="flex flex-wrap gap-2 mb-2">
-          <div
-            v-for="lang in wizard.videoConstraints.value.audio_languages"
-            :key="lang.code"
-            class="flex items-center gap-1 px-2 py-1 rounded-lg text-sm"
-            :class="{
-              'bg-blue-100 text-blue-800': lang.priority === 'required',
-              'bg-gray-100 text-gray-700': lang.priority === 'preferred',
-            }"
+        <div class="flex items-center justify-between mb-2">
+          <label class="block text-sm font-medium text-gray-700">Language Preferences</label>
+          <button
+            @click="openLanguageModal"
+            class="text-sm text-blue-600 hover:text-blue-800 flex items-center gap-1"
           >
-            <span>{{ getLanguageLabel(lang.code) }}</span>
+            <span class="i-carbon-add"></span>
+            Add Language
+          </button>
+        </div>
+
+        <!-- Language list -->
+        <div v-if="allLanguages.length > 0" class="border rounded-lg divide-y">
+          <div
+            v-for="lang in allLanguages"
+            :key="lang.code"
+            class="flex items-center gap-3 p-3"
+          >
+            <!-- Language name -->
+            <span class="font-medium text-gray-900 min-w-24">{{ lang.label }}</span>
+
+            <!-- Audio badge -->
+            <div v-if="lang.audio" class="flex items-center gap-1">
+              <span class="i-carbon-volume-up text-blue-600"></span>
+              <button
+                @click="togglePriority('audio', lang.code)"
+                class="px-2 py-0.5 text-xs rounded-full"
+                :class="{
+                  'bg-blue-600 text-white': lang.audioPriority === 'required',
+                  'bg-blue-100 text-blue-700': lang.audioPriority === 'preferred',
+                }"
+                title="Click to toggle priority"
+              >
+                {{ lang.audioPriority === 'required' ? 'Required' : 'Preferred' }}
+              </button>
+              <button
+                @click="removeLanguage('audio', lang.code)"
+                class="text-gray-400 hover:text-red-500 ml-1"
+                title="Remove audio preference"
+              >
+                <span class="i-carbon-close text-xs"></span>
+              </button>
+            </div>
+
+            <!-- Subtitle badge -->
+            <div v-if="lang.subtitle" class="flex items-center gap-1">
+              <span class="i-carbon-closed-caption text-green-600"></span>
+              <button
+                @click="togglePriority('subtitle', lang.code)"
+                class="px-2 py-0.5 text-xs rounded-full"
+                :class="{
+                  'bg-green-600 text-white': lang.subtitlePriority === 'required',
+                  'bg-green-100 text-green-700': lang.subtitlePriority === 'preferred',
+                }"
+                title="Click to toggle priority"
+              >
+                {{ lang.subtitlePriority === 'required' ? 'Required' : 'Preferred' }}
+              </button>
+              <button
+                @click="removeLanguage('subtitle', lang.code)"
+                class="text-gray-400 hover:text-red-500 ml-1"
+                title="Remove subtitle preference"
+              >
+                <span class="i-carbon-close text-xs"></span>
+              </button>
+            </div>
+
+            <!-- Remove all button (only if both audio and subtitle) -->
             <button
-              @click="togglePriority('audio', lang.code)"
-              class="px-1.5 py-0.5 text-xs rounded"
-              :class="{
-                'bg-blue-200 hover:bg-blue-300': lang.priority === 'required',
-                'bg-gray-200 hover:bg-gray-300': lang.priority === 'preferred',
-              }"
-              :title="lang.priority === 'required' ? 'Click for preferred' : 'Click for required'"
+              v-if="lang.audio && lang.subtitle"
+              @click="removeAllLanguage(lang.code)"
+              class="ml-auto text-gray-400 hover:text-red-500"
+              title="Remove all preferences for this language"
             >
-              {{ lang.priority === 'required' ? 'REQ' : 'PREF' }}
-            </button>
-            <button
-              @click="removeLanguage('audio', lang.code)"
-              class="ml-1 text-gray-500 hover:text-gray-700"
-            >
-              <span class="i-carbon-close text-xs"></span>
+              <span class="i-carbon-trash-can"></span>
             </button>
           </div>
         </div>
-        <select
-          @change="(e) => { addLanguage('audio', (e.target as HTMLSelectElement).value); (e.target as HTMLSelectElement).value = '' }"
-          class="input w-48"
-        >
-          <option value="">Add audio language...</option>
-          <option
-            v-for="lang in languageOptions.filter(l => !wizard.videoConstraints.value.audio_languages?.some(a => a.code === l.code))"
-            :key="lang.code"
-            :value="lang.code"
-          >
-            {{ lang.label }}
-          </option>
-        </select>
-        <p class="text-xs text-gray-500 mt-1">Required = stronger boost, Preferred = moderate boost</p>
+        <div v-else class="text-sm text-gray-500 py-3 text-center border rounded-lg border-dashed">
+          No language preferences set. Click "Add Language" to get started.
+        </div>
+        <p class="text-xs text-gray-500 mt-2">
+          Required = stronger scoring boost, Preferred = moderate boost. Click badges to toggle.
+        </p>
       </div>
 
-      <!-- Subtitle Languages -->
-      <div>
-        <label class="block text-sm font-medium text-gray-700 mb-2">Subtitle Languages</label>
-        <div class="flex flex-wrap gap-2 mb-2">
-          <div
-            v-for="lang in wizard.videoConstraints.value.subtitle_languages"
-            :key="lang.code"
-            class="flex items-center gap-1 px-2 py-1 rounded-lg text-sm"
-            :class="{
-              'bg-green-100 text-green-800': lang.priority === 'required',
-              'bg-gray-100 text-gray-700': lang.priority === 'preferred',
-            }"
-          >
-            <span>{{ getLanguageLabel(lang.code) }}</span>
-            <button
-              @click="togglePriority('subtitle', lang.code)"
-              class="px-1.5 py-0.5 text-xs rounded"
-              :class="{
-                'bg-green-200 hover:bg-green-300': lang.priority === 'required',
-                'bg-gray-200 hover:bg-gray-300': lang.priority === 'preferred',
-              }"
-              :title="lang.priority === 'required' ? 'Click for preferred' : 'Click for required'"
-            >
-              {{ lang.priority === 'required' ? 'REQ' : 'PREF' }}
+      <!-- Language Wizard Modal -->
+      <div
+        v-if="showLanguageModal"
+        class="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+        @click.self="showLanguageModal = false"
+      >
+        <div class="bg-white rounded-lg shadow-xl w-full max-w-sm p-6">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="font-semibold text-lg">Add Language Preference</h3>
+            <button @click="showLanguageModal = false" class="text-gray-400 hover:text-gray-600">
+              <span class="i-carbon-close text-xl"></span>
             </button>
+          </div>
+
+          <!-- Step 1: Select Language -->
+          <div class="mb-4">
+            <label class="block text-sm font-medium text-gray-700 mb-2">Language</label>
+            <select v-model="modalLanguage" class="input w-full">
+              <option value="">Select a language...</option>
+              <option v-for="lang in languageOptions" :key="lang.code" :value="lang.code">
+                {{ lang.label }}
+              </option>
+            </select>
+          </div>
+
+          <!-- Step 2: Select Type -->
+          <div class="mb-4">
+            <label class="block text-sm font-medium text-gray-700 mb-2">Apply to</label>
+            <div class="flex gap-2">
+              <label
+                class="flex-1 flex items-center justify-center gap-2 py-2 px-3 border-2 rounded-lg cursor-pointer transition-colors"
+                :class="{
+                  'border-blue-600 bg-blue-50': modalType === 'audio',
+                  'border-gray-200 hover:border-gray-300': modalType !== 'audio',
+                }"
+              >
+                <input type="radio" v-model="modalType" value="audio" class="sr-only" />
+                <span class="i-carbon-volume-up"></span>
+                <span class="text-sm">Audio</span>
+              </label>
+              <label
+                class="flex-1 flex items-center justify-center gap-2 py-2 px-3 border-2 rounded-lg cursor-pointer transition-colors"
+                :class="{
+                  'border-green-600 bg-green-50': modalType === 'subtitle',
+                  'border-gray-200 hover:border-gray-300': modalType !== 'subtitle',
+                }"
+              >
+                <input type="radio" v-model="modalType" value="subtitle" class="sr-only" />
+                <span class="i-carbon-closed-caption"></span>
+                <span class="text-sm">Subtitle</span>
+              </label>
+              <label
+                class="flex-1 flex items-center justify-center gap-2 py-2 px-3 border-2 rounded-lg cursor-pointer transition-colors"
+                :class="{
+                  'border-purple-600 bg-purple-50': modalType === 'both',
+                  'border-gray-200 hover:border-gray-300': modalType !== 'both',
+                }"
+              >
+                <input type="radio" v-model="modalType" value="both" class="sr-only" />
+                <span class="i-carbon-checkmark-filled"></span>
+                <span class="text-sm">Both</span>
+              </label>
+            </div>
+          </div>
+
+          <!-- Step 3: Select Priority -->
+          <div class="mb-6">
+            <label class="block text-sm font-medium text-gray-700 mb-2">Priority</label>
+            <div class="flex gap-2">
+              <label
+                class="flex-1 flex items-center justify-center gap-2 py-2 px-3 border-2 rounded-lg cursor-pointer transition-colors"
+                :class="{
+                  'border-orange-600 bg-orange-50': modalPriority === 'required',
+                  'border-gray-200 hover:border-gray-300': modalPriority !== 'required',
+                }"
+              >
+                <input type="radio" v-model="modalPriority" value="required" class="sr-only" />
+                <span class="text-sm font-medium">Required</span>
+              </label>
+              <label
+                class="flex-1 flex items-center justify-center gap-2 py-2 px-3 border-2 rounded-lg cursor-pointer transition-colors"
+                :class="{
+                  'border-gray-600 bg-gray-50': modalPriority === 'preferred',
+                  'border-gray-200 hover:border-gray-300': modalPriority !== 'preferred',
+                }"
+              >
+                <input type="radio" v-model="modalPriority" value="preferred" class="sr-only" />
+                <span class="text-sm font-medium">Preferred</span>
+              </label>
+            </div>
+            <p class="text-xs text-gray-500 mt-2">
+              Required gives a stronger scoring boost than Preferred.
+            </p>
+          </div>
+
+          <!-- Actions -->
+          <div class="flex justify-end gap-3">
+            <button @click="showLanguageModal = false" class="btn-secondary">Cancel</button>
             <button
-              @click="removeLanguage('subtitle', lang.code)"
-              class="ml-1 text-gray-500 hover:text-gray-700"
+              @click="confirmAddLanguage"
+              class="btn-primary"
+              :disabled="!modalLanguage"
             >
-              <span class="i-carbon-close text-xs"></span>
+              Add Language
             </button>
           </div>
         </div>
-        <select
-          @change="(e) => { addLanguage('subtitle', (e.target as HTMLSelectElement).value); (e.target as HTMLSelectElement).value = '' }"
-          class="input w-48"
-        >
-          <option value="">Add subtitle language...</option>
-          <option
-            v-for="lang in languageOptions.filter(l => !wizard.videoConstraints.value.subtitle_languages?.some(s => s.code === l.code))"
-            :key="lang.code"
-            :value="lang.code"
-          >
-            {{ lang.label }}
-          </option>
-        </select>
-        <p class="text-xs text-gray-500 mt-1">Required = stronger boost, Preferred = moderate boost</p>
       </div>
 
       <!-- Exclude Hardcoded Subs -->

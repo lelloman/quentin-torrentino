@@ -72,6 +72,7 @@ IMPORTANT RULES:
 6. For TV: use "Series S01E01" format, also try season packs
 7. Remove request phrases like "looking for", "please", "I want"
 8. Keep queries concise - torrent search works best with key terms
+9. When required audio languages are specified, include the 3-letter language code in queries (e.g., "ita" for Italian, "eng" for English, "ger" for German)
 
 Respond with JSON only, no other text:
 {
@@ -83,6 +84,8 @@ Respond with JSON only, no other text:
 
     /// Build the user prompt from context.
     fn build_user_prompt(&self, context: &QueryContext) -> String {
+        use crate::ticket::LanguagePriority;
+
         let mut prompt = format!("Generate search queries for:\n\nDescription: {}", context.description);
 
         if !context.tags.is_empty() {
@@ -127,8 +130,52 @@ Respond with JSON only, no other text:
             }
         }
 
+        // Add required language constraints
+        if let Some(ref constraints) = context.search_constraints {
+            if let Some(ref video) = constraints.video {
+                let required_audio: Vec<_> = video.audio_languages.iter()
+                    .filter(|l| l.priority == LanguagePriority::Required)
+                    .map(|l| Self::language_code_to_name(&l.code))
+                    .collect();
+
+                if !required_audio.is_empty() {
+                    prompt.push_str(&format!(
+                        "\n\nREQUIRED audio language(s): {}. Include language codes (e.g., ita, eng) in the queries.",
+                        required_audio.join(", ")
+                    ));
+                }
+            }
+        }
+
         prompt.push_str(&format!("\n\nGenerate up to {} search queries.", self.config.max_queries));
         prompt
+    }
+
+    /// Convert ISO 639-1 language code to human-readable name.
+    fn language_code_to_name(code: &str) -> &'static str {
+        match code.to_lowercase().as_str() {
+            "en" => "English (eng)",
+            "it" => "Italian (ita)",
+            "de" => "German (ger)",
+            "fr" => "French (fre)",
+            "es" => "Spanish (spa)",
+            "pt" => "Portuguese (por)",
+            "ru" => "Russian (rus)",
+            "ja" => "Japanese (jpn)",
+            "ko" => "Korean (kor)",
+            "zh" => "Chinese (chi)",
+            "nl" => "Dutch (dut)",
+            "pl" => "Polish (pol)",
+            "sv" => "Swedish (swe)",
+            "no" => "Norwegian (nor)",
+            "da" => "Danish (dan)",
+            "fi" => "Finnish (fin)",
+            "tr" => "Turkish (tur)",
+            "ar" => "Arabic (ara)",
+            "hi" => "Hindi (hin)",
+            "th" => "Thai (tha)",
+            _ => "Unknown",
+        }
     }
 
     /// Parse the LLM response into a QueryBuildResult.

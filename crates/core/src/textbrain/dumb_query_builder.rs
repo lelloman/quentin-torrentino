@@ -107,38 +107,105 @@ impl DumbQueryBuilder {
             .collect()
     }
 
+    /// Convert ISO 639-1 language code to torrent search keyword.
+    /// Returns the 3-letter abbreviation commonly used in torrent names.
+    fn language_code_to_keyword(code: &str) -> Option<&'static str> {
+        match code.to_lowercase().as_str() {
+            "en" => Some("eng"),
+            "it" => Some("ita"),
+            "de" => Some("ger"),
+            "fr" => Some("fre"),
+            "es" => Some("spa"),
+            "pt" => Some("por"),
+            "ru" => Some("rus"),
+            "ja" => Some("jpn"),
+            "ko" => Some("kor"),
+            "zh" => Some("chi"),
+            "nl" => Some("dut"),
+            "pl" => Some("pol"),
+            "sv" => Some("swe"),
+            "no" => Some("nor"),
+            "da" => Some("dan"),
+            "fi" => Some("fin"),
+            "tr" => Some("tur"),
+            "ar" => Some("ara"),
+            "hi" => Some("hin"),
+            "th" => Some("tha"),
+            _ => None,
+        }
+    }
+
+    /// Extract required language keywords from search constraints.
+    fn extract_required_languages(&self, context: &QueryContext) -> Vec<String> {
+        use crate::ticket::LanguagePriority;
+
+        let mut keywords = Vec::new();
+
+        if let Some(ref constraints) = context.search_constraints {
+            if let Some(ref video) = constraints.video {
+                // Add required audio languages
+                for lang in &video.audio_languages {
+                    if lang.priority == LanguagePriority::Required {
+                        if let Some(kw) = Self::language_code_to_keyword(&lang.code) {
+                            keywords.push(kw.to_string());
+                        }
+                    }
+                }
+                // Note: We only add audio languages to queries since they're more
+                // commonly part of release titles. Subtitle languages are less often
+                // in the torrent name.
+            }
+        }
+
+        keywords
+    }
+
     /// Generate queries with decreasing specificity.
     fn generate_queries(&self, context: &QueryContext) -> Vec<String> {
         let mut queries = Vec::new();
         let key_terms = self.extract_key_terms(&context.description);
         let quality_tags = self.extract_quality_tags(&context.tags);
+        let required_langs = self.extract_required_languages(context);
 
-        // Query 1: Full description + quality tags (most specific)
+        // Build suffix with quality tags and required languages
+        let mut suffix_parts = quality_tags.clone();
+        suffix_parts.extend(required_langs.clone());
+        let suffix = if suffix_parts.is_empty() {
+            String::new()
+        } else {
+            format!(" {}", suffix_parts.join(" "))
+        };
+
+        // Query 1: Full description + quality tags + required languages (most specific)
         if !context.description.is_empty() {
             let cleaned_desc = self.clean_description(&context.description);
-            if !quality_tags.is_empty() {
-                queries.push(format!("{} {}", cleaned_desc, quality_tags.join(" ")));
+            if !suffix.is_empty() {
+                queries.push(format!("{}{}", cleaned_desc, suffix));
             }
-            // Also add just the cleaned description
+            // Also add just the cleaned description (without language for broader match)
             if !cleaned_desc.is_empty() {
                 queries.push(cleaned_desc);
             }
         }
 
-        // Query 2: Key terms + quality tags
+        // Query 2: Key terms + quality tags + required languages
         if key_terms.len() >= 2 {
             let terms_str = key_terms.join(" ");
-            if !quality_tags.is_empty() {
-                queries.push(format!("{} {}", terms_str, quality_tags.join(" ")));
+            if !suffix.is_empty() {
+                queries.push(format!("{}{}", terms_str, suffix));
             }
-            // Key terms without quality
+            // Key terms without quality/language
             queries.push(terms_str);
         }
 
-        // Query 3: Main terms only (first 3-4 key terms)
+        // Query 3: Main terms only (first 3-4 key terms) + required languages
         if key_terms.len() > 3 {
             let main_terms: Vec<_> = key_terms.iter().take(4).cloned().collect();
-            queries.push(main_terms.join(" "));
+            let main_terms_str = main_terms.join(" ");
+            if !required_langs.is_empty() {
+                queries.push(format!("{} {}", main_terms_str, required_langs.join(" ")));
+            }
+            queries.push(main_terms_str);
         }
 
         // Query 4: First 2 terms only (often just artist/name - very broad but catches more)
@@ -265,12 +332,30 @@ impl DumbQueryBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ticket::{SearchConstraints, VideoSearchConstraints, LanguagePreference, LanguagePriority};
 
     fn make_context(tags: &[&str], description: &str) -> QueryContext {
         QueryContext::new(
             tags.iter().map(|s| s.to_string()).collect(),
             description,
         )
+    }
+
+    fn make_context_with_languages(
+        tags: &[&str],
+        description: &str,
+        audio_languages: Vec<LanguagePreference>,
+    ) -> QueryContext {
+        QueryContext::new(
+            tags.iter().map(|s| s.to_string()).collect(),
+            description,
+        ).with_search_constraints(SearchConstraints {
+            audio: None,
+            video: Some(VideoSearchConstraints {
+                audio_languages,
+                ..Default::default()
+            }),
+        })
     }
 
     #[test]
@@ -446,5 +531,79 @@ mod tests {
     fn test_query_builder_name() {
         let builder = DumbQueryBuilder::new();
         assert_eq!(builder.name(), "dumb");
+    }
+
+    #[test]
+    fn test_generate_queries_with_required_language() {
+        let builder = DumbQueryBuilder::new();
+        let context = make_context_with_languages(
+            &["movie", "1080p"],
+            "The Matrix 1999",
+            vec![LanguagePreference::required("it")],
+        );
+
+        let queries = builder.generate_queries(&context);
+        assert!(!queries.is_empty());
+
+        // First query should include the language keyword "ita"
+        assert!(
+            queries.iter().any(|q| q.contains("ita")),
+            "Expected at least one query to contain 'ita', got: {:?}",
+            queries
+        );
+    }
+
+    #[test]
+    fn test_generate_queries_with_preferred_language_not_in_query() {
+        let builder = DumbQueryBuilder::new();
+        // Preferred (not Required) languages should NOT be included in queries
+        let context = make_context_with_languages(
+            &["movie", "1080p"],
+            "The Matrix 1999",
+            vec![LanguagePreference::preferred("it")],
+        );
+
+        let queries = builder.generate_queries(&context);
+        assert!(!queries.is_empty());
+
+        // Queries should NOT include the language keyword for preferred-only
+        assert!(
+            !queries.iter().any(|q| q.contains("ita")),
+            "Expected no query to contain 'ita' for preferred language, got: {:?}",
+            queries
+        );
+    }
+
+    #[test]
+    fn test_generate_queries_with_multiple_required_languages() {
+        let builder = DumbQueryBuilder::new();
+        let context = make_context_with_languages(
+            &["movie", "1080p"],
+            "The Matrix 1999",
+            vec![
+                LanguagePreference::required("it"),
+                LanguagePreference::required("en"),
+            ],
+        );
+
+        let queries = builder.generate_queries(&context);
+        assert!(!queries.is_empty());
+
+        // First query should include both language keywords
+        assert!(
+            queries.iter().any(|q| q.contains("ita") && q.contains("eng")),
+            "Expected at least one query to contain both 'ita' and 'eng', got: {:?}",
+            queries
+        );
+    }
+
+    #[test]
+    fn test_language_code_to_keyword() {
+        assert_eq!(DumbQueryBuilder::language_code_to_keyword("it"), Some("ita"));
+        assert_eq!(DumbQueryBuilder::language_code_to_keyword("en"), Some("eng"));
+        assert_eq!(DumbQueryBuilder::language_code_to_keyword("de"), Some("ger"));
+        assert_eq!(DumbQueryBuilder::language_code_to_keyword("fr"), Some("fre"));
+        assert_eq!(DumbQueryBuilder::language_code_to_keyword("IT"), Some("ita")); // Case insensitive
+        assert_eq!(DumbQueryBuilder::language_code_to_keyword("xx"), None); // Unknown
     }
 }
