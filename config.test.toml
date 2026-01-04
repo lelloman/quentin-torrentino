@@ -1,0 +1,49 @@
+# Test configuration for E2E tests
+# Uses mock backends where possible
+
+[auth]
+method = "none"
+
+[server]
+host = "0.0.0.0"
+port = 18080
+
+[database]
+path = ":memory:"
+
+[searcher]
+backend = "jackett"
+
+[searcher.jackett]
+url = "http://localhost:9117"
+api_key = "test-api-key"
+timeout_secs = 30
+
+[torrent_client]
+backend = "librqbit"
+
+[torrent_client.librqbit]
+download_path = "/tmp/quentin-e2e-downloads"
+enable_dht = false
+listen_port = 16881
+persistence_path = "/tmp/quentin-e2e-state"
+
+[textbrain]
+mode = "dumb_only"
+auto_approve_threshold = 0.85
+confidence_threshold = 0.7
+max_queries = 3
+
+[orchestrator]
+enabled = true
+acquisition_poll_interval_ms = 1000
+download_poll_interval_ms = 1000
+auto_approve_threshold = 0.85
+max_concurrent_downloads = 2
+stall_timeout_round1_secs = 60
+stall_timeout_round2_secs = 120
+stall_timeout_round3_secs = 300
+max_failover_candidates = 3
+
+[external_catalogs.musicbrainz]
+rate_limit_ms = 1100

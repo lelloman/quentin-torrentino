@@ -8,3 +8,9 @@ dist/
 *.js
 !vite.config.ts
 !uno.config.ts
+!playwright.config.ts
+!e2e/**/*.ts
+
+# Playwright
+playwright-report/
+test-results/
