@@ -15,6 +15,7 @@ use torrentino_core::{
     TicketState,
 };
 
+use crate::metrics::{TICKETS_CREATED_TOTAL, TICKETS_FAILED_TOTAL, TICKET_STATE_TRANSITIONS};
 use crate::state::AppState;
 
 /// Maximum allowed limit for ticket queries
@@ -171,6 +172,9 @@ pub async fn create_ticket(
 
     match state.ticket_store().create(request) {
         Ok(ticket) => {
+            // Track metrics
+            TICKETS_CREATED_TOTAL.inc();
+
             // Emit audit event
             state
                 .audit()
@@ -318,6 +322,11 @@ pub async fn cancel_ticket(
 
     match state.ticket_store().update_state(&id, new_state) {
         Ok(ticket) => {
+            // Track state transition
+            TICKET_STATE_TRANSITIONS
+                .with_label_values(&[&previous_state, "cancelled"])
+                .inc();
+
             // Emit audit event
             state
                 .audit()
@@ -554,6 +563,11 @@ pub async fn approve_ticket(
 
     match state.ticket_store().update_state(&id, new_state) {
         Ok(ticket) => {
+            // Track state transition
+            TICKET_STATE_TRANSITIONS
+                .with_label_values(&[&previous_state, "approved"])
+                .inc();
+
             // Emit audit event
             state.audit().try_emit(AuditEvent::TicketStateChanged {
                 ticket_id: ticket.id.clone(),
@@ -631,6 +645,11 @@ pub async fn retry_ticket(
     // Reset to Pending state
     match state.ticket_store().update_state(&id, TicketState::Pending) {
         Ok(ticket) => {
+            // Track state transition
+            TICKET_STATE_TRANSITIONS
+                .with_label_values(&[&previous_state, "pending"])
+                .inc();
+
             // Emit audit event
             state.audit().try_emit(AuditEvent::TicketStateChanged {
                 ticket_id: ticket.id.clone(),
@@ -708,6 +727,12 @@ pub async fn reject_ticket(
 
     match state.ticket_store().update_state(&id, new_state) {
         Ok(ticket) => {
+            // Track state transition and failure
+            TICKET_STATE_TRANSITIONS
+                .with_label_values(&[&previous_state, "rejected"])
+                .inc();
+            TICKETS_FAILED_TOTAL.inc();
+
             // Emit audit event
             state.audit().try_emit(AuditEvent::TicketStateChanged {
                 ticket_id: ticket.id.clone(),

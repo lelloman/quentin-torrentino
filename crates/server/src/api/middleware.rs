@@ -1,4 +1,4 @@
-//! Authentication middleware for API routes.
+//! Authentication and metrics middleware for API routes.
 
 use axum::{
     body::Body,
@@ -9,9 +9,44 @@ use axum::{
 };
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Instant;
 use torrentino_core::AuthRequest;
 
+use crate::metrics::{
+    normalize_path, AUTH_FAILURES_TOTAL, HTTP_REQUESTS_IN_FLIGHT, HTTP_REQUESTS_TOTAL,
+    HTTP_REQUEST_DURATION,
+};
 use crate::state::AppState;
+
+/// Metrics middleware that tracks HTTP request duration and counts.
+///
+/// This middleware records:
+/// - Request duration (histogram)
+/// - Request count (counter)
+/// - Requests in flight (gauge)
+pub async fn metrics_middleware(request: Request<Body>, next: Next) -> Response {
+    let start = Instant::now();
+    let method = request.method().to_string();
+    let path = normalize_path(request.uri().path());
+
+    HTTP_REQUESTS_IN_FLIGHT.inc();
+
+    let response = next.run(request).await;
+
+    HTTP_REQUESTS_IN_FLIGHT.dec();
+
+    let duration = start.elapsed().as_secs_f64();
+    let status = response.status().as_u16().to_string();
+
+    HTTP_REQUEST_DURATION
+        .with_label_values(&[&method, &path, &status])
+        .observe(duration);
+    HTTP_REQUESTS_TOTAL
+        .with_label_values(&[&method, &path, &status])
+        .inc();
+
+    response
+}
 
 /// Authentication middleware that validates requests using the configured authenticator.
 ///
@@ -58,14 +93,17 @@ pub async fn auth_middleware(
         }
         Err(torrentino_core::AuthError::NotAuthenticated) => {
             // No credentials provided
+            AUTH_FAILURES_TOTAL.with_label_values(&["not_authenticated"]).inc();
             Err(StatusCode::UNAUTHORIZED)
         }
         Err(torrentino_core::AuthError::InvalidCredentials(_)) => {
             // Wrong credentials
+            AUTH_FAILURES_TOTAL.with_label_values(&["invalid_credentials"]).inc();
             Err(StatusCode::UNAUTHORIZED)
         }
         Err(_) => {
             // Other auth errors (service unavailable, config error)
+            AUTH_FAILURES_TOTAL.with_label_values(&["internal_error"]).inc();
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
     }

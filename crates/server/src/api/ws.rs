@@ -13,6 +13,7 @@ use std::sync::Arc;
 use tokio::sync::broadcast;
 use tracing::{debug, error, info, warn};
 
+use crate::metrics::{WS_CONNECTIONS_ACTIVE, WS_CONNECTIONS_TOTAL, WS_LAG_EVENTS, WS_MESSAGES_SENT};
 use crate::state::AppState;
 
 /// WebSocket message sent to clients for real-time updates.
@@ -155,6 +156,10 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
     // Subscribe to broadcast messages
     let mut rx = state.ws_broadcaster().subscribe();
 
+    // Track connection metrics
+    WS_CONNECTIONS_TOTAL.inc();
+    WS_CONNECTIONS_ACTIVE.inc();
+
     info!("WebSocket client connected");
 
     // Spawn task to forward broadcast messages to this client
@@ -165,6 +170,17 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                 result = rx.recv() => {
                     match result {
                         Ok(msg) => {
+                            // Track message by type
+                            let msg_type = match &msg {
+                                WsMessage::TicketUpdate { .. } => "ticket_update",
+                                WsMessage::TicketDeleted { .. } => "ticket_deleted",
+                                WsMessage::TorrentProgress { .. } => "torrent_progress",
+                                WsMessage::PipelineProgress { .. } => "pipeline_progress",
+                                WsMessage::OrchestratorStatus { .. } => "orchestrator_status",
+                                WsMessage::Heartbeat { .. } => "heartbeat",
+                            };
+                            WS_MESSAGES_SENT.with_label_values(&[msg_type]).inc();
+
                             match serde_json::to_string(&msg) {
                                 Ok(json) => {
                                     if sender.send(Message::Text(json.into())).await.is_err() {
@@ -179,6 +195,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                         }
                         Err(broadcast::error::RecvError::Lagged(n)) => {
                             warn!("WebSocket client lagged, skipped {} messages", n);
+                            WS_LAG_EVENTS.inc();
                             // Continue receiving - the client will catch up
                         }
                         Err(broadcast::error::RecvError::Closed) => {
@@ -218,5 +235,6 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
 
     // Clean up
     send_task.abort();
+    WS_CONNECTIONS_ACTIVE.dec();
     info!("WebSocket client disconnected");
 }

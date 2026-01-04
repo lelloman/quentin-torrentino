@@ -22,6 +22,9 @@ sha2 = { workspace = true }
 chrono = { workspace = true }
 reqwest = { version = "0.12", features = ["json"] }
 futures = { workspace = true }
+prometheus = { workspace = true }
+once_cell = { workspace = true }
+regex-lite = { workspace = true }
 
 [dev-dependencies]
 tokio-test = { workspace = true }

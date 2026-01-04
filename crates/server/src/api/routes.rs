@@ -1,5 +1,7 @@
 use axum::{
+    extract::State,
     middleware,
+    response::IntoResponse,
     routing::{delete, get, post},
     Router,
 };
@@ -7,10 +9,23 @@ use std::sync::Arc;
 use tower_http::services::{ServeDir, ServeFile};
 
 use super::{
-    audit, catalog, external_catalog, handlers, middleware::auth_middleware, orchestrator,
-    pipeline, searcher, textbrain, tickets, torrents, ws,
+    audit, catalog, external_catalog, handlers,
+    middleware::{auth_middleware, metrics_middleware},
+    orchestrator, pipeline, searcher, textbrain, tickets, torrents, ws,
 };
+use crate::metrics::{collect_dynamic_metrics, encode_metrics};
 use crate::state::AppState;
+
+/// Handler for /metrics endpoint (Prometheus format).
+async fn metrics_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    // Collect dynamic metrics from current state before encoding
+    collect_dynamic_metrics(&state).await;
+
+    (
+        [("content-type", "text/plain; version=0.0.4; charset=utf-8")],
+        encode_metrics(),
+    )
+}
 
 pub fn create_router(state: Arc<AppState>) -> Router {
     // Dashboard static files path (configurable via env)
@@ -117,7 +132,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         // WebSocket (no auth middleware - handles its own connection)
         .route("/ws", get(ws::ws_handler))
         .layer(middleware::from_fn_with_state(state.clone(), auth_middleware))
-        .with_state(state);
+        .with_state(state.clone());
 
     // Serve dashboard with SPA fallback
     let index_path = format!("{}/index.html", dashboard_dir);
@@ -125,5 +140,9 @@ pub fn create_router(state: Arc<AppState>) -> Router {
 
     Router::new()
         .nest("/api/v1", api_routes)
+        // Metrics endpoint (no auth, outside /api/v1, but needs state)
+        .route("/metrics", get(metrics_handler))
+        .with_state(state)
+        .layer(middleware::from_fn(metrics_middleware))
         .fallback_service(serve_dir)
 }

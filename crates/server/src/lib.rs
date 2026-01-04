@@ -3,4 +3,5 @@
 //! This module exposes the server components for testing.
 
 pub mod api;
+pub mod metrics;
 pub mod state;

@@ -5,6 +5,7 @@ pub mod config;
 pub mod content;
 pub mod converter;
 pub mod external_catalog;
+pub mod metrics;
 pub mod orchestrator;
 pub mod placer;
 pub mod processor;

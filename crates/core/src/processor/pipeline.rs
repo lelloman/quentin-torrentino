@@ -8,6 +8,7 @@ use tokio::sync::{mpsc, RwLock, Semaphore};
 
 use crate::audit::{AuditEvent, AuditHandle};
 use crate::converter::{ConversionConstraints, ConversionJob, ConversionProgress, Converter, EmbeddedMetadata};
+use crate::metrics;
 use crate::placer::{FilePlacement, PlacementJob, Placer};
 use crate::ticket::{CompletionStats, TicketState, TicketStore};
 
@@ -395,6 +396,7 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
         if let Err(e) = tokio::fs::create_dir_all(&temp_dir).await {
             conversion_stats.active.fetch_sub(1, Ordering::Relaxed);
             conversion_stats.total_failed.fetch_add(1, Ordering::Relaxed);
+            metrics::CONVERSIONS_TOTAL.with_label_values(&["failed"]).inc();
             return Err(PipelineError::ConversionFailed(format!(
                 "Failed to create temp directory: {}",
                 e
@@ -530,6 +532,7 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
                     Err(e) => {
                         conversion_stats.active.fetch_sub(1, Ordering::Relaxed);
                         conversion_stats.total_failed.fetch_add(1, Ordering::Relaxed);
+                        metrics::CONVERSIONS_TOTAL.with_label_values(&["failed"]).inc();
 
                         // Update ticket state to Failed
                         if let Some(ref store) = ticket_store {
@@ -582,6 +585,14 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
         let conversion_duration = conversion_start.elapsed();
         conversion_stats.active.fetch_sub(1, Ordering::Relaxed);
         conversion_stats.total_processed.fetch_add(1, Ordering::Relaxed);
+
+        // Record conversion metrics
+        if needs_conversion {
+            metrics::CONVERSIONS_TOTAL.with_label_values(&["success"]).inc();
+            metrics::CONVERSION_DURATION.with_label_values(&[]).observe(conversion_duration.as_secs_f64());
+        } else {
+            metrics::CONVERSIONS_TOTAL.with_label_values(&["skipped"]).inc();
+        }
 
         // Calculate total output bytes and build placements based on whether conversion happened
         let (total_output_bytes, placements, cleanup_sources) = if needs_conversion {
@@ -772,6 +783,11 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
                     }
                 }
 
+                // Record pipeline success metrics
+                metrics::PLACEMENTS_TOTAL.with_label_values(&["success"]).inc();
+                metrics::FILES_PLACED.inc_by(files_placed.len() as u64);
+                metrics::TICKETS_COMPLETED.inc();
+
                 Ok(PipelineResult {
                     ticket_id,
                     success: true,
@@ -819,6 +835,9 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
                         files_completed: 0,
                     }).await;
                 }
+
+                // Record placement failure metric
+                metrics::PLACEMENTS_TOTAL.with_label_values(&["failed"]).inc();
 
                 // Clean up temp directory (only if conversion was used)
                 if needs_conversion {

@@ -22,6 +22,8 @@ reqwest = { workspace = true }
 urlencoding = { workspace = true }
 futures = { workspace = true }
 regex-lite = { workspace = true }
+prometheus = { workspace = true }
+once_cell = { workspace = true }
 librqbit = { workspace = true }
 librqbit-core = { workspace = true }
 librqbit-buffers = { workspace = true }

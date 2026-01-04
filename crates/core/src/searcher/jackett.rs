@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 use tracing::debug;
 
 use crate::config::JackettConfig;
+use crate::metrics;
 
 use super::dedup::deduplicate_results;
 use super::{IndexerStatus, RawTorrentResult, SearchCategory, SearchError, SearchQuery, SearchResult, Searcher};
@@ -79,6 +80,9 @@ impl Searcher for JackettSearcher {
             .send()
             .await
             .map_err(|e| {
+                metrics::EXTERNAL_SERVICE_REQUESTS
+                    .with_label_values(&["jackett", "search", "error"])
+                    .inc();
                 if e.is_timeout() {
                     SearchError::Timeout
                 } else if e.is_connect() {
@@ -89,6 +93,9 @@ impl Searcher for JackettSearcher {
             })?;
 
         if !response.status().is_success() {
+            metrics::EXTERNAL_SERVICE_REQUESTS
+                .with_label_values(&["jackett", "search", "error"])
+                .inc();
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
             return Err(SearchError::ApiError(format!(
@@ -157,6 +164,15 @@ impl Searcher for JackettSearcher {
         if candidates.is_empty() && failed_indexers > 0 && failed_indexers == total_indexers {
             return Err(SearchError::AllIndexersFailed(indexer_errors));
         }
+
+        // Record metrics
+        metrics::EXTERNAL_SERVICE_DURATION
+            .with_label_values(&["jackett", "search"])
+            .observe(duration_ms as f64 / 1000.0);
+        metrics::EXTERNAL_SERVICE_REQUESTS
+            .with_label_values(&["jackett", "search", "success"])
+            .inc();
+        metrics::SEARCH_RESULTS.with_label_values(&[]).observe(candidates.len() as f64);
 
         debug!(
             results = candidates.len(),

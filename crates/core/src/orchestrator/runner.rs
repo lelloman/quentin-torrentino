@@ -17,6 +17,7 @@ use tracing::{debug, error, info, warn};
 
 use crate::audit::{AuditEvent, AuditHandle};
 use crate::catalog::TorrentCatalog;
+use crate::metrics;
 use crate::textbrain::training::create_acquisition_training_events;
 use crate::processor::{PipelineJob, PipelineProcessor, SourceFile};
 use crate::searcher::{FileEnricher, Searcher};
@@ -618,6 +619,14 @@ where
 
         match result {
             Ok(acq) => {
+                // Record acquisition metrics
+                let duration_secs = acq.duration_ms as f64 / 1000.0;
+                metrics::QUERIES_GENERATED.with_label_values(&[]).observe(acq.queries_tried.len() as f64);
+                metrics::CANDIDATES_FOUND.with_label_values(&[]).observe(acq.candidates_evaluated as f64);
+                if let Some(ref best) = acq.best_candidate {
+                    metrics::MATCH_CONFIDENCE.with_label_values(&[]).observe(best.score as f64);
+                }
+
                 // Emit summary audit events for the acquisition (QueriesGenerated, CandidatesScored)
                 // These are kept for backward compatibility and training data collection
                 if let Some(ref audit_handle) = audit {
@@ -690,12 +699,18 @@ where
                             }).await;
                         }
 
+                        // Record acquisition success metrics
+                        metrics::ACQUISITION_ATTEMPTS.with_label_values(&["auto_approved"]).inc();
+                        metrics::ACQUISITION_DURATION.with_label_values(&["auto_approved"]).observe(duration_secs);
+
                         info!(
                             "Ticket {} auto-approved with score {:.2}",
                             ticket.id, candidate.score
                         );
                     } else {
-                        // No candidate found
+                        // No candidate found - record failure
+                        metrics::ACQUISITION_ATTEMPTS.with_label_values(&["failed"]).inc();
+                        metrics::ACQUISITION_DURATION.with_label_values(&["failed"]).observe(duration_secs);
                         update_and_notify_static(
                             &ticket_store,
                             &on_update,
@@ -749,12 +764,19 @@ where
                         }).await;
                     }
 
+                    // Record needs_approval metrics
+                    metrics::ACQUISITION_ATTEMPTS.with_label_values(&["needs_approval"]).inc();
+                    metrics::ACQUISITION_DURATION.with_label_values(&["needs_approval"]).observe(duration_secs);
+
                     info!(
                         "Ticket {} needs approval, best score {:.2} < threshold {:.2}",
                         ticket.id, candidate.score, config.auto_approve_threshold
                     );
                 } else {
-                    // No candidate found
+                    // No candidate found - record failure
+                    metrics::ACQUISITION_ATTEMPTS.with_label_values(&["failed"]).inc();
+                    metrics::ACQUISITION_DURATION.with_label_values(&["failed"]).observe(duration_secs);
+
                     update_and_notify_static(
                         &ticket_store,
                         &on_update,
@@ -799,6 +821,9 @@ where
                     )?;
 
                     if retry_scheduled {
+                        // Record retry metric
+                        metrics::RETRY_ATTEMPTS.with_label_values(&["acquisition"]).inc();
+
                         // Emit state change event
                         if let Some(ref audit_handle) = audit {
                             audit_handle.emit(AuditEvent::TicketStateChanged {
@@ -816,6 +841,9 @@ where
                         return Ok(());
                     }
                 }
+
+                // Record acquisition failure metric
+                metrics::ACQUISITION_ATTEMPTS.with_label_values(&["failed"]).inc();
 
                 // Either not retryable or max retries exceeded - go to AcquisitionFailed
                 update_and_notify_static(
@@ -950,6 +978,9 @@ where
                                 }).await;
                             }
 
+                            // Record download started metric
+                            metrics::DOWNLOADS_STARTED.inc();
+
                             info!(
                                 "Started download for ticket {} (candidate {}): {}",
                                 ticket.id, candidate_idx + 1, result.hash
@@ -994,6 +1025,9 @@ where
                         )?;
 
                         if retry_scheduled {
+                            // Record retry metric
+                            metrics::RETRY_ATTEMPTS.with_label_values(&["download"]).inc();
+
                             // Emit state change event
                             if let Some(ref audit_handle) = audit {
                                 audit_handle.emit(AuditEvent::TicketStateChanged {
@@ -1006,6 +1040,9 @@ where
                             continue; // Skip to next ticket
                         }
                     }
+
+                    // Record download failure
+                    metrics::DOWNLOADS_FAILED.inc();
 
                     // Not retryable or max retries exceeded - mark as failed
                     update_and_notify_static(
@@ -1094,6 +1131,12 @@ where
 
             if info.progress >= 1.0 || info.state == TorrentState::Seeding {
                 // Download complete!
+                let download_duration = Utc::now().signed_duration_since(download.started_at);
+                metrics::DOWNLOADS_COMPLETED.inc();
+                metrics::DOWNLOAD_DURATION
+                    .with_label_values(&["success"])
+                    .observe(download_duration.num_seconds() as f64);
+
                 info!("Download complete for ticket {}", download.ticket_id);
 
                 // Remove from tracking
@@ -1156,6 +1199,8 @@ where
 
                 if stall_duration > chrono::Duration::seconds(timeout as i64) {
                     // STALLED - trigger failover
+                    metrics::STALL_DETECTIONS.inc();
+
                     if let Err(e) = Self::handle_stall(
                         ticket_store,
                         torrent_client,
@@ -1576,6 +1621,8 @@ where
             .await;
 
         // Try next candidate
+        metrics::FAILOVER_ATTEMPTS.inc();
+
         let next_candidate = &candidates[next_idx];
         info!(
             "Ticket {}: stall detected (round {}), failing over to candidate {} of {}",

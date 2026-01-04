@@ -1608,38 +1608,64 @@ pub trait Converter<T: Ticket>: Send + Sync {
 
 ## Deployment
 
-### Docker
+### Quick Start with Docker
 
-```dockerfile
-FROM rust:1.83-bookworm AS builder
-WORKDIR /app
-COPY . .
-RUN cargo build --release
+```bash
+# 1. Create config directory and copy example config
+mkdir -p config
+cp config.example.toml config/config.toml
+# Edit config/config.toml to set up authentication, searcher, etc.
 
-FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y ffmpeg ca-certificates && rm -rf /var/lib/apt/lists/*
-COPY --from=builder /app/target/release/quentin /usr/local/bin/
-ENTRYPOINT ["quentin"]
+# 2. Build and run
+docker compose -f docker-compose.prod.yml up -d
+
+# 3. Access the dashboard
+open http://localhost:8080
 ```
 
-### Docker Compose Example
+### With Jackett (Torrent Search)
 
-```yaml
-services:
-  quentin-torrentino:
-    image: quentin-torrentino:latest
-    volumes:
-      - ./config.toml:/etc/quentin/config.toml:ro
-      - ./data:/data
-      - /media:/media
-    environment:
-      - RUST_LOG=info
-    ports:
-      - "8080:8080"
-    restart: unless-stopped
+To include Jackett for torrent searching:
 
-  # User provides their own qBittorrent, Jackett, etc.
+```bash
+docker compose -f docker-compose.prod.yml --profile with-jackett up -d
 ```
+
+Then configure Jackett at http://localhost:9117 and add your Jackett API key to `config/config.toml`.
+
+### Building the Image
+
+```bash
+# Build locally
+docker build -t quentin-torrentino:latest .
+
+# Or use docker compose
+docker compose -f docker-compose.prod.yml build
+```
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `QUENTIN_CONFIG` | `/config/config.toml` | Path to config file |
+| `DASHBOARD_DIR` | `/app/dashboard` | Path to dashboard static files |
+| `RUST_LOG` | `info` | Log level (trace, debug, info, warn, error) |
+
+### Volumes
+
+| Path | Purpose |
+|------|---------|
+| `/config` | Configuration files (mount `config.toml` here) |
+| `/data` | SQLite database and persistent data |
+| `/downloads` | Torrent download directory |
+| `/media` | Final media output directory |
+
+### Docker Compose Reference
+
+See `docker-compose.prod.yml` for the full production setup including:
+- Quentin Torrentino server with dashboard
+- Optional Jackett (torrent search aggregator)
+- Optional FlareSolverr (for Cloudflare-protected sites)
 
 ## Testing Strategy
 
@@ -1686,11 +1712,11 @@ searcher.set_results(vec![
 Phases 1-4 and most of Phase 5 are complete. Below is the remaining work.
 
 ### Phase 6: Production Ready
-- [ ] Retry logic with exponential backoff (integrate with orchestrator)
-- [ ] Metrics/observability (Prometheus metrics for all workers)
-- [ ] Docker packaging
+- [x] Retry logic with exponential backoff (integrate with orchestrator)
+- [x] Metrics/observability (Prometheus metrics for all workers)
+- [x] Docker packaging
 - [x] E2E test suite for server (145 tests, ~95% API coverage including chaos/stress tests)
-- [ ] E2E test suite for dashboard
+- [x] E2E test suite for dashboard (Playwright)
 
 ## Design Decisions
 
