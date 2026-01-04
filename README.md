@@ -1685,24 +1685,6 @@ searcher.set_results(vec![
 
 Phases 1-4 and most of Phase 5 are complete. Below is the remaining work.
 
-### Post-Processing (Deferred from Phase 5)
-
-**Music Post-Processing**
-- [ ] `post_process()`: Fetch cover art
-  - [ ] MusicBrainz Cover Art Archive (primary, no auth needed)
-  - [ ] Discogs API (fallback, optional token)
-  - [ ] Extract from torrent (folder.jpg, cover.*, embedded tags)
-
-**Video Post-Processing**
-- [ ] `post_process()`: Fetch/process subtitles
-  - [ ] OpenSubtitles API search
-  - [ ] Extract embedded subtitles from MKV
-  - [ ] Language detection and filtering
-
-**Content Dispatch Infrastructure** (Deferred)
-- [ ] Formal `content/mod.rs` with dispatch functions
-- [ ] `post_process()` hook integration
-
 ### Other Content Types (Stretch Goal)
 - [ ] Add `content/software.rs`, `content/ebook.rs`, etc. as needed
 - [ ] Follow same pattern: add match arm in dispatch, implement content-specific logic
