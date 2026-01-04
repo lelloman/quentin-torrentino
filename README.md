@@ -10,17 +10,13 @@ It uses a pluggable torrent search backend (Jackett, Prowlarr, etc.) for torrent
 
 ### Supported Content Types
 
-| Content Type | Example Use Case | Matching Strategy |
-|--------------|------------------|-------------------|
-| Music | Pezzottify | Artist/Album/Track mapping |
-| Movies | Pezzottflix | Title/Year/Quality matching |
-| TV Series | Pezzottflix | Show/Season/Episode mapping |
-| Software | - | Name/Version matching |
-| Ebooks | - | Title/Author matching |
+| Content Type | Matching Strategy |
+|--------------|-------------------|
+| Music | Artist/Album/Track mapping |
+| Movies | Title/Year/Quality matching |
+| TV Series | Show/Season/Episode mapping |
 
 The system is **content-agnostic** - the ticket structure hints at content type, and TextBrain adapts its query building and matching strategies accordingly.
-
-> **Note:** Music and video (movies/TV) are fully implemented. Other content types follow the same patterns.
 
 ### Architecture: Library + Service
 
@@ -82,8 +78,8 @@ The system is **content-agnostic** - the ticket structure hints at content type,
          │                                              ▼
 ┌─────────────────┐                           ┌─────────────────┐
 │    Consumer     │                           │   Media Storage │
-│  (Pezzottify,   │                           │                 │
-│   Pezzottflix)  │                           │                 │
+│  (your app)     │                           │                 │
+│                 │                           │                 │
 └─────────────────┘                           └─────────────────┘
 ```
 
@@ -128,7 +124,7 @@ State Flow:
 
 ## Authentication
 
-Authentication is **required** - the service will not start without an explicit auth configuration. This ensures operators are aware of their security posture.
+An authentication configuration is **required** - the service will not start without an explicit auth configuration. This ensures operators are aware of their security posture.
 
 ### Pluggable Authenticators
 
@@ -638,7 +634,7 @@ Users can request:
 When `dry_run: true`:
 - Runs search and matching normally
 - Returns scored candidates with mappings
-- Does NOT add to qBittorrent
+- Does NOT start downloading
 - Transitions to `DryRunComplete` state (terminal)
 
 Useful for testing matchers, previewing downloads, debugging search queries.
@@ -1218,7 +1214,7 @@ struct LlmMatcher;   // Intelligent semantic matching
 
 ### 8. Torrent Client (`torrent_client/`)
 
-qBittorrent Web API integration:
+Pluggable torrent client abstraction (librqbit embedded or qBittorrent external):
 
 ```rust
 #[async_trait]
