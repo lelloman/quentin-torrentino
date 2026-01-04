@@ -4,6 +4,7 @@
 //! with mock dependencies injected, enabling comprehensive E2E testing
 //! without external infrastructure.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use axum::body::Body;
@@ -16,7 +17,8 @@ use tower::ServiceExt;
 
 use torrentino_core::{
     create_audit_system, AuditStore, AuthMethod, Config, DatabaseConfig, EncoderCapabilities,
-    NoneAuthenticator, OrchestratorConfig, ServerConfig, SqliteAuditStore, SqliteCatalog,
+    FfmpegConverter, FsPlacer, NoneAuthenticator, OrchestratorConfig, PipelineProcessor,
+    PlacerConfig, ProcessorConfig, ServerConfig, SqliteAuditStore, SqliteCatalog,
     SqliteTicketStore, TextBrainConfig,
     testing::{MockExternalCatalog, MockSearcher, MockTorrentClient},
 };
@@ -55,8 +57,10 @@ pub struct TestFixture {
     pub torrent_client: Arc<MockTorrentClient>,
     /// Mock external catalog - configure MusicBrainz/TMDB responses
     pub external_catalog: Arc<MockExternalCatalog>,
-    /// Temporary directory for test database
-    _temp_dir: TempDir,
+    /// Temporary directory for test database and pipeline output
+    pub temp_dir: TempDir,
+    /// Pipeline output directory (if pipeline enabled)
+    pub output_dir: Option<PathBuf>,
 }
 
 /// Response from a test request
@@ -125,6 +129,21 @@ impl TestFixture {
         // Create WebSocket broadcaster
         let ws_broadcaster = torrentino_server::api::WsBroadcaster::default();
 
+        // Optionally create pipeline with real FFmpeg/FS (pointing to temp dirs)
+        let (pipeline, output_dir) = if test_config.enable_pipeline {
+            let output_path = temp_dir.path().join("output");
+            std::fs::create_dir_all(&output_path).expect("Failed to create output dir");
+
+            let converter = FfmpegConverter::with_defaults();
+            let placer = FsPlacer::new(PlacerConfig::default());
+            let processor_config = ProcessorConfig::default();
+            let pipeline = PipelineProcessor::new(processor_config, converter, placer);
+
+            (Some(Arc::new(pipeline)), Some(output_path))
+        } else {
+            (None, None)
+        };
+
         // Create app state with mocks
         let state = Arc::new(torrentino_server::state::AppState::new(
             config,
@@ -135,8 +154,8 @@ impl TestFixture {
             Some(Arc::clone(&searcher) as Arc<dyn torrentino_core::Searcher>),
             Some(Arc::clone(&torrent_client) as Arc<dyn torrentino_core::TorrentClient>),
             catalog,
-            None, // No pipeline for basic tests
-            None, // No orchestrator for basic tests
+            pipeline,
+            None, // No orchestrator for basic tests (requires more setup)
             Some(Arc::clone(&external_catalog) as Arc<dyn torrentino_core::ExternalCatalog>),
             ws_broadcaster,
             EncoderCapabilities::default(),
@@ -150,7 +169,8 @@ impl TestFixture {
             searcher,
             torrent_client,
             external_catalog,
-            _temp_dir: temp_dir,
+            temp_dir,
+            output_dir,
         }
     }
 
@@ -224,6 +244,8 @@ impl TestFixture {
 pub struct TestConfig {
     /// Enable the orchestrator for lifecycle tests
     pub enable_orchestrator: bool,
+    /// Enable the pipeline (FFmpeg converter + FS placer)
+    pub enable_pipeline: bool,
 }
 
 impl TestConfig {
@@ -231,6 +253,23 @@ impl TestConfig {
     pub fn with_orchestrator() -> Self {
         Self {
             enable_orchestrator: true,
+            enable_pipeline: false,
+        }
+    }
+
+    /// Create config with pipeline enabled.
+    pub fn with_pipeline() -> Self {
+        Self {
+            enable_orchestrator: false,
+            enable_pipeline: true,
+        }
+    }
+
+    /// Create config with both orchestrator and pipeline enabled.
+    pub fn with_all() -> Self {
+        Self {
+            enable_orchestrator: true,
+            enable_pipeline: true,
         }
     }
 }
