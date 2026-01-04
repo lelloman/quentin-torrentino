@@ -15,6 +15,7 @@ use torrentino_core::{
     TicketState,
 };
 
+use crate::api::AuthUser;
 use crate::metrics::{TICKETS_CREATED_TOTAL, TICKETS_FAILED_TOTAL, TICKET_STATE_TRANSITIONS};
 use crate::state::AppState;
 
@@ -147,6 +148,7 @@ pub struct TicketErrorResponse {
 /// Create a new ticket
 pub async fn create_ticket(
     State(state): State<Arc<AppState>>,
+    AuthUser(user_id): AuthUser,
     Json(body): Json<CreateTicketBody>,
 ) -> Result<(StatusCode, Json<TicketResponse>), impl IntoResponse> {
     // Build query context with optional catalog fields
@@ -163,7 +165,7 @@ pub async fn create_ticket(
     }
 
     let request = CreateTicketRequest {
-        created_by: "anonymous".to_string(), // TODO: Get from auth
+        created_by: user_id,
         priority: body.priority.unwrap_or(0),
         query_context,
         dest_path: body.dest_path.clone(),
@@ -285,11 +287,12 @@ pub async fn list_tickets(
 /// Cancel a ticket (DELETE endpoint)
 pub async fn cancel_ticket(
     State(state): State<Arc<AppState>>,
+    AuthUser(user_id): AuthUser,
     Path(id): Path<String>,
     body: Option<Json<CancelTicketBody>>,
 ) -> Result<Json<TicketResponse>, impl IntoResponse> {
     let reason = body.and_then(|b| b.reason.clone());
-    let cancelled_by = "anonymous".to_string(); // TODO: Get from auth
+    let cancelled_by = user_id;
 
     // First get the current ticket to check state
     let current_ticket = match state.ticket_store().get(&id) {
@@ -382,6 +385,7 @@ pub struct DeleteTicketParams {
 /// Permanently delete a ticket (hard delete)
 pub async fn delete_ticket(
     State(state): State<Arc<AppState>>,
+    AuthUser(user_id): AuthUser,
     Path(id): Path<String>,
     Query(params): Query<DeleteTicketParams>,
 ) -> Result<Json<TicketResponse>, impl IntoResponse> {
@@ -395,7 +399,7 @@ pub async fn delete_ticket(
         ));
     }
 
-    let deleted_by = "anonymous".to_string(); // TODO: Get from auth
+    let deleted_by = user_id;
 
     match state.ticket_store().delete(&id) {
         Ok(ticket) => {
@@ -431,11 +435,12 @@ pub async fn delete_ticket(
 /// Approve a ticket (for tickets in NeedsApproval state)
 pub async fn approve_ticket(
     State(state): State<Arc<AppState>>,
+    AuthUser(user_id): AuthUser,
     Path(id): Path<String>,
     body: Option<Json<ApproveTicketBody>>,
 ) -> Result<Json<TicketResponse>, impl IntoResponse> {
     let candidate_idx = body.and_then(|b| b.candidate_idx).unwrap_or(0);
-    let approved_by = "anonymous".to_string(); // TODO: Get from auth
+    let approved_by = user_id;
 
     // Get the current ticket
     let current_ticket = match state.ticket_store().get(&id) {
@@ -677,11 +682,12 @@ pub async fn retry_ticket(
 /// Reject a ticket (for tickets in NeedsApproval state)
 pub async fn reject_ticket(
     State(state): State<Arc<AppState>>,
+    AuthUser(user_id): AuthUser,
     Path(id): Path<String>,
     body: Option<Json<RejectTicketBody>>,
 ) -> Result<Json<TicketResponse>, impl IntoResponse> {
     let reason = body.and_then(|b| b.reason.clone());
-    let rejected_by = "anonymous".to_string(); // TODO: Get from auth
+    let rejected_by = user_id;
 
     // Get the current ticket
     let current_ticket = match state.ticket_store().get(&id) {

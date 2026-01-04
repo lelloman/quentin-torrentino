@@ -15,6 +15,7 @@ use torrentino_core::{
     TorrentCandidate,
 };
 
+use crate::api::AuthUser;
 use crate::state::AppState;
 
 // ============================================================================
@@ -87,6 +88,7 @@ pub struct ErrorResponse {
 /// Execute a search across configured indexers and/or the local cache.
 pub async fn search(
     State(state): State<Arc<AppState>>,
+    AuthUser(user_id): AuthUser,
     Json(body): Json<SearchRequest>,
 ) -> Result<Json<SearchResponse>, impl IntoResponse> {
     let start = std::time::Instant::now();
@@ -239,7 +241,7 @@ pub async fn search(
         .collect();
 
     state.audit().try_emit(AuditEvent::SearchExecuted {
-        user_id: "anonymous".to_string(), // TODO: Get from auth
+        user_id,
         searcher: state
             .searcher()
             .map(|s| s.name().to_string())

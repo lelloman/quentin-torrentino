@@ -13,6 +13,7 @@ use torrentino_core::{
     AddTorrentRequest, AuditEvent, TorrentFilters, TorrentInfo, TorrentState,
 };
 
+use crate::api::AuthUser;
 use crate::state::AppState;
 
 // ============================================================================
@@ -196,6 +197,7 @@ pub async fn get_torrent(
 /// Add a torrent via magnet URI.
 pub async fn add_magnet(
     State(state): State<Arc<AppState>>,
+    AuthUser(user_id): AuthUser,
     Json(body): Json<AddMagnetRequest>,
 ) -> Result<Json<AddTorrentResponse>, impl IntoResponse> {
     let client = match state.torrent_client() {
@@ -221,7 +223,7 @@ pub async fn add_magnet(
         Ok(result) => {
             // Emit audit event
             state.audit().try_emit(AuditEvent::TorrentAdded {
-                user_id: "anonymous".to_string(), // TODO: Get from auth
+                user_id,
                 hash: result.hash.clone(),
                 name: result.name.clone(),
                 source: "magnet".to_string(),
@@ -247,6 +249,7 @@ pub async fn add_magnet(
 /// Add a torrent via .torrent file upload.
 pub async fn add_file(
     State(state): State<Arc<AppState>>,
+    AuthUser(user_id): AuthUser,
     mut multipart: Multipart,
 ) -> Result<Json<AddTorrentResponse>, impl IntoResponse> {
     let client = match state.torrent_client() {
@@ -340,7 +343,7 @@ pub async fn add_file(
         Ok(result) => {
             // Emit audit event
             state.audit().try_emit(AuditEvent::TorrentAdded {
-                user_id: "anonymous".to_string(), // TODO: Get from auth
+                user_id,
                 hash: result.hash.clone(),
                 name: result.name.clone().or(filename),
                 source: "file".to_string(),
@@ -366,6 +369,7 @@ pub async fn add_file(
 /// Add a torrent by fetching from a URL (handles redirects including magnet links).
 pub async fn add_from_url(
     State(state): State<Arc<AppState>>,
+    AuthUser(user_id): AuthUser,
     Json(body): Json<AddFromUrlRequest>,
 ) -> Result<Json<AddTorrentResponse>, impl IntoResponse> {
     tracing::info!(url = %body.url, "Fetching torrent from URL");
@@ -426,7 +430,7 @@ pub async fn add_from_url(
                 return match client.add_torrent(request).await {
                     Ok(result) => {
                         state.audit().try_emit(AuditEvent::TorrentAdded {
-                            user_id: "anonymous".to_string(),
+                            user_id: user_id.clone(),
                             hash: result.hash.clone(),
                             name: result.name.clone(),
                             source: "url".to_string(),
@@ -488,7 +492,7 @@ pub async fn add_from_url(
     match client.add_torrent(request).await {
         Ok(result) => {
             state.audit().try_emit(AuditEvent::TorrentAdded {
-                user_id: "anonymous".to_string(),
+                user_id,
                 hash: result.hash.clone(),
                 name: result.name.clone(),
                 source: "url".to_string(),
@@ -514,6 +518,7 @@ pub async fn add_from_url(
 /// Remove a torrent.
 pub async fn remove_torrent(
     State(state): State<Arc<AppState>>,
+    AuthUser(user_id): AuthUser,
     Path(hash): Path<String>,
     Query(params): Query<RemoveTorrentParams>,
 ) -> Result<Json<SuccessResponse>, impl IntoResponse> {
@@ -540,7 +545,7 @@ pub async fn remove_torrent(
         Ok(()) => {
             // Emit audit event
             state.audit().try_emit(AuditEvent::TorrentRemoved {
-                user_id: "anonymous".to_string(), // TODO: Get from auth
+                user_id,
                 hash: hash.clone(),
                 name: torrent_name,
                 delete_files: params.delete_files,
@@ -570,6 +575,7 @@ pub async fn remove_torrent(
 /// Pause a torrent.
 pub async fn pause_torrent(
     State(state): State<Arc<AppState>>,
+    AuthUser(user_id): AuthUser,
     Path(hash): Path<String>,
 ) -> Result<Json<SuccessResponse>, impl IntoResponse> {
     let client = match state.torrent_client() {
@@ -595,7 +601,7 @@ pub async fn pause_torrent(
         Ok(()) => {
             // Emit audit event
             state.audit().try_emit(AuditEvent::TorrentPaused {
-                user_id: "anonymous".to_string(),
+                user_id,
                 hash: hash.clone(),
                 name: torrent_name,
             });
@@ -618,6 +624,7 @@ pub async fn pause_torrent(
 /// Resume a paused torrent.
 pub async fn resume_torrent(
     State(state): State<Arc<AppState>>,
+    AuthUser(user_id): AuthUser,
     Path(hash): Path<String>,
 ) -> Result<Json<SuccessResponse>, impl IntoResponse> {
     let client = match state.torrent_client() {
@@ -643,7 +650,7 @@ pub async fn resume_torrent(
         Ok(()) => {
             // Emit audit event
             state.audit().try_emit(AuditEvent::TorrentResumed {
-                user_id: "anonymous".to_string(),
+                user_id,
                 hash: hash.clone(),
                 name: torrent_name,
             });
@@ -666,6 +673,7 @@ pub async fn resume_torrent(
 /// Set upload speed limit for a torrent.
 pub async fn set_upload_limit(
     State(state): State<Arc<AppState>>,
+    AuthUser(user_id): AuthUser,
     Path(hash): Path<String>,
     Json(body): Json<SetLimitRequest>,
 ) -> Result<Json<SuccessResponse>, impl IntoResponse> {
@@ -699,7 +707,7 @@ pub async fn set_upload_limit(
         Ok(()) => {
             // Emit audit event
             state.audit().try_emit(AuditEvent::TorrentLimitChanged {
-                user_id: "anonymous".to_string(),
+                user_id,
                 hash: hash.clone(),
                 name: torrent.name,
                 limit_type: "upload".to_string(),
@@ -725,6 +733,7 @@ pub async fn set_upload_limit(
 /// Set download speed limit for a torrent.
 pub async fn set_download_limit(
     State(state): State<Arc<AppState>>,
+    AuthUser(user_id): AuthUser,
     Path(hash): Path<String>,
     Json(body): Json<SetLimitRequest>,
 ) -> Result<Json<SuccessResponse>, impl IntoResponse> {
@@ -758,7 +767,7 @@ pub async fn set_download_limit(
         Ok(()) => {
             // Emit audit event
             state.audit().try_emit(AuditEvent::TorrentLimitChanged {
-                user_id: "anonymous".to_string(),
+                user_id,
                 hash: hash.clone(),
                 name: torrent.name,
                 limit_type: "download".to_string(),
@@ -784,6 +793,7 @@ pub async fn set_download_limit(
 /// Recheck/verify torrent files.
 pub async fn recheck_torrent(
     State(state): State<Arc<AppState>>,
+    AuthUser(user_id): AuthUser,
     Path(hash): Path<String>,
 ) -> Result<Json<SuccessResponse>, impl IntoResponse> {
     let client = match state.torrent_client() {
@@ -809,7 +819,7 @@ pub async fn recheck_torrent(
         Ok(()) => {
             // Emit audit event
             state.audit().try_emit(AuditEvent::TorrentRechecked {
-                user_id: "anonymous".to_string(),
+                user_id,
                 hash: hash.clone(),
                 name: torrent_name,
             });

@@ -2,15 +2,16 @@
 
 use axum::{
     body::Body,
-    extract::State,
-    http::{Request, StatusCode},
+    extract::{FromRequestParts, State},
+    http::{request::Parts, Request, StatusCode},
     middleware::Next,
     response::Response,
 };
 use std::collections::HashMap;
+use std::future::Future;
 use std::sync::Arc;
 use std::time::Instant;
-use torrentino_core::AuthRequest;
+use torrentino_core::{AuthRequest, Identity};
 
 use crate::metrics::{
     normalize_path, AUTH_FAILURES_TOTAL, HTTP_REQUESTS_IN_FLIGHT, HTTP_REQUESTS_TOTAL,
@@ -60,8 +61,10 @@ pub async fn auth_middleware(
 ) -> Result<Response, StatusCode> {
     let authenticator = state.authenticator();
 
-    // Skip auth check if using NoneAuthenticator
+    // Skip auth check if using NoneAuthenticator, but still insert anonymous identity
     if authenticator.method_name() == "none" {
+        let mut request = request;
+        request.extensions_mut().insert(Identity::anonymous());
         return Ok(next.run(request).await);
     }
 
@@ -87,8 +90,10 @@ pub async fn auth_middleware(
     let auth_request = AuthRequest { headers, source_ip };
 
     match authenticator.authenticate(&auth_request).await {
-        Ok(_identity) => {
-            // Authentication successful, continue to the handler
+        Ok(identity) => {
+            // Authentication successful, insert identity and continue to the handler
+            let mut request = request;
+            request.extensions_mut().insert(identity);
             Ok(next.run(request).await)
         }
         Err(torrentino_core::AuthError::NotAuthenticated) => {
@@ -106,6 +111,33 @@ pub async fn auth_middleware(
             AUTH_FAILURES_TOTAL.with_label_values(&["internal_error"]).inc();
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
+    }
+}
+
+/// Extractor for authenticated user ID.
+///
+/// Extracts the user_id from the Identity stored in request extensions.
+/// Falls back to "anonymous" if no identity is present (shouldn't happen
+/// if auth middleware is properly configured).
+#[derive(Debug, Clone)]
+pub struct AuthUser(pub String);
+
+impl<S> FromRequestParts<S> for AuthUser
+where
+    S: Send + Sync,
+{
+    type Rejection = std::convert::Infallible;
+
+    fn from_request_parts(
+        parts: &mut Parts,
+        _state: &S,
+    ) -> impl Future<Output = Result<Self, Self::Rejection>> + Send {
+        let user_id = parts
+            .extensions
+            .get::<Identity>()
+            .map(|id| id.user_id.clone())
+            .unwrap_or_else(|| "anonymous".to_string());
+        std::future::ready(Ok(AuthUser(user_id)))
     }
 }
 
@@ -296,5 +328,72 @@ mod tests {
 
         let response = app.oneshot(request).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_auth_user_extractor_with_api_key() {
+        use http_body_util::BodyExt;
+
+        async fn user_handler(AuthUser(user_id): AuthUser) -> String {
+            user_id
+        }
+
+        let state = create_test_state(AuthConfig {
+            method: AuthMethod::ApiKey,
+            api_key: Some("secret-key".to_string()),
+        })
+        .await;
+
+        let app = Router::new()
+            .route("/test", get(user_handler))
+            .layer(middleware::from_fn_with_state(state.clone(), auth_middleware))
+            .with_state(state);
+
+        let request = Request::builder()
+            .uri("/test")
+            .header(header::AUTHORIZATION, "Bearer secret-key")
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let user_id = String::from_utf8(body.to_vec()).unwrap();
+        // API key auth uses a hash of the key as user_id
+        assert!(!user_id.is_empty());
+        assert_ne!(user_id, "anonymous");
+    }
+
+    #[tokio::test]
+    async fn test_auth_user_extractor_with_none_auth() {
+        use http_body_util::BodyExt;
+
+        async fn user_handler(AuthUser(user_id): AuthUser) -> String {
+            user_id
+        }
+
+        let state = create_test_state(AuthConfig {
+            method: AuthMethod::None,
+            api_key: None,
+        })
+        .await;
+
+        let app = Router::new()
+            .route("/test", get(user_handler))
+            .layer(middleware::from_fn_with_state(state.clone(), auth_middleware))
+            .with_state(state);
+
+        let request = Request::builder()
+            .uri("/test")
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let user_id = String::from_utf8(body.to_vec()).unwrap();
+        assert_eq!(user_id, "anonymous");
     }
 }
