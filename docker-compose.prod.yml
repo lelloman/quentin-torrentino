@@ -1,0 +1,84 @@
+# Production docker-compose for Quentin Torrentino
+#
+# Usage:
+#   1. Copy config.example.toml to ./config/config.toml and configure
+#   2. docker compose -f docker-compose.prod.yml up -d
+#
+# To include Jackett (torrent search aggregator):
+#   docker compose -f docker-compose.prod.yml --profile with-jackett up -d
+
+services:
+  quentin:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: quentin-torrentino:latest
+    container_name: quentin-torrentino
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      # Configuration (required)
+      - ./config:/config:ro
+      # Database and data (persistent)
+      - quentin-data:/data
+      # Downloads directory
+      - ./downloads:/downloads
+      # Media output directory (where files are placed after processing)
+      - ./media:/media
+    environment:
+      - RUST_LOG=info
+      - QUENTIN_CONFIG=/config/config.toml
+      - DASHBOARD_DIR=/app/dashboard
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    # If using librqbit (embedded torrent client), these ports may be needed
+    # Uncomment if you want to expose librqbit's listening port for incoming connections
+    # ports:
+    #   - "6881:6881/tcp"
+    #   - "6881:6881/udp"
+
+  # Optional: Jackett torrent search aggregator
+  # Activate with: --profile with-jackett
+  jackett:
+    image: linuxserver/jackett:latest
+    container_name: quentin-jackett
+    profiles:
+      - with-jackett
+    restart: unless-stopped
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Etc/UTC
+    ports:
+      - "9117:9117"
+    volumes:
+      - jackett-config:/config
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+
+  # Optional: FlareSolverr for Cloudflare-protected sites
+  # Activate with: --profile with-jackett
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    container_name: quentin-flaresolverr
+    profiles:
+      - with-jackett
+    restart: unless-stopped
+    environment:
+      - LOG_LEVEL=info
+      - TZ=Etc/UTC
+    ports:
+      - "8191:8191"
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+
+volumes:
+  quentin-data:
+  jackett-config:

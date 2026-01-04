@@ -1,0 +1,47 @@
+# Build artifacts
+target/
+crates/dashboard/dist/
+crates/dashboard/node_modules/
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Local config and data
+config.toml
+config.test.toml
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+data/
+
+# Docker
+docker-compose.yml
+docker-compose.*.yml
+!docker-compose.prod.yml
+
+# Documentation (not needed in image)
+*.md
+!README.md
+
+# Test files
+tests/
+e2e/
+playwright-report/
+test-results/
+
+# Misc
+.DS_Store
+Thumbs.db
+*.log
+
+# Claude Code
+.claude/

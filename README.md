@@ -1551,9 +1551,9 @@ quentin-torrentino/
 │   ├── integration/
 │   └── mocks/
 │
-└── docker/
-    ├── Dockerfile
-    └── docker-compose.example.yml
+├── Dockerfile
+├── .dockerignore
+└── docker-compose.prod.yml
 ```
 
 ## Core Traits
