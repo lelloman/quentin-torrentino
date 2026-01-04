@@ -25,57 +25,58 @@ The system is **content-agnostic** - the ticket structure hints at content type,
 ### Architecture: Library + Service
 
 ```
-┌──────────────────────────────────────────────────────────────────────┐
-│                    quentin-torrentino-core (library)                  │
-│                                                                       │
-│  ┌─────────────────────────────────────────────────────────────────┐ │
-│  │                         TextBrain                                │ │
-│  │  ┌─────────────────┐  ┌─────────────────┐  ┌──────────────────┐ │ │
-│  │  │ DumbQueryBuilder│  │   DumbMatcher   │  │ LlmClient (opt)  │ │ │
-│  │  └─────────────────┘  └─────────────────┘  │ - Anthropic      │ │ │
-│  │                                            │ - OpenAI         │ │ │
-│  │  Modes: dumb-only | dumb-first |           │ - Ollama         │ │ │
-│  │         llm-first | llm-only               │ - Custom HTTP    │ │ │
-│  └─────────────────────────────────────────────┴──────────────────┘ │
-│                                                                       │
-│  ┌──────────────┐  ┌──────────────┐  ┌────────────────────────────┐ │
-│  │TorrentCatalog│  │   Searcher   │  │      TorrentClient         │ │
-│  │ (cache)      │  │  (Jackett)   │  │  (librqbit / qBittorrent)  │ │
-│  └──────────────┘  └──────────────┘  └────────────────────────────┘ │
-│                                                                       │
-│  ┌──────────────┐  ┌──────────────┐  ┌────────────────────────────┐ │
-│  │ QueueManager │  │  Converter   │  │         Placer             │ │
-│  └──────────────┘  └──────────────┘  └────────────────────────────┘ │
-└──────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────┐
+│                  quentin-torrentino-core (library)                 │
+│                                                                    │
+│  ┌──────────────────────────────────────────────────────────────┐  │
+│  │                         TextBrain                            │  │
+│  │  ┌─────────────────┐  ┌──────────────┐  ┌─────────────────┐  │  │
+│  │  │ DumbQueryBuilder│  │  DumbMatcher │  │ LlmClient (opt) │  │  │
+│  │  └─────────────────┘  └──────────────┘  │ - Anthropic     │  │  │
+│  │                                         │ - OpenAI        │  │  │
+│  │  Modes: dumb-only | dumb-first |        │ - Ollama        │  │  │
+│  │         llm-first | llm-only            │ - Custom HTTP   │  │  │
+│  │                                         └─────────────────┘  │  │
+│  └──────────────────────────────────────────────────────────────┘  │
+│                                                                    │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────────┐  │
+│  │TorrentCatalog│  │   Searcher   │  │      TorrentClient       │  │
+│  │ (cache)      │  │  (Jackett)   │  │ (librqbit / qBittorrent) │  │
+│  └──────────────┘  └──────────────┘  └──────────────────────────┘  │
+│                                                                    │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────────┐  │
+│  │ QueueManager │  │  Converter   │  │         Placer           │  │
+│  └──────────────┘  └──────────────┘  └──────────────────────────┘  │
+└────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Runtime Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                        QUENTIN TORRENTINO                               │
-│                                                                         │
-│  ┌──────────────┐     ┌──────────────┐     ┌──────────────────────────┐│
-│  │   HTTP API   │────▶│    Queue     │────▶│      Processor           ││
-│  │              │     │   Manager    │     │                          ││
-│  │ - tickets    │     │              │     │  ┌────────────────────┐  ││
-│  │ - status     │     │ - SQLite     │     │  │  1. Searcher       │  ││
-│  │ - admin      │     │ - state      │     │  │     (pluggable)    │  ││
-│  │ - websocket  │     │   machine    │     │  ├────────────────────┤  ││
-│  └──────────────┘     └──────────────┘     │  │  2. Matcher        │  ││
-│                                            │  │   (dumb or LLM)    │  ││
-│  ┌──────────────┐                          │  ├────────────────────┤  ││
-│  │    Auth      │                          │  │  3. Downloader     │  ││
-│  │  (pluggable) │                          │  │     (qBittorrent)  │  ││
-│  └──────────────┘                          │  ├────────────────────┤  ││
-│                                            │  │  4. Converter      │  ││
-│  ┌──────────────┐                          │  │     (ffmpeg)       │  ││
-│  │  Audit Log   │                          │  ├────────────────────┤  ││
-│  │              │                          │  │  5. Placer         │  ││
-│  └──────────────┘                          │  │     (file ops)     │  ││
-│                                            │  └────────────────────┘  ││
-│                                            └──────────────────────────┘│
-└─────────────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────────┐
+│                        QUENTIN TORRENTINO                             │
+│                                                                       │
+│  ┌──────────────┐     ┌──────────────┐     ┌────────────────────────┐ │
+│  │   HTTP API   │────▶│    Queue     │────▶│      Processor         │ │
+│  │              │     │   Manager    │     │                        │ │
+│  │ - tickets    │     │              │     │  ┌──────────────────┐  │ │
+│  │ - status     │     │ - SQLite     │     │  │  1. Searcher     │  │ │
+│  │ - admin      │     │ - state      │     │  │     (pluggable)  │  │ │
+│  │ - websocket  │     │   machine    │     │  ├──────────────────┤  │ │
+│  └──────────────┘     └──────────────┘     │  │  2. Matcher      │  │ │
+│                                            │  │   (dumb or LLM)  │  │ │
+│  ┌──────────────┐                          │  ├──────────────────┤  │ │
+│  │    Auth      │                          │  │  3. Downloader   │  │ │
+│  │  (pluggable) │                          │  │   (librqbit)     │  │ │
+│  └──────────────┘                          │  ├──────────────────┤  │ │
+│                                            │  │  4. Converter    │  │ │
+│  ┌──────────────┐                          │  │     (ffmpeg)     │  │ │
+│  │  Audit Log   │                          │  ├──────────────────┤  │ │
+│  │              │                          │  │  5. Placer       │  │ │
+│  └──────────────┘                          │  │     (file ops)   │  │ │
+│                                            │  └──────────────────┘  │ │
+│                                            └────────────────────────┘ │
+└───────────────────────────────────────────────────────────────────────┘
          ▲                                              │
          │ Tickets                                      │ Files placed at dest_path
          │                                              ▼
@@ -91,38 +92,38 @@ The system is **content-agnostic** - the ticket structure hints at content type,
 The `TicketOrchestrator` is a background service that drives tickets through the state machine automatically:
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                          TICKET ORCHESTRATOR                                 │
-│                                                                              │
-│  ┌────────────────────┐     ┌────────────────────┐     ┌─────────────────┐  │
-│  │  Acquisition       │     │  Download          │     │  Pipeline       │  │
-│  │  Worker            │     │  Worker            │     │  Trigger        │  │
-│  │                    │     │                    │     │                 │  │
-│  │ polls: Pending     │     │ polls: Approved    │     │ watches:        │  │
-│  │ calls: TextBrain   │     │ calls: TorrentClient│    │ Downloading     │  │
-│  │ outputs:           │     │ outputs:           │     │ complete        │  │
-│  │  - AutoApproved    │────▶│  - Downloading     │────▶│                 │  │
-│  │  - NeedsApproval   │     │  - download done   │     │ submits to:     │  │
-│  │  - AcqFailed       │     │  - Failed          │     │ PipelineProcessor│ │
-│  └────────────────────┘     └────────────────────┘     └─────────────────┘  │
-│           │                          │                          │           │
-│           │ ┌────────────────────────┴──────────────────────────┘           │
-│           │ │                                                               │
-│           ▼ ▼                                                               │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │                         Ticket Store (SQLite)                        │   │
-│  │  Pending → Acquiring → AutoApproved → Downloading → Converting → ... │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────────────┐
+│                          TICKET ORCHESTRATOR                              │
+│                                                                           │
+│  ┌──────────────────┐     ┌──────────────────┐     ┌──────────────────┐   │
+│  │  Acquisition     │     │  Download        │     │  Pipeline        │   │
+│  │  Worker          │     │  Worker          │     │  Trigger         │   │
+│  │                  │     │                  │     │                  │   │
+│  │ polls: Pending   │     │ polls: Approved  │     │ watches:         │   │
+│  │ calls: TextBrain │     │ calls: Torrent   │     │ Downloading      │   │
+│  │ outputs:         │     │        Client    │     │ complete         │   │
+│  │  - AutoApproved  │────▶│ outputs:         │────▶│                  │   │
+│  │  - NeedsApproval │     │  - Downloading   │     │ submits to:      │   │
+│  │  - AcqFailed     │     │  - Failed        │     │ PipelineProcessor│   │
+│  └──────────────────┘     └──────────────────┘     └──────────────────┘   │
+│           │                        │                        │             │
+│           │  ┌─────────────────────┴────────────────────────┘             │
+│           │  │                                                            │
+│           ▼  ▼                                                            │
+│  ┌─────────────────────────────────────────────────────────────────────┐  │
+│  │                       Ticket Store (SQLite)                         │  │
+│  │  Pending → Acquiring → AutoApproved → Downloading → Converting → ...│  │
+│  └─────────────────────────────────────────────────────────────────────┘  │
+└───────────────────────────────────────────────────────────────────────────┘
 
 State Flow:
-  Pending ──[AcquisitionWorker]──▶ Acquiring ──▶ NeedsApproval ──[user]──▶ Approved ─┐
-                                       │                                              │
-                                       └──▶ AutoApproved ─────────────────────────────┤
-                                                                                      │
-  ┌───────────────────────────────────────────────────────────────────────────────────┘
+  Pending ─[AcquisitionWorker]─▶ Acquiring ─▶ NeedsApproval ─[user]─▶ Approved ─┐
+                                     │                                          │
+                                     └──▶ AutoApproved ─────────────────────────┤
+                                                                                │
+  ┌─────────────────────────────────────────────────────────────────────────────┘
   │
-  └──[DownloadWorker]──▶ Downloading ──▶ [PipelineTrigger] ──▶ Converting ──▶ Placing ──▶ Completed
+  └─[DownloadWorker]─▶ Downloading ─▶ [PipelineTrigger] ─▶ Converting ─▶ Placing ─▶ Completed
 ```
 
 ## Authentication
@@ -215,30 +216,30 @@ TextBrain is the central intelligence component that handles search query genera
 ### Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                          TextBrain                               │
-│                                                                  │
-│  ┌──────────────────────────────────────────────────────────┐   │
-│  │                    Core Components                        │   │
-│  │  ┌─────────────────┐        ┌─────────────────┐          │   │
-│  │  │ DumbQueryBuilder│        │   DumbMatcher   │          │   │
-│  │  │ (always avail)  │        │ (always avail)  │          │   │
-│  │  └─────────────────┘        └─────────────────┘          │   │
-│  └──────────────────────────────────────────────────────────┘   │
-│                                                                  │
-│  ┌──────────────────────────────────────────────────────────┐   │
-│  │                 LlmClient (optional)                      │   │
-│  │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌─────────────┐  │   │
-│  │  │Anthropic │ │  OpenAI  │ │  Ollama  │ │ Custom HTTP │  │   │
-│  │  └──────────┘ └──────────┘ └──────────┘ └─────────────┘  │   │
-│  └──────────────────────────────────────────────────────────┘   │
-│                                                                  │
-│  Coordination Modes:                                             │
-│  • dumb-only:  Heuristics only, no LLM                          │
-│  • dumb-first: Heuristics, then LLM if low confidence           │
-│  • llm-first:  LLM preferred, heuristics as fallback            │
-│  • llm-only:   Require LLM, fail if unavailable                 │
-└─────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────┐
+│                          TextBrain                            │
+│                                                               │
+│  ┌─────────────────────────────────────────────────────────┐  │
+│  │                    Core Components                      │  │
+│  │  ┌─────────────────┐        ┌─────────────────┐         │  │
+│  │  │ DumbQueryBuilder│        │   DumbMatcher   │         │  │
+│  │  │ (always avail)  │        │ (always avail)  │         │  │
+│  │  └─────────────────┘        └─────────────────┘         │  │
+│  └─────────────────────────────────────────────────────────┘  │
+│                                                               │
+│  ┌─────────────────────────────────────────────────────────┐  │
+│  │                 LlmClient (optional)                    │  │
+│  │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌───────────┐   │  │
+│  │  │Anthropic │ │  OpenAI  │ │  Ollama  │ │Custom HTTP│   │  │
+│  │  └──────────┘ └──────────┘ └──────────┘ └───────────┘   │  │
+│  └─────────────────────────────────────────────────────────┘  │
+│                                                               │
+│  Coordination Modes:                                          │
+│  • dumb-only:  Heuristics only, no LLM                        │
+│  • dumb-first: Heuristics, then LLM if low confidence         │
+│  • llm-first:  LLM preferred, heuristics as fallback          │
+│  • llm-only:   Require LLM, fail if unavailable               │
+└───────────────────────────────────────────────────────────────┘
 ```
 
 ### Pipeline
@@ -339,16 +340,16 @@ Content-specific behavior for query building, scoring, and post-processing is di
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                      Orchestrator                            │
-│                                                              │
+│                        Orchestrator                         │
+│                                                             │
 │  ticket.query_context.expected = ExpectedContent::Album     │
-│                           │                                  │
-│                           ▼                                  │
-│                   match expected {                           │
-│                     Album/Track => content::music::*         │
-│                     Movie/TvEpisode => content::video::*     │
-│                     _ => content::generic::*                 │
-│                   }                                          │
+│                           │                                 │
+│                           ▼                                 │
+│                   match expected {                          │
+│                     Album/Track => content::music::*        │
+│                     Movie/TvEpisode => content::video::*    │
+│                     _ => content::generic::*                │
+│                   }                                         │
 └─────────────────────────────────────────────────────────────┘
                               │
          ┌────────────────────┼────────────────────┐
@@ -477,25 +478,25 @@ Ticket Created
       │
       ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                    Acquisition Worker                            │
-│                                                                  │
+│                      Acquisition Worker                         │
+│                                                                 │
 │  module = registry.get_module(ticket)  ←── dispatch by expected │
-│                                                                  │
+│                                                                 │
 │  queries = module.build_queries(ticket)                         │
 │  candidates = searcher.search(queries)                          │
 │  scored = module.score_candidate(ticket, each candidate)        │
 │  mapping = module.map_files(ticket, best_candidate.files)       │
-│                                                                  │
+│                                                                 │
 └──────────────────────────────┬──────────────────────────────────┘
                                │
                                ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                    Download Worker                               │
-│                                                                  │
+│                       Download Worker                           │
+│                                                                 │
 │  ... download completes ...                                     │
-│                                                                  │
+│                                                                 │
 │  module.post_process(ticket, download_path)  ←── fetch assets   │
-│                                                                  │
+│                                                                 │
 └──────────────────────────────┬──────────────────────────────────┘
                                │
                                ▼
