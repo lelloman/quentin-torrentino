@@ -598,9 +598,9 @@ where
             on_update: on_update.clone(),
         });
 
-        // Execute acquisition with or without audit
+        // Execute acquisition with fallback (tries discography if album search fails)
         let result = if let Some(ref audit_handle) = audit {
-            // Use acquire_with_audit for detailed real-time events
+            // Use acquire_with_fallback_and_audit for detailed real-time events
             let audit_ctx = AcquisitionAuditContext {
                 ticket_id: ticket.id.clone(),
                 audit: audit_handle.clone(),
@@ -608,12 +608,12 @@ where
                 state_updater: Some(state_updater),
             };
             textbrain
-                .acquire_with_audit(&ticket.query_context, searcher.as_ref(), &audit_ctx)
+                .acquire_with_fallback_and_audit(&ticket.query_context, searcher.as_ref(), &audit_ctx)
                 .await
         } else {
-            // No audit configured, use regular acquire
+            // No audit configured, use regular acquire with fallback
             textbrain
-                .acquire(&ticket.query_context, searcher.as_ref())
+                .acquire_with_fallback(&ticket.query_context, searcher.as_ref())
                 .await
         };
 

@@ -4,9 +4,10 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use chrono::{DateTime, Utc};
-use tracing::debug;
+use tracing::{debug, info};
 
 use crate::audit::{AuditEvent, AuditHandle};
+use crate::content;
 use crate::searcher::{FileEnricher, SearchQuery, Searcher, TorrentCandidate};
 use crate::ticket::{AcquisitionPhase, QueryContext};
 use crate::textbrain::{
@@ -324,6 +325,330 @@ impl TextBrain {
             candidates_evaluated,
             query_method,
             score_method: last_score_method,
+            auto_approved,
+            llm_usage: if total_llm_usage.input_tokens > 0 {
+                Some(total_llm_usage)
+            } else {
+                None
+            },
+            duration_ms,
+        })
+    }
+
+    /// Acquisition with automatic fallback to discography/collection search.
+    ///
+    /// This is the recommended acquisition method for music content. The flow is:
+    /// 1. First, try specific album queries
+    /// 2. If no suitable match found (no auto-approve or no candidates), fall back to
+    ///    discography/collection queries
+    /// 3. Score discography candidates looking for the target album in file listings
+    ///
+    /// Works with both dumb and LLM modes - fallback queries use the same mode as
+    /// primary queries.
+    pub async fn acquire_with_fallback(
+        &self,
+        context: &QueryContext,
+        searcher: &dyn Searcher,
+    ) -> Result<AcquisitionResult, TextBrainError> {
+        let start = Instant::now();
+
+        // Phase 1: Try specific album/content queries
+        let primary_result = self.acquire(context, searcher).await?;
+
+        // Check if primary acquisition succeeded
+        let should_fallback = !primary_result.auto_approved
+            && primary_result.best_candidate.as_ref().map(|c| c.score).unwrap_or(0.0) < 0.7;
+
+        if !should_fallback {
+            debug!(
+                "Primary acquisition succeeded with score {:?}, skipping fallback",
+                primary_result.best_candidate.as_ref().map(|c| c.score)
+            );
+            return Ok(primary_result);
+        }
+
+        // Check if fallback queries are available for this content type
+        let fallback_queries = content::build_fallback_queries(context);
+        if fallback_queries.is_empty() {
+            debug!("No fallback queries available for this content type");
+            return Ok(primary_result);
+        }
+
+        info!(
+            "Primary acquisition didn't find suitable match, trying discography fallback with {} queries",
+            fallback_queries.len()
+        );
+
+        // Phase 2: Fallback to discography/collection search
+        let mut all_scored: Vec<ScoredCandidate> = primary_result.all_candidates;
+        let mut queries_tried = primary_result.queries_tried;
+        let mut candidates_evaluated = primary_result.candidates_evaluated;
+        let mut total_llm_usage = primary_result.llm_usage.clone().unwrap_or_default();
+
+        let max_fallback_queries = (self.config.max_queries as usize).min(fallback_queries.len());
+
+        for query_str in fallback_queries.iter().take(max_fallback_queries) {
+            queries_tried.push(query_str.clone());
+
+            let search_query = SearchQuery {
+                query: query_str.clone(),
+                indexers: None,
+                categories: None,
+                limit: Some(50),
+            };
+
+            let search_result = searcher
+                .search(&search_query)
+                .await
+                .map_err(|e| TextBrainError::SearchFailed(e.to_string()))?;
+
+            if search_result.candidates.is_empty() {
+                continue;
+            }
+
+            candidates_evaluated += search_result.candidates.len() as u32;
+
+            // Score using discography-aware scoring
+            for candidate in &search_result.candidates {
+                // Skip if we already have this candidate from primary search
+                if all_scored.iter().any(|c| c.candidate.info_hash == candidate.info_hash) {
+                    continue;
+                }
+
+                // Enrich with file listings if available
+                let mut enriched_candidate = candidate.clone();
+                if let Some(ref enricher) = self.file_enricher {
+                    if enricher.is_enabled() {
+                        let mut to_enrich = vec![enriched_candidate.clone()];
+                        let _ = enricher.enrich(&mut to_enrich).await;
+                        if !to_enrich.is_empty() {
+                            enriched_candidate = to_enrich.into_iter().next().unwrap();
+                        }
+                    }
+                }
+
+                // Use discography-aware scoring
+                let match_result = content::score_discography_candidate(
+                    context,
+                    &enriched_candidate,
+                    &self.config,
+                ).await?;
+
+                if let Some(usage) = &match_result.llm_usage {
+                    total_llm_usage.input_tokens += usage.input_tokens;
+                    total_llm_usage.output_tokens += usage.output_tokens;
+                }
+
+                // Add scored candidates
+                for scored in match_result.candidates {
+                    all_scored.push(scored);
+                }
+            }
+        }
+
+        // Sort all candidates by score
+        all_scored.sort_by(|a, b| {
+            b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        let duration_ms = start.elapsed().as_millis() as u64;
+        let best_candidate = all_scored.first().cloned();
+        let auto_approved = best_candidate
+            .as_ref()
+            .map(|c| c.score >= self.config.auto_approve_threshold)
+            .unwrap_or(false);
+
+        // Determine score method
+        let score_method = if best_candidate.as_ref().map(|c| c.reasoning.contains("discography")).unwrap_or(false) {
+            "discography_fallback".to_string()
+        } else {
+            primary_result.score_method
+        };
+
+        Ok(AcquisitionResult {
+            best_candidate,
+            all_candidates: all_scored,
+            queries_tried,
+            candidates_evaluated,
+            query_method: format!("{}_with_fallback", primary_result.query_method),
+            score_method,
+            auto_approved,
+            llm_usage: if total_llm_usage.input_tokens > 0 {
+                Some(total_llm_usage)
+            } else {
+                None
+            },
+            duration_ms,
+        })
+    }
+
+    /// Acquisition with fallback and audit event emission.
+    ///
+    /// Same as `acquire_with_fallback`, but emits detailed audit events.
+    pub async fn acquire_with_fallback_and_audit(
+        &self,
+        context: &QueryContext,
+        searcher: &dyn Searcher,
+        audit_ctx: &AcquisitionAuditContext,
+    ) -> Result<AcquisitionResult, TextBrainError> {
+        let start = Instant::now();
+
+        // Phase 1: Try specific album/content queries with audit
+        let primary_result = self.acquire_with_audit(context, searcher, audit_ctx).await?;
+
+        // Check if primary acquisition succeeded
+        let should_fallback = !primary_result.auto_approved
+            && primary_result.best_candidate.as_ref().map(|c| c.score).unwrap_or(0.0) < 0.7;
+
+        if !should_fallback {
+            return Ok(primary_result);
+        }
+
+        // Check if fallback queries are available
+        let fallback_queries = content::build_fallback_queries(context);
+        if fallback_queries.is_empty() {
+            return Ok(primary_result);
+        }
+
+        // Emit fallback started event
+        audit_ctx.audit.emit(AuditEvent::FallbackSearchStarted {
+            ticket_id: audit_ctx.ticket_id.clone(),
+            reason: format!(
+                "Primary search failed (best score: {:?})",
+                primary_result.best_candidate.as_ref().map(|c| c.score)
+            ),
+            fallback_queries: fallback_queries.len() as u32,
+        }).await;
+
+        // Phase 2: Fallback search
+        let mut all_scored: Vec<ScoredCandidate> = primary_result.all_candidates;
+        let mut queries_tried = primary_result.queries_tried;
+        let mut candidates_evaluated = primary_result.candidates_evaluated;
+        let mut total_llm_usage = primary_result.llm_usage.clone().unwrap_or_default();
+        let mut fallback_candidates_found: u32 = 0;
+
+        let max_fallback_queries = (self.config.max_queries as usize).min(fallback_queries.len());
+
+        for query_str in fallback_queries.iter().take(max_fallback_queries) {
+            queries_tried.push(query_str.clone());
+
+            let search_query = SearchQuery {
+                query: query_str.clone(),
+                indexers: None,
+                categories: None,
+                limit: Some(50),
+            };
+
+            let search_result = searcher
+                .search(&search_query)
+                .await
+                .map_err(|e| TextBrainError::SearchFailed(e.to_string()))?;
+
+            if search_result.candidates.is_empty() {
+                continue;
+            }
+
+            fallback_candidates_found += search_result.candidates.len() as u32;
+            candidates_evaluated += search_result.candidates.len() as u32;
+
+            // Score each candidate with discography-aware scoring
+            for candidate in &search_result.candidates {
+                if all_scored.iter().any(|c| c.candidate.info_hash == candidate.info_hash) {
+                    continue;
+                }
+
+                // Enrich with file listings
+                let mut enriched_candidate = candidate.clone();
+                if let Some(ref enricher) = self.file_enricher {
+                    if enricher.is_enabled() {
+                        let mut to_enrich = vec![enriched_candidate.clone()];
+                        let _ = enricher.enrich(&mut to_enrich).await;
+                        if !to_enrich.is_empty() {
+                            enriched_candidate = to_enrich.into_iter().next().unwrap();
+                        }
+                    }
+                }
+
+                let match_result = content::score_discography_candidate(
+                    context,
+                    &enriched_candidate,
+                    &self.config,
+                ).await?;
+
+                if let Some(usage) = &match_result.llm_usage {
+                    total_llm_usage.input_tokens += usage.input_tokens;
+                    total_llm_usage.output_tokens += usage.output_tokens;
+                }
+
+                // Emit audit events for discography candidates
+                for scored in &match_result.candidates {
+                    let is_discography = scored.reasoning.contains("discography");
+                    let album_found = scored.reasoning.contains("album found")
+                        || scored.reasoning.contains("target album");
+
+                    // Emit DiscographyCandidateScored for discography candidates
+                    if is_discography {
+                        audit_ctx.audit.emit(AuditEvent::DiscographyCandidateScored {
+                            ticket_id: audit_ctx.ticket_id.clone(),
+                            title: scored.candidate.title.clone(),
+                            info_hash: scored.candidate.info_hash.clone(),
+                            album_found,
+                            score: scored.score,
+                            file_count: scored.candidate.files.as_ref().map(|f| f.len() as u32),
+                        }).await;
+
+                        // Emit AlbumFoundInDiscography if album was found
+                        if album_found {
+                            audit_ctx.audit.emit(AuditEvent::AlbumFoundInDiscography {
+                                ticket_id: audit_ctx.ticket_id.clone(),
+                                discography_title: scored.candidate.title.clone(),
+                                album_title: context.description.clone(),
+                                matching_tracks: scored.file_mappings.len() as u32,
+                                expected_tracks: None, // Could be enhanced with expected content
+                            }).await;
+                        }
+                    }
+                }
+
+                for scored in match_result.candidates {
+                    all_scored.push(scored);
+                }
+            }
+        }
+
+        // Sort all candidates
+        all_scored.sort_by(|a, b| {
+            b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        let duration_ms = start.elapsed().as_millis() as u64;
+        let best_candidate = all_scored.first().cloned();
+        let auto_approved = best_candidate
+            .as_ref()
+            .map(|c| c.score >= self.config.auto_approve_threshold)
+            .unwrap_or(false);
+
+        let score_method = if best_candidate.as_ref().map(|c| c.reasoning.contains("discography")).unwrap_or(false) {
+            "discography_fallback".to_string()
+        } else {
+            primary_result.score_method
+        };
+
+        // Emit fallback completed event
+        audit_ctx.audit.emit(AuditEvent::FallbackSearchCompleted {
+            ticket_id: audit_ctx.ticket_id.clone(),
+            candidates_found: fallback_candidates_found,
+            best_score: best_candidate.as_ref().map(|c| c.score),
+            used_discography: best_candidate.as_ref().map(|c| c.reasoning.contains("discography")).unwrap_or(false),
+        }).await;
+
+        Ok(AcquisitionResult {
+            best_candidate,
+            all_candidates: all_scored,
+            queries_tried,
+            candidates_evaluated,
+            query_method: format!("{}_with_fallback", primary_result.query_method),
+            score_method,
             auto_approved,
             llm_usage: if total_llm_usage.input_tokens > 0 {
                 Some(total_llm_usage)

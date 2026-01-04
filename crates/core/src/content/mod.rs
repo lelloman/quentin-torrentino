@@ -32,6 +32,60 @@ use crate::ticket::{ExpectedContent, QueryContext, Ticket};
 
 pub use types::{ContentError, PostProcessResult};
 
+/// Build fallback queries for discography/collection search.
+///
+/// Called when specific content queries fail to find suitable matches.
+/// Returns broader queries targeting artist discographies, complete collections, etc.
+///
+/// Currently only implemented for music content.
+pub fn build_fallback_queries(context: &QueryContext) -> Vec<String> {
+    match &context.expected {
+        Some(ExpectedContent::Album { artist, .. }) | Some(ExpectedContent::Track { artist, .. }) => {
+            let audio_constraints = context
+                .search_constraints
+                .as_ref()
+                .and_then(|sc| sc.audio.as_ref());
+            music::build_discography_queries(artist.as_deref(), audio_constraints)
+        }
+        // Video and generic content don't have discography fallback
+        _ => vec![],
+    }
+}
+
+/// Check if a candidate is a discography/collection that contains the target album.
+///
+/// For discography candidates, we need to verify the target album is present
+/// in the file listing before considering it a match.
+pub fn is_discography_candidate(context: &QueryContext, candidate: &TorrentCandidate) -> bool {
+    match &context.expected {
+        Some(ExpectedContent::Album { artist, .. }) | Some(ExpectedContent::Track { artist, .. }) => {
+            music::is_discography_candidate(artist.as_deref(), candidate)
+        }
+        _ => false,
+    }
+}
+
+/// Score a discography candidate for containing the target album.
+///
+/// This scoring function is used during fallback acquisition to evaluate
+/// whether a discography/collection contains the specific album we're looking for.
+/// Returns a score and whether the album was found in the file listing.
+pub async fn score_discography_candidate(
+    context: &QueryContext,
+    candidate: &TorrentCandidate,
+    config: &TextBrainConfig,
+) -> Result<MatchResult, TextBrainError> {
+    match &context.expected {
+        Some(ExpectedContent::Album { .. }) | Some(ExpectedContent::Track { .. }) => {
+            music::score_discography_candidate(context, candidate, config).await
+        }
+        _ => {
+            // Non-music content: regular scoring
+            score_candidates(context, std::slice::from_ref(candidate), config).await
+        }
+    }
+}
+
 /// Build search queries based on content type.
 ///
 /// Dispatches to content-specific query builders based on `ExpectedContent`.
@@ -400,5 +454,89 @@ mod tests {
         let result = post_process(&ticket, Path::new("/tmp")).await.unwrap();
         assert!(result.cover_art_path.is_none());
         assert!(result.subtitle_paths.is_empty());
+    }
+
+    // =========================================================================
+    // Discography fallback tests
+    // =========================================================================
+
+    #[test]
+    fn test_build_fallback_queries_returns_discography_queries_for_album() {
+        let context = make_query_context(
+            "Dark Side of the Moon by Pink Floyd",
+            Some(ExpectedContent::Album {
+                artist: Some("Pink Floyd".to_string()),
+                title: "Dark Side of the Moon".to_string(),
+                tracks: vec![],
+            }),
+        );
+
+        let queries = build_fallback_queries(&context);
+        assert!(!queries.is_empty());
+        // Should contain discography-specific queries
+        assert!(queries.iter().any(|q| q.contains("discography")));
+        assert!(queries.iter().any(|q| q.to_lowercase().contains("pink floyd")));
+    }
+
+    #[test]
+    fn test_build_fallback_queries_returns_empty_for_video() {
+        let context = make_query_context(
+            "Inception 2010",
+            Some(ExpectedContent::Movie {
+                title: "Inception".to_string(),
+                year: Some(2010),
+            }),
+        );
+
+        let queries = build_fallback_queries(&context);
+        assert!(queries.is_empty()); // No fallback for video content
+    }
+
+    #[test]
+    fn test_build_fallback_queries_returns_empty_for_album_without_artist() {
+        let context = make_query_context(
+            "Some Album",
+            Some(ExpectedContent::Album {
+                artist: None, // No artist - can't search for discography
+                title: "Some Album".to_string(),
+                tracks: vec![],
+            }),
+        );
+
+        let queries = build_fallback_queries(&context);
+        assert!(queries.is_empty());
+    }
+
+    #[test]
+    fn test_is_discography_candidate_detects_discography_keyword() {
+        let context = make_query_context(
+            "Dark Side of the Moon",
+            Some(ExpectedContent::Album {
+                artist: Some("Pink Floyd".to_string()),
+                title: "Dark Side of the Moon".to_string(),
+                tracks: vec![],
+            }),
+        );
+
+        let discography_candidate = make_candidate("Pink Floyd - Discography (1967-2014) FLAC");
+        assert!(is_discography_candidate(&context, &discography_candidate));
+
+        let album_candidate = make_candidate("Pink Floyd - Dark Side of the Moon FLAC");
+        assert!(!is_discography_candidate(&context, &album_candidate));
+    }
+
+    #[test]
+    fn test_is_discography_candidate_detects_collection_keyword() {
+        let context = make_query_context(
+            "Dark Side of the Moon",
+            Some(ExpectedContent::Album {
+                artist: Some("Pink Floyd".to_string()),
+                title: "Dark Side of the Moon".to_string(),
+                tracks: vec![],
+            }),
+        );
+
+        let collection_candidate = make_candidate("Pink Floyd - Complete Collection FLAC");
+        assert!(is_discography_candidate(&context, &collection_candidate));
     }
 }

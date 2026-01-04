@@ -318,6 +318,58 @@ pub enum AuditEvent {
         outcome: String,
     },
 
+    /// Fallback search started (e.g., discography search after album search fails).
+    FallbackSearchStarted {
+        /// Associated ticket
+        ticket_id: String,
+        /// Reason for fallback
+        reason: String,
+        /// Number of fallback queries to try
+        fallback_queries: u32,
+    },
+
+    /// Fallback search completed.
+    FallbackSearchCompleted {
+        /// Associated ticket
+        ticket_id: String,
+        /// Number of candidates found in fallback
+        candidates_found: u32,
+        /// Best score from fallback candidates
+        best_score: Option<f32>,
+        /// Whether a discography was used
+        used_discography: bool,
+    },
+
+    /// A discography/collection candidate was identified and scored.
+    DiscographyCandidateScored {
+        /// Associated ticket
+        ticket_id: String,
+        /// Candidate title
+        title: String,
+        /// Candidate info hash
+        info_hash: String,
+        /// Whether the target album was found in the file listing
+        album_found: bool,
+        /// Score assigned to this candidate
+        score: f32,
+        /// Number of files in the discography (if known)
+        file_count: Option<u32>,
+    },
+
+    /// Target album found within a discography's file listing.
+    AlbumFoundInDiscography {
+        /// Associated ticket
+        ticket_id: String,
+        /// Discography title
+        discography_title: String,
+        /// Target album title being searched
+        album_title: String,
+        /// Number of matching tracks found
+        matching_tracks: u32,
+        /// Expected track count (if known)
+        expected_tracks: Option<u32>,
+    },
+
     QueriesGenerated {
         /// Associated ticket
         ticket_id: String,
@@ -631,6 +683,10 @@ impl AuditEvent {
             Self::LlmCallCompleted { .. } => "llm_call_completed",
             Self::LlmCallFailed { .. } => "llm_call_failed",
             Self::AcquisitionCompleted { .. } => "acquisition_completed",
+            Self::FallbackSearchStarted { .. } => "fallback_search_started",
+            Self::FallbackSearchCompleted { .. } => "fallback_search_completed",
+            Self::DiscographyCandidateScored { .. } => "discography_candidate_scored",
+            Self::AlbumFoundInDiscography { .. } => "album_found_in_discography",
             Self::QueriesGenerated { .. } => "queries_generated",
             Self::CandidatesScored { .. } => "candidates_scored",
             Self::CandidateSelected { .. } => "candidate_selected",
@@ -667,6 +723,10 @@ impl AuditEvent {
             | Self::ScoringStarted { ticket_id, .. }
             | Self::ScoringCompleted { ticket_id, .. }
             | Self::AcquisitionCompleted { ticket_id, .. }
+            | Self::FallbackSearchStarted { ticket_id, .. }
+            | Self::FallbackSearchCompleted { ticket_id, .. }
+            | Self::DiscographyCandidateScored { ticket_id, .. }
+            | Self::AlbumFoundInDiscography { ticket_id, .. }
             | Self::QueriesGenerated { ticket_id, .. }
             | Self::CandidatesScored { ticket_id, .. }
             | Self::CandidateSelected { ticket_id, .. }

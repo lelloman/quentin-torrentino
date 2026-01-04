@@ -19,6 +19,9 @@ pub struct RecordedSearch {
     pub timestamp: std::time::Instant,
 }
 
+/// A query handler that produces results dynamically based on the query.
+type QueryHandler = Box<dyn Fn(&str) -> Option<Vec<TorrentCandidate>> + Send + Sync>;
+
 /// Mock implementation of the Searcher trait.
 ///
 /// Provides controllable behavior for testing:
@@ -61,6 +64,8 @@ pub struct MockSearcher {
     indexers: Arc<RwLock<Vec<IndexerStatus>>>,
     /// Filter function for results (optional).
     result_filter: Arc<RwLock<Option<Box<dyn Fn(&SearchQuery, &TorrentCandidate) -> bool + Send + Sync>>>>,
+    /// Query handler for dynamic result generation based on query string.
+    query_handler: Arc<RwLock<Option<QueryHandler>>>,
 }
 
 impl std::fmt::Debug for MockSearcher {
@@ -72,6 +77,7 @@ impl std::fmt::Debug for MockSearcher {
             .field("indexer_errors", &"<indexer_errors>")
             .field("indexers", &"<indexers>")
             .field("result_filter", &"<filter>")
+            .field("query_handler", &"<handler>")
             .finish()
     }
 }
@@ -101,6 +107,7 @@ impl MockSearcher {
                 },
             ])),
             result_filter: Arc::new(RwLock::new(None)),
+            query_handler: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -190,6 +197,35 @@ impl MockSearcher {
         *self.result_filter.write().await = None;
     }
 
+    /// Set a query handler that dynamically generates results based on the query string.
+    ///
+    /// This is useful for testing fallback scenarios where different queries should
+    /// return different results. The handler receives the query string and should return
+    /// `Some(results)` to override the default results, or `None` to use the default behavior.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// searcher.set_query_handler(|query| {
+    ///     if query.contains("discography") {
+    ///         Some(vec![discography_candidate])
+    ///     } else {
+    ///         Some(vec![]) // Return empty for other queries
+    ///     }
+    /// }).await;
+    /// ```
+    pub async fn set_query_handler<F>(&self, handler: F)
+    where
+        F: Fn(&str) -> Option<Vec<TorrentCandidate>> + Send + Sync + 'static,
+    {
+        *self.query_handler.write().await = Some(Box::new(handler));
+    }
+
+    /// Clear the query handler.
+    pub async fn clear_query_handler(&self) {
+        *self.query_handler.write().await = None;
+    }
+
     /// Take the next error if set.
     async fn take_error(&self) -> Option<SearchError> {
         self.next_error.write().await.take()
@@ -213,6 +249,27 @@ impl Searcher for MockSearcher {
             query: query.clone(),
             timestamp: Instant::now(),
         });
+
+        // Check if query handler provides results
+        let handler = self.query_handler.read().await;
+        if let Some(ref h) = *handler {
+            if let Some(handler_results) = h(&query.query) {
+                // Apply limit if specified
+                let candidates = if let Some(limit) = query.limit {
+                    handler_results.into_iter().take(limit as usize).collect()
+                } else {
+                    handler_results
+                };
+
+                return Ok(SearchResult {
+                    query: query.clone(),
+                    candidates,
+                    duration_ms: 50,
+                    indexer_errors: self.indexer_errors.read().await.clone(),
+                });
+            }
+        }
+        drop(handler);
 
         // Get results, optionally filtered
         let all_results = self.results.read().await;
