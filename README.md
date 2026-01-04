@@ -1429,7 +1429,7 @@ max_concurrent_downloads = 3
 
 # MusicBrainz - No API key required
 [external_catalogs.musicbrainz]
-user_agent = "QuentinTorrentino/0.1.0 ( https://github.com/your-username )"
+user_agent = "QuentinTorrentino/0.1.0 ( https://github.com/lelloman/quentin-torrentino )"
 rate_limit_ms = 1100
 
 # TMDB - Requires free API key from themoviedb.org

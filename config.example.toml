@@ -201,7 +201,7 @@ path = "quentin.db"
 # [external_catalogs.musicbrainz]
 # # User-Agent string (MusicBrainz requires proper identification)
 # # Format: "AppName/Version ( contact-url-or-email )"
-# user_agent = "QuentinTorrentino/0.1.0 ( https://github.com/your-username )"
+# user_agent = "QuentinTorrentino/0.1.0 ( https://github.com/lelloman/quentin-torrentino )"
 #
 # # Rate limit delay in milliseconds (default: 1100 for ~1 req/sec)
 # rate_limit_ms = 1100

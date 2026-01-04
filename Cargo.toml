@@ -10,6 +10,10 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT"
 rust-version = "1.91"
+description = "Torrent based content acquisition system"
+repository = "https://github.com/lelloman/quentin-torrentino"
+keywords = ["torrent", "media", "automation", "bittorrent"]
+categories = ["command-line-utilities", "multimedia"]
 
 [workspace.dependencies]
 # Async runtime
