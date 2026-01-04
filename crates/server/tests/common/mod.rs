@@ -199,6 +199,60 @@ impl TestFixture {
         self.request("DELETE", path, Some(body)).await
     }
 
+    /// Send a POST request with raw string body (for testing malformed JSON).
+    pub async fn post_raw(&self, path: &str, body: &str) -> TestResponse {
+        self.request_raw("POST", path, body, "application/json").await
+    }
+
+    /// Send a POST request with custom content type (for testing wrong content types).
+    pub async fn post_with_content_type(
+        &self,
+        path: &str,
+        body: &str,
+        content_type: &str,
+    ) -> TestResponse {
+        self.request_raw("POST", path, body, content_type).await
+    }
+
+    /// Send a request with raw string body and custom content type.
+    async fn request_raw(
+        &self,
+        method: &str,
+        path: &str,
+        body: &str,
+        content_type: &str,
+    ) -> TestResponse {
+        let request = Request::builder()
+            .method(method)
+            .uri(path)
+            .header("Content-Type", content_type)
+            .body(Body::from(body.to_string()))
+            .unwrap();
+
+        let response = self
+            .router
+            .clone()
+            .oneshot(request)
+            .await
+            .expect("Failed to send request");
+
+        let status = response.status();
+        let body_bytes = response
+            .into_body()
+            .collect()
+            .await
+            .expect("Failed to collect body")
+            .to_bytes();
+
+        let body: Value = if body_bytes.is_empty() {
+            Value::Null
+        } else {
+            serde_json::from_slice(&body_bytes).unwrap_or(Value::Null)
+        };
+
+        TestResponse { status, body }
+    }
+
     /// Send a request to the test server.
     async fn request(&self, method: &str, path: &str, body: Option<Value>) -> TestResponse {
         let mut request_builder = Request::builder()
