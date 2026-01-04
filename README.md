@@ -1,5 +1,10 @@
 # Quentin Torrentino
 
+[![CI](https://github.com/lelloman/quentin-torrentino/actions/workflows/ci.yml/badge.svg)](https://github.com/lelloman/quentin-torrentino/actions/workflows/ci.yml)
+[![GitHub tag](https://img.shields.io/github/v/tag/lelloman/quentin-torrentino?label=version)](https://github.com/lelloman/quentin-torrentino/tags)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org/)
+
 ## Overview
 
 **Quentin Torrentino** is a **content-agnostic** media acquisition system that can be used as:
@@ -1642,48 +1647,3 @@ searcher.set_results(vec![
 ### End-to-End Tests
 - Docker compose with real Jackett + qBittorrent
 - Test with legal/free torrents (e.g., creative commons music)
-
-## Project Status
-
-The core functionality is complete and production-ready:
-
-- ✅ Full ticket lifecycle (create → search → match → download → convert → place)
-- ✅ Music and video content support
-- ✅ Jackett integration for torrent search
-- ✅ Embedded librqbit + optional qBittorrent
-- ✅ TextBrain with dumb matching (LLM optional)
-- ✅ Retry logic with exponential backoff
-- ✅ Prometheus metrics
-- ✅ Docker packaging
-- ✅ 473+ tests (unit + integration + E2E)
-- ✅ Vue 3 admin dashboard with Playwright E2E tests
-
-## Design Decisions
-
-1. **Auth required**: Service exits on startup if no auth configured. Must explicitly opt-in to `method = "none"` for anonymous access.
-
-2. **Seeding policy**: Ethical approach - seed until ratio >= 1.0 before cleanup eligible.
-
-3. **Rate limiting**: Per-indexer limits for private trackers.
-
-4. **LLM optional**: Dumb matcher works for most cases. LLM enhances accuracy when configured.
-
-5. **Audit everything**: All significant events logged. Consumer handles retention and training data extraction.
-
-6. **Fail-safe placement**: If any file fails to place, rollback all placed files for that ticket.
-
-7. **Priority queues**: All processing pools use priority queues. Higher `priority` value = processed first.
-
-8. **Dashboard-first development**: Admin dashboard evolves with each phase. Every feature is immediately testable via UI.
-
-9. **WebSocket consistency**: Snapshot-on-connect with sequence numbers ensures dashboard state is always consistent.
-
-10. **Shadow Catalog deferred**: Proactive torrent caching is complex and requires integration with consumer catalogs. Deferred to a later phase.
-
-## Future Enhancements (Not In Scope Yet)
-
-- Shadow Catalog - proactive search & seeding to pre-cache content
-- Notification system (webhooks, email, Telegram with interactive approvals)
-- Bulk admin operations
-- Fine-tuned local LLM for matching
-- Per-user rate limits / quotas
