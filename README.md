@@ -1685,10 +1685,6 @@ searcher.set_results(vec![
 
 Phases 1-4 and most of Phase 5 are complete. Below is the remaining work.
 
-### Other Content Types (Stretch Goal)
-- [ ] Add `content/software.rs`, `content/ebook.rs`, etc. as needed
-- [ ] Follow same pattern: add match arm in dispatch, implement content-specific logic
-
 ### Phase 6: Production Ready
 - [ ] Retry logic with exponential backoff (integrate with orchestrator)
 - [ ] Metrics/observability (Prometheus metrics for all workers)
