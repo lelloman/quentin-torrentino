@@ -1299,8 +1299,17 @@ async fn test_pipeline_validate_ffmpeg() {
 
     let response = fixture.get("/api/v1/pipeline/validate").await;
 
-    assert_eq!(response.status, StatusCode::OK);
+    // Endpoint returns 200 if ffmpeg is available, 503 if not.
+    // We don't assume ffmpeg is installed on the host machine.
+    assert!(
+        response.status == StatusCode::OK || response.status == StatusCode::SERVICE_UNAVAILABLE,
+        "Expected 200 or 503, got {}",
+        response.status
+    );
     assert!(response.body["valid"].is_boolean());
+    assert!(response.body["ffmpeg_available"].is_boolean());
+    assert!(response.body["ffprobe_available"].is_boolean());
+    assert!(response.body["message"].is_string());
 }
 
 // =============================================================================
