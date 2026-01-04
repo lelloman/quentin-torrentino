@@ -6,7 +6,7 @@
 - **Standalone service**: HTTP API for receiving download tickets
 - **Rust library**: Embeddable in other applications
 
-It uses a pluggable torrent search backend (Jackett, Prowlarr, etc.) for torrent search, optional LLM for intelligent matching, qBittorrent for downloading, and ffmpeg for conversion.
+It uses a pluggable torrent search backend (Jackett, Prowlarr, etc.) for torrent search, optional LLM for intelligent matching, an embedded BitTorrent client (librqbit) or external qBittorrent for downloading, and ffmpeg for conversion.
 
 ### Supported Content Types
 
@@ -20,7 +20,7 @@ It uses a pluggable torrent search backend (Jackett, Prowlarr, etc.) for torrent
 
 The system is **content-agnostic** - the ticket structure hints at content type, and TextBrain adapts its query building and matching strategies accordingly.
 
-> **Note:** Music support is implemented first. Other content types follow the same patterns.
+> **Note:** Music and video (movies/TV) are fully implemented. Other content types follow the same patterns.
 
 ### Architecture: Library + Service
 
@@ -86,7 +86,7 @@ The system is **content-agnostic** - the ticket structure hints at content type,
 └─────────────────┘                           └─────────────────┘
 ```
 
-### Orchestrator Architecture (Phase 5a)
+### Orchestrator Architecture
 
 The `TicketOrchestrator` is a background service that drives tickets through the state machine automatically:
 
@@ -151,13 +151,14 @@ struct Identity {
 
 ### Available Authenticators
 
-| Method | Use Case |
-|--------|----------|
-| `none` | Explicit no-auth (anonymous access, user_id = "anonymous") |
-| `oidc` | JWT validation via OIDC provider |
-| `address` | IP/subnet-based identity mapping |
-| `cert` | Client certificate validation |
-| `plugin` | External script/binary for custom auth |
+| Method | Status | Use Case |
+|--------|--------|----------|
+| `none` | ✅ Implemented | Explicit no-auth (anonymous access, user_id = "anonymous") |
+| `api_key` | ✅ Implemented | API key via `Authorization: Bearer <key>` or `X-API-Key` header |
+| `oidc` | 🔮 Planned | JWT validation via OIDC provider |
+| `address` | 🔮 Planned | IP/subnet-based identity mapping |
+| `cert` | 🔮 Planned | Client certificate validation |
+| `plugin` | 🔮 Planned | External script/binary for custom auth |
 
 ### Configuration Examples
 
@@ -433,7 +434,7 @@ pub fn build_queries(context: &QueryContext, config: &TextBrainConfig) -> QueryB
 | **Post-Processing** | Fetch cover art (MusicBrainz CAA → Discogs → embedded) |
 | **API Routes** | `POST /api/v1/music/album` - lookup album, auto-populate tracks |
 
-#### VideoModule
+#### Video (Movie, TvEpisode)
 
 | Feature | Description |
 |---------|-------------|
@@ -443,7 +444,7 @@ pub fn build_queries(context: &QueryContext, config: &TextBrainConfig) -> QueryB
 | **Post-Processing** | Fetch subtitles (OpenSubtitles), extract embedded subs |
 | **API Routes** | `POST /api/v1/video/movie`, `POST /api/v1/video/episode` - TMDB lookup |
 
-#### GenericModule
+#### Generic
 
 Fallback for unrecognized content types or when `expected` is `None`:
 - Basic fuzzy string matching on description
@@ -609,9 +610,9 @@ trait TorrentSearcher: Send + Sync {
 
 | Backend | Status | Notes |
 |---------|--------|-------|
-| Jackett | Planned (first) | Aggregates multiple indexers |
-| Prowlarr | Future | Modern Jackett alternative |
-| Direct tracker API | Future | e.g., RED, OPS APIs |
+| Jackett | ✅ Implemented | Aggregates multiple indexers |
+| Prowlarr | 🔮 Planned | Modern Jackett alternative |
+| Direct tracker API | 🔮 Planned | e.g., RED, OPS APIs |
 
 ## Ticket Structure
 
@@ -1011,7 +1012,10 @@ GET    /api/v1/stats
        → Queue stats, processing rates, etc.
 
 GET    /api/v1/config
-       → Current configuration (admin only)
+       → Current configuration (sanitized, safe to expose)
+
+GET    /metrics
+       → Prometheus metrics (request counts, durations, auth failures, etc.)
 ```
 
 ### Real-time Updates
@@ -1317,17 +1321,16 @@ const { identity, isAuthenticated, logout } = useAuth()
 const { torrents, coverage, searchTorrent } = useShadowCatalog()
 ```
 
-### Dashboard Features by Phase
+### Dashboard Features
 
-| Phase | Dashboard Features |
-|-------|-------------------|
-| 1 | Auth flow, config display, basic layout, ticket management, kanban board, text search |
-| 2 | Search testing, torrent status, Shadow Catalog browser |
-| 3 | Pipeline visualization, pool status, job progress |
-| 4 | Ticket creation, matching preview, conversion status |
-| 5 | Approval queue, candidate comparison, LLM reasoning |
-| 6 | Real-time updates, audit log viewer, system health |
-| 7 | Video-specific views |
+| Category | Features |
+|----------|----------|
+| **Authentication** | Login flow, config display, session management |
+| **Ticket Management** | Kanban board, create/approve/reject tickets, text search |
+| **Search & Matching** | Search testing, candidate preview, LLM reasoning display |
+| **Downloads** | Torrent status, progress tracking, pool status |
+| **Pipeline** | Conversion status, job progress, placement tracking |
+| **Monitoring** | Real-time WebSocket updates, audit log viewer, system health |
 
 ## Cover Art
 
@@ -1448,112 +1451,48 @@ quentin-torrentino/
 │   │   ├── Cargo.toml
 │   │   └── src/
 │   │       ├── lib.rs
-│   │       ├── config.rs
-│   │       ├── auth/
-│   │       │   ├── mod.rs
-│   │       │   ├── oidc.rs
-│   │       │   ├── address.rs
-│   │       │   ├── cert.rs
-│   │       │   └── plugin.rs
-│   │       ├── audit/
-│   │       │   ├── mod.rs
-│   │       │   ├── events.rs
-│   │       │   └── store.rs
-│   │       ├── torrent_catalog/
-│   │       │   ├── mod.rs
-│   │       │   ├── store.rs
-│   │       │   └── coverage.rs
-│   │       ├── shadow_catalog/
-│   │       │   ├── mod.rs
-│   │       │   └── priority.rs
-│   │       ├── processor/
-│   │       │   ├── mod.rs
-│   │       │   └── pools.rs
-│   │       ├── queue/
-│   │       │   ├── mod.rs
-│   │       │   ├── manager.rs
-│   │       │   ├── state.rs
-│   │       │   └── store.rs
-│   │       ├── searcher/
-│   │       │   ├── mod.rs
-│   │       │   ├── traits.rs
-│   │       │   ├── jackett.rs
-│   │       │   └── rate_limiter.rs
-│   │       ├── torrent_client/
-│   │       │   ├── mod.rs
-│   │       │   └── qbittorrent.rs
-│   │       ├── placer/
-│   │       │   ├── mod.rs
-│   │       │   └── file_ops.rs
-│   │       ├── traits/
-│   │       │   ├── mod.rs
-│   │       │   ├── matcher.rs
-│   │       │   ├── converter.rs
-│   │       │   └── ticket.rs
-│   │       ├── testing/              # Mock implementations for E2E tests
-│   │       │   ├── mod.rs
-│   │       │   ├── mock_torrent_client.rs
-│   │       │   ├── mock_searcher.rs
-│   │       │   ├── mock_external_catalog.rs
-│   │       │   ├── mock_converter.rs
-│   │       │   └── mock_placer.rs
-│   │       └── models/
-│   │           ├── mod.rs
-│   │           ├── state.rs
-│   │           ├── torrent.rs
-│   │           └── catalog.rs
-│   │
-│   ├── music/                    # torrentino-music (content-specific)
-│   │   ├── Cargo.toml
-│   │   └── src/
-│   │       ├── lib.rs
-│   │       ├── ticket.rs
-│   │       ├── matcher/
-│   │       │   ├── mod.rs
-│   │       │   ├── dumb.rs
-│   │       │   └── llm.rs
-│   │       ├── converter.rs
-│   │       ├── metadata.rs
-│   │       └── cover_art.rs
-│   │
-│   ├── video/                    # torrentino-video (future)
-│   │   └── ...
+│   │       ├── config/           # Configuration types and loading
+│   │       ├── auth/             # Authentication (none, api_key)
+│   │       ├── audit/            # Audit logging system
+│   │       ├── catalog/          # Torrent catalog (SQLite cache)
+│   │       ├── content/          # Content-specific logic
+│   │       │   ├── mod.rs        # Dispatch based on ExpectedContent
+│   │       │   ├── music.rs      # Album/Track handling
+│   │       │   ├── video.rs      # Movie/TV handling
+│   │       │   └── generic.rs    # Fallback
+│   │       ├── converter/        # FFmpeg wrapper
+│   │       ├── external_catalog/ # MusicBrainz, TMDB clients
+│   │       ├── orchestrator/     # Ticket orchestration
+│   │       ├── placer/           # File placement with rollback
+│   │       ├── processor/        # Pipeline processing
+│   │       ├── searcher/         # Jackett integration
+│   │       ├── textbrain/        # Query building + matching
+│   │       ├── ticket/           # Ticket types and store
+│   │       ├── torrent_client/   # librqbit + qBittorrent
+│   │       └── testing/          # Mock implementations
 │   │
 │   ├── server/                   # torrentino-server (HTTP service)
 │   │   ├── Cargo.toml
 │   │   └── src/
 │   │       ├── main.rs
-│   │       ├── api/
-│   │       │   ├── mod.rs
-│   │       │   ├── routes.rs
-│   │       │   ├── handlers.rs
-│   │       │   ├── websocket.rs
-│   │       │   └── auth_middleware.rs
-│   │       └── bin/
-│   │           └── quentin.rs
+│   │       ├── api/              # Axum routes and handlers
+│   │       ├── metrics.rs        # Prometheus metrics
+│   │       └── state.rs          # Application state
 │   │
-│   └── dashboard/                # Admin dashboard (Vue 3 + TypeScript + Vite)
+│   └── dashboard/                # Admin dashboard (Vue 3 + TypeScript)
 │       ├── package.json
 │       ├── vite.config.ts
-│       ├── tsconfig.json
-│       ├── index.html
-│       ├── src/
-│       │   ├── main.ts
-│       │   ├── App.vue
-│       │   ├── api/              # API client (generated from OpenAPI or ts-rs)
-│       │   ├── composables/      # useWebSocket, useTickets, useAuth, etc.
-│       │   ├── components/
-│       │   ├── views/
-│       │   └── stores/           # Pinia stores
-│       └── public/
-│
-├── tests/
-│   ├── integration/
-│   └── mocks/
+│       └── src/
+│           ├── main.ts
+│           ├── App.vue
+│           ├── composables/      # useWebSocket, useTickets, etc.
+│           ├── components/
+│           ├── views/
+│           └── stores/           # Pinia stores
 │
 ├── Dockerfile
-├── .dockerignore
-└── docker-compose.prod.yml
+├── docker-compose.prod.yml
+└── config.example.toml
 ```
 
 ## Core Traits
@@ -1707,16 +1646,20 @@ searcher.set_results(vec![
 - Docker compose with real Jackett + qBittorrent
 - Test with legal/free torrents (e.g., creative commons music)
 
-## Remaining Work
+## Project Status
 
-Phases 1-4 and most of Phase 5 are complete. Below is the remaining work.
+The core functionality is complete and production-ready:
 
-### Phase 6: Production Ready
-- [x] Retry logic with exponential backoff (integrate with orchestrator)
-- [x] Metrics/observability (Prometheus metrics for all workers)
-- [x] Docker packaging
-- [x] E2E test suite for server (145 tests, ~95% API coverage including chaos/stress tests)
-- [x] E2E test suite for dashboard (Playwright)
+- ✅ Full ticket lifecycle (create → search → match → download → convert → place)
+- ✅ Music and video content support
+- ✅ Jackett integration for torrent search
+- ✅ Embedded librqbit + optional qBittorrent
+- ✅ TextBrain with dumb matching (LLM optional)
+- ✅ Retry logic with exponential backoff
+- ✅ Prometheus metrics
+- ✅ Docker packaging
+- ✅ 473+ tests (unit + integration + E2E)
+- ✅ Vue 3 admin dashboard with Playwright E2E tests
 
 ## Design Decisions
 
