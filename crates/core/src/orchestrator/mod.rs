@@ -9,6 +9,6 @@ mod config;
 mod runner;
 mod types;
 
-pub use config::OrchestratorConfig;
+pub use config::{OrchestratorConfig, RetryConfig};
 pub use runner::{TicketOrchestrator, TicketUpdateCallback};
 pub use types::{ActiveDownload, OrchestratorError, OrchestratorStatus};

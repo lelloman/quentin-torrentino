@@ -592,6 +592,33 @@ pub struct CompletionStats {
     pub files_placed: u32,
 }
 
+/// Phase at which a retryable failure occurred.
+///
+/// Used to resume processing at the correct point after a retry delay.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RetryPhase {
+    /// Failed during acquisition (search, query building, scoring).
+    Acquisition,
+    /// Failed during download start or while downloading.
+    Download,
+    /// Failed during conversion.
+    Conversion,
+    /// Failed during file placement.
+    Placement,
+}
+
+impl std::fmt::Display for RetryPhase {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RetryPhase::Acquisition => write!(f, "acquisition"),
+            RetryPhase::Download => write!(f, "download"),
+            RetryPhase::Conversion => write!(f, "conversion"),
+            RetryPhase::Placement => write!(f, "placement"),
+        }
+    }
+}
+
 /// Current state of a ticket.
 ///
 /// State machine flow:
@@ -746,6 +773,21 @@ pub enum TicketState {
         stats: CompletionStats,
     },
 
+    /// Ticket is waiting to retry after a transient failure.
+    /// The orchestrator will pick this up when retry_after time is reached.
+    PendingRetry {
+        /// Error that caused the retry.
+        error: String,
+        /// Current retry attempt number (1-indexed).
+        retry_attempt: u32,
+        /// When to retry (scheduled time).
+        retry_after: DateTime<Utc>,
+        /// Which phase failed (for resuming at the right point).
+        failed_phase: RetryPhase,
+        /// When this retry was scheduled.
+        scheduled_at: DateTime<Utc>,
+    },
+
     /// Ticket failed (terminal, may be retryable).
     Failed {
         /// Error message.
@@ -799,6 +841,7 @@ impl TicketState {
                 | TicketState::Downloading { .. }
                 | TicketState::Converting { .. }
                 | TicketState::Placing { .. }
+                | TicketState::PendingRetry { .. }
         )
     }
 
@@ -824,8 +867,22 @@ impl TicketState {
             TicketState::Converting { .. } => "converting",
             TicketState::Placing { .. } => "placing",
             TicketState::Completed { .. } => "completed",
+            TicketState::PendingRetry { .. } => "pending_retry",
             TicketState::Failed { .. } => "failed",
             TicketState::Cancelled { .. } => "cancelled",
+        }
+    }
+
+    /// Returns true if the ticket is waiting for a scheduled retry.
+    pub fn is_pending_retry(&self) -> bool {
+        matches!(self, TicketState::PendingRetry { .. })
+    }
+
+    /// Returns the retry attempt count if in PendingRetry state.
+    pub fn retry_attempt(&self) -> Option<u32> {
+        match self {
+            TicketState::PendingRetry { retry_attempt, .. } => Some(*retry_attempt),
+            _ => None,
         }
     }
 }
