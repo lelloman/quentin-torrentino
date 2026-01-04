@@ -26,7 +26,7 @@ use crate::textbrain::{
     ScoredCandidate, ScoredCandidateSummary, TextBrain, TextBrainConfig,
 };
 use crate::ticket::{
-    AcquisitionPhase, SelectedCandidate, Ticket, TicketFilter, TicketState, TicketStore,
+    AcquisitionPhase, RetryPhase, SelectedCandidate, Ticket, TicketFilter, TicketState, TicketStore,
 };
 use crate::torrent_client::{AddTorrentRequest, TorrentClient, TorrentInfo, TorrentState};
 
@@ -55,6 +55,58 @@ fn update_and_notify_static(
     ticket_store.update_state(ticket_id, new_state)?;
     notify_update(callback, ticket_id, state_type);
     Ok(())
+}
+
+/// Helper to schedule a retry for a ticket.
+///
+/// Calculates the next retry delay using exponential backoff and transitions
+/// the ticket to PendingRetry state. Returns Ok(true) if retry was scheduled,
+/// Ok(false) if max retries exceeded (caller should transition to Failed).
+///
+/// Also increments the ticket's retry_count to track total retries.
+fn schedule_retry(
+    ticket_store: &Arc<dyn TicketStore>,
+    callback: &Option<TicketUpdateCallback>,
+    ticket_id: &str,
+    error: &str,
+    current_retry_count: u32,
+    failed_phase: RetryPhase,
+    config: &super::config::RetryConfig,
+) -> Result<bool, OrchestratorError> {
+    let next_attempt = current_retry_count + 1;
+
+    // Check if we should retry (current_retry_count is the number of retries already done)
+    if !config.should_retry(current_retry_count) {
+        return Ok(false);
+    }
+
+    // Increment the retry count in the database
+    ticket_store.increment_retry_count(ticket_id)?;
+
+    // Calculate delay for the next attempt
+    let delay = config
+        .delay_for_attempt(next_attempt)
+        .expect("should_retry returned true, so delay must exist");
+
+    let now = Utc::now();
+    let retry_after = now + chrono::Duration::from_std(delay).unwrap_or(chrono::Duration::seconds(60));
+
+    let new_state = TicketState::PendingRetry {
+        error: error.to_string(),
+        retry_attempt: next_attempt,
+        retry_after,
+        failed_phase,
+        scheduled_at: now,
+    };
+
+    update_and_notify_static(ticket_store, callback, ticket_id, new_state)?;
+
+    info!(
+        "Scheduled retry {} for ticket {} after {:?} (phase: {})",
+        next_attempt, ticket_id, delay, failed_phase
+    );
+
+    Ok(true)
 }
 
 /// Implementation of AcquisitionStateUpdater that persists progress to the ticket store.
@@ -168,6 +220,9 @@ where
 
         // Spawn download monitor loop
         self.spawn_download_monitor_loop();
+
+        // Spawn retry monitor loop
+        self.spawn_retry_monitor_loop();
 
         info!("Ticket orchestrator started");
     }
@@ -364,6 +419,127 @@ where
             }
             info!("Download monitor loop stopped");
         });
+    }
+
+    /// Spawn the retry monitor loop task.
+    /// This loop checks for PendingRetry tickets whose retry_after time has passed
+    /// and transitions them back to the appropriate processing state.
+    fn spawn_retry_monitor_loop(&self) {
+        let running = Arc::clone(&self.running);
+        let ticket_store = Arc::clone(&self.ticket_store);
+        let config = self.config.clone();
+        let audit = self.audit.clone();
+        let on_update = self.on_ticket_update.clone();
+        let mut shutdown_rx = self.shutdown_tx.subscribe();
+
+        tokio::spawn(async move {
+            info!("Retry monitor loop started");
+            loop {
+                tokio::select! {
+                    _ = shutdown_rx.recv() => {
+                        info!("Retry monitor loop received shutdown signal");
+                        break;
+                    }
+                    // Check every 5 seconds for ready retries
+                    _ = tokio::time::sleep(Duration::from_secs(5)) => {
+                        if !running.load(Ordering::Relaxed) {
+                            break;
+                        }
+                        if let Err(e) = Self::process_ready_retries(
+                            &ticket_store,
+                            &config,
+                            &audit,
+                            &on_update,
+                        ).await {
+                            warn!("Retry processing error: {}", e);
+                        }
+                    }
+                }
+            }
+            info!("Retry monitor loop stopped");
+        });
+    }
+
+    /// Process tickets that are ready for retry.
+    async fn process_ready_retries(
+        ticket_store: &Arc<dyn TicketStore>,
+        _config: &OrchestratorConfig,
+        audit: &Option<AuditHandle>,
+        on_update: &Option<TicketUpdateCallback>,
+    ) -> Result<(), OrchestratorError> {
+        // Get all PendingRetry tickets
+        let filter = TicketFilter::new().with_state("pending_retry").with_limit(50);
+        let tickets = ticket_store.list(&filter)?;
+
+        let now = Utc::now();
+
+        for ticket in tickets {
+            if let TicketState::PendingRetry {
+                retry_after,
+                failed_phase,
+                retry_attempt,
+                error,
+                ..
+            } = &ticket.state
+            {
+                // Check if it's time to retry
+                if now >= *retry_after {
+                    info!(
+                        "Ticket {} ready for retry (attempt {}, phase: {})",
+                        ticket.id, retry_attempt, failed_phase
+                    );
+
+                    // Transition to the appropriate state based on the failed phase
+                    let new_state = match failed_phase {
+                        RetryPhase::Acquisition => {
+                            // Go back to Pending to restart acquisition
+                            TicketState::Pending
+                        }
+                        RetryPhase::Download => {
+                            // Go back to AutoApproved/Approved state
+                            // For now, go to Pending as we don't preserve the selected candidate
+                            // TODO: In a future enhancement, store selected candidate in PendingRetry
+                            TicketState::Pending
+                        }
+                        RetryPhase::Conversion | RetryPhase::Placement => {
+                            // Go back to Pending for now
+                            // TODO: In a future enhancement, resume from download complete
+                            TicketState::Pending
+                        }
+                    };
+
+                    let from_state = ticket.state.state_type().to_string();
+                    let to_state = new_state.state_type();
+
+                    update_and_notify_static(
+                        ticket_store,
+                        on_update,
+                        &ticket.id,
+                        new_state,
+                    )?;
+
+                    // Emit audit event
+                    if let Some(ref audit_handle) = audit {
+                        audit_handle.emit(AuditEvent::TicketStateChanged {
+                            ticket_id: ticket.id.clone(),
+                            from_state,
+                            to_state: to_state.to_string(),
+                            reason: Some(format!(
+                                "Retry attempt {} after error: {}",
+                                retry_attempt, error
+                            )),
+                        }).await;
+                    }
+
+                    info!(
+                        "Ticket {} transitioned from pending_retry to {} for retry attempt {}",
+                        ticket.id, to_state, retry_attempt
+                    );
+                }
+            }
+        }
+
+        Ok(())
     }
 
     /// Process one pending ticket (acquisition).
@@ -604,9 +780,47 @@ where
             }
             Err(e) => {
                 let error_reason = e.to_string();
+
+                // Check if this is a retryable error (transient failures)
+                // Network errors, API timeouts, etc. are retryable
+                // "No candidates found" type errors are not (those go to AcquisitionFailed)
+                let is_retryable = Self::is_retryable_error(&error_reason);
+
+                if is_retryable {
+                    // Try to schedule a retry using the ticket's retry_count
+                    let retry_scheduled = schedule_retry(
+                        ticket_store,
+                        on_update,
+                        &ticket.id,
+                        &error_reason,
+                        ticket.retry_count,
+                        RetryPhase::Acquisition,
+                        &config.retry,
+                    )?;
+
+                    if retry_scheduled {
+                        // Emit state change event
+                        if let Some(ref audit_handle) = audit {
+                            audit_handle.emit(AuditEvent::TicketStateChanged {
+                                ticket_id: ticket.id.clone(),
+                                from_state: "acquiring".to_string(),
+                                to_state: "pending_retry".to_string(),
+                                reason: Some(format!("Transient error, scheduling retry: {}", error_reason)),
+                            }).await;
+                        }
+
+                        warn!(
+                            "Acquisition failed for ticket {} (transient, will retry): {}",
+                            ticket.id, error_reason
+                        );
+                        return Ok(());
+                    }
+                }
+
+                // Either not retryable or max retries exceeded - go to AcquisitionFailed
                 update_and_notify_static(
-                    &ticket_store,
-                    &on_update,
+                    ticket_store,
+                    on_update,
                     &ticket.id,
                     TicketState::AcquisitionFailed {
                         queries_tried: vec![],
@@ -754,7 +968,7 @@ where
                     }
                 }
 
-                // If all candidates failed, mark ticket as failed
+                // If all candidates failed, try to schedule a retry
                 if !success {
                     let error_msg = format!(
                         "All {} candidates failed to add. Last error: {}",
@@ -764,9 +978,39 @@ where
                         "All {} candidates failed for ticket {}",
                         candidates.len(), ticket.id
                     );
+
+                    // Check if error is retryable
+                    let is_retryable = Self::is_retryable_error(&last_error);
+
+                    if is_retryable {
+                        let retry_scheduled = schedule_retry(
+                            ticket_store,
+                            on_update,
+                            &ticket.id,
+                            &error_msg,
+                            ticket.retry_count,
+                            RetryPhase::Download,
+                            &config.retry,
+                        )?;
+
+                        if retry_scheduled {
+                            // Emit state change event
+                            if let Some(ref audit_handle) = audit {
+                                audit_handle.emit(AuditEvent::TicketStateChanged {
+                                    ticket_id: ticket.id.clone(),
+                                    from_state: state_type.to_string(),
+                                    to_state: "pending_retry".to_string(),
+                                    reason: Some(format!("Transient error, scheduling retry: {}", error_msg)),
+                                }).await;
+                            }
+                            continue; // Skip to next ticket
+                        }
+                    }
+
+                    // Not retryable or max retries exceeded - mark as failed
                     update_and_notify_static(
-                        &ticket_store,
-                        &on_update,
+                        ticket_store,
+                        on_update,
                         &ticket.id,
                         TicketState::Failed {
                             error: error_msg.clone(),
@@ -1479,16 +1723,159 @@ where
 
         textbrain
     }
+
+    /// Check if an error is retryable (transient) or permanent.
+    ///
+    /// Transient errors that can be retried:
+    /// - Network/connection errors
+    /// - Timeouts
+    /// - Rate limiting (429)
+    /// - Server errors (5xx)
+    /// - API unavailable
+    ///
+    /// Permanent errors that should not be retried:
+    /// - "No candidates found" type errors
+    /// - Invalid configuration
+    /// - Authentication failures
+    fn is_retryable_error(error: &str) -> bool {
+        let error_lower = error.to_lowercase();
+
+        // Patterns indicating transient/retryable errors
+        let retryable_patterns = [
+            "timeout",
+            "timed out",
+            "connection refused",
+            "connection reset",
+            "connection closed",
+            "network",
+            "dns",
+            "temporary",
+            "unavailable",
+            "service unavailable",
+            "too many requests",
+            "rate limit",
+            "429",
+            "500",
+            "502",
+            "503",
+            "504",
+            "internal server error",
+            "bad gateway",
+            "gateway timeout",
+            "econnrefused",
+            "econnreset",
+            "etimedout",
+            "ehostunreach",
+            "enetunreach",
+        ];
+
+        // Patterns indicating permanent errors (don't retry)
+        let permanent_patterns = [
+            "no candidates",
+            "no suitable",
+            "not found",
+            "invalid",
+            "unauthorized",
+            "forbidden",
+            "authentication",
+            "401",
+            "403",
+            "404",
+        ];
+
+        // Check for permanent errors first
+        for pattern in permanent_patterns {
+            if error_lower.contains(pattern) {
+                return false;
+            }
+        }
+
+        // Check for retryable patterns
+        for pattern in retryable_patterns {
+            if error_lower.contains(pattern) {
+                return true;
+            }
+        }
+
+        // Default: don't retry unknown errors
+        false
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testing::{MockConverter, MockPlacer};
+
+    type TestOrchestrator = TicketOrchestrator<MockConverter, MockPlacer>;
 
     #[test]
     fn test_orchestrator_status_default() {
         let status = OrchestratorStatus::default();
         assert!(!status.running);
         assert_eq!(status.active_downloads, 0);
+    }
+
+    // ========================================================================
+    // is_retryable_error tests
+    // ========================================================================
+
+    #[test]
+    fn test_retryable_network_errors() {
+        assert!(TestOrchestrator::is_retryable_error("Connection refused"));
+        assert!(TestOrchestrator::is_retryable_error("connection reset by peer"));
+        assert!(TestOrchestrator::is_retryable_error("Network unreachable"));
+        assert!(TestOrchestrator::is_retryable_error("DNS lookup failed"));
+        assert!(TestOrchestrator::is_retryable_error("Request timeout"));
+        assert!(TestOrchestrator::is_retryable_error("Operation timed out"));
+    }
+
+    #[test]
+    fn test_retryable_server_errors() {
+        assert!(TestOrchestrator::is_retryable_error("HTTP 500 Internal Server Error"));
+        assert!(TestOrchestrator::is_retryable_error("502 Bad Gateway"));
+        assert!(TestOrchestrator::is_retryable_error("503 Service Unavailable"));
+        assert!(TestOrchestrator::is_retryable_error("504 Gateway Timeout"));
+        assert!(TestOrchestrator::is_retryable_error("Service temporarily unavailable"));
+    }
+
+    #[test]
+    fn test_retryable_rate_limit_errors() {
+        assert!(TestOrchestrator::is_retryable_error("429 Too Many Requests"));
+        assert!(TestOrchestrator::is_retryable_error("Rate limit exceeded"));
+        assert!(TestOrchestrator::is_retryable_error("Too many requests, please slow down"));
+    }
+
+    #[test]
+    fn test_permanent_not_found_errors() {
+        assert!(!TestOrchestrator::is_retryable_error("No candidates found"));
+        assert!(!TestOrchestrator::is_retryable_error("No suitable candidates found"));
+        assert!(!TestOrchestrator::is_retryable_error("404 Not Found"));
+    }
+
+    #[test]
+    fn test_permanent_auth_errors() {
+        assert!(!TestOrchestrator::is_retryable_error("401 Unauthorized"));
+        assert!(!TestOrchestrator::is_retryable_error("403 Forbidden"));
+        assert!(!TestOrchestrator::is_retryable_error("Authentication failed"));
+    }
+
+    #[test]
+    fn test_permanent_invalid_errors() {
+        assert!(!TestOrchestrator::is_retryable_error("Invalid torrent file"));
+        assert!(!TestOrchestrator::is_retryable_error("Invalid configuration"));
+    }
+
+    #[test]
+    fn test_unknown_errors_not_retryable() {
+        assert!(!TestOrchestrator::is_retryable_error("Some unknown error"));
+        assert!(!TestOrchestrator::is_retryable_error("Unexpected failure"));
+    }
+
+    #[test]
+    fn test_case_insensitive() {
+        assert!(TestOrchestrator::is_retryable_error("CONNECTION REFUSED"));
+        assert!(TestOrchestrator::is_retryable_error("Timeout"));
+        assert!(TestOrchestrator::is_retryable_error("ECONNRESET"));
     }
 }

@@ -112,6 +112,7 @@ impl TestHarness {
             TicketState::Converting { .. } => "converting",
             TicketState::Placing { .. } => "placing",
             TicketState::Completed { .. } => "completed",
+            TicketState::PendingRetry { .. } => "pending_retry",
             TicketState::Failed { .. } => "failed",
             TicketState::Cancelled { .. } => "cancelled",
         }

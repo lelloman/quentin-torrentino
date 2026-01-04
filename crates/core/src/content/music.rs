@@ -1225,6 +1225,7 @@ mod tests {
             updated_at: now,
             created_by: "test".to_string(),
             output_constraints: None,
+            retry_count: 0,
         };
 
         // Use a temp dir that definitely doesn't have cover art

@@ -9,6 +9,6 @@ pub use store::{CreateTicketRequest, TicketError, TicketFilter, TicketStore};
 pub use types::{
     AcquisitionPhase, AudioSearchConstraints, CatalogReference, CompletionStats, ExpectedContent,
     ExpectedTrack, LanguagePreference, LanguagePriority, OutputConstraints, QueryContext,
-    Resolution, SearchConstraints, SelectedCandidate, Ticket, TicketState, TmdbMediaType,
-    VideoCodec, VideoSearchConstraints, VideoSource,
+    Resolution, RetryPhase, SearchConstraints, SelectedCandidate, Ticket, TicketState,
+    TmdbMediaType, VideoCodec, VideoSearchConstraints, VideoSource,
 };

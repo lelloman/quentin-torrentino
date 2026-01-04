@@ -915,6 +915,11 @@ pub struct Ticket {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_constraints: Option<OutputConstraints>,
 
+    /// Number of retry attempts made for this ticket.
+    /// Persists across state transitions to track retry history.
+    #[serde(default)]
+    pub retry_count: u32,
+
     /// Last update timestamp.
     pub updated_at: DateTime<Utc>,
 }
@@ -1287,5 +1292,70 @@ mod tests {
         let json = serde_json::to_string(&ctx).unwrap();
         // expected should be skipped when None
         assert!(!json.contains("expected"));
+    }
+
+    // ========================================================================
+    // PendingRetry state tests
+    // ========================================================================
+
+    #[test]
+    fn test_pending_retry_state() {
+        let now = Utc::now();
+        let retry_after = now + chrono::Duration::seconds(30);
+        let state = TicketState::PendingRetry {
+            error: "Connection timeout".to_string(),
+            retry_attempt: 2,
+            retry_after,
+            failed_phase: RetryPhase::Acquisition,
+            scheduled_at: now,
+        };
+
+        assert!(!state.is_terminal());
+        assert!(state.is_active());
+        assert!(state.is_pending_retry());
+        assert!(!state.needs_attention());
+        assert!(state.can_cancel());
+        assert!(!state.can_retry()); // can_retry is for Failed state
+        assert_eq!(state.state_type(), "pending_retry");
+        assert_eq!(state.retry_attempt(), Some(2));
+    }
+
+    #[test]
+    fn test_pending_retry_serialization() {
+        let now = Utc::now();
+        let retry_after = now + chrono::Duration::seconds(60);
+        let state = TicketState::PendingRetry {
+            error: "Network error".to_string(),
+            retry_attempt: 1,
+            retry_after,
+            failed_phase: RetryPhase::Download,
+            scheduled_at: now,
+        };
+
+        let json = serde_json::to_string(&state).unwrap();
+        assert!(json.contains("pending_retry"));
+        assert!(json.contains("Network error"));
+        assert!(json.contains("download")); // RetryPhase::Download
+
+        let deserialized: TicketState = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized, state);
+    }
+
+    #[test]
+    fn test_retry_phase_display() {
+        assert_eq!(format!("{}", RetryPhase::Acquisition), "acquisition");
+        assert_eq!(format!("{}", RetryPhase::Download), "download");
+        assert_eq!(format!("{}", RetryPhase::Conversion), "conversion");
+        assert_eq!(format!("{}", RetryPhase::Placement), "placement");
+    }
+
+    #[test]
+    fn test_retry_phase_serialization() {
+        let phase = RetryPhase::Download;
+        let json = serde_json::to_string(&phase).unwrap();
+        assert_eq!(json, "\"download\"");
+
+        let deserialized: RetryPhase = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized, phase);
     }
 }

@@ -64,6 +64,12 @@ impl SqliteTicketStore {
             [],
         );
 
+        // Migration: add retry_count column if it doesn't exist
+        let _ = conn.execute(
+            "ALTER TABLE tickets ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0",
+            [],
+        );
+
         Ok(())
     }
 
@@ -102,6 +108,7 @@ impl SqliteTicketStore {
         let dest_path: String = row.get(6)?;
         let output_constraints_json: Option<String> = row.get(7)?;
         let updated_at_str: String = row.get(8)?;
+        let retry_count: u32 = row.get::<_, Option<u32>>(9)?.unwrap_or(0);
 
         // Parse timestamps - use default if parsing fails (shouldn't happen with valid data)
         let created_at = DateTime::parse_from_rfc3339(&created_at_str)
@@ -131,6 +138,7 @@ impl SqliteTicketStore {
             query_context,
             dest_path,
             output_constraints,
+            retry_count,
             updated_at,
         })
     }
@@ -182,6 +190,7 @@ impl TicketStore for SqliteTicketStore {
             query_context: request.query_context,
             dest_path: request.dest_path,
             output_constraints: request.output_constraints,
+            retry_count: 0,
             updated_at: now,
         })
     }
@@ -190,7 +199,7 @@ impl TicketStore for SqliteTicketStore {
         let conn = self.conn.lock().unwrap();
 
         let result = conn.query_row(
-            "SELECT id, created_at, created_by, state, priority, query_context, dest_path, output_constraints, updated_at FROM tickets WHERE id = ?",
+            "SELECT id, created_at, created_by, state, priority, query_context, dest_path, output_constraints, updated_at, retry_count FROM tickets WHERE id = ?",
             params![id],
             Self::row_to_ticket,
         );
@@ -208,7 +217,7 @@ impl TicketStore for SqliteTicketStore {
         let (where_clause, params) = Self::build_where_clause(filter);
 
         let sql = format!(
-            "SELECT id, created_at, created_by, state, priority, query_context, dest_path, output_constraints, updated_at FROM tickets {} ORDER BY priority DESC, created_at ASC LIMIT ? OFFSET ?",
+            "SELECT id, created_at, created_by, state, priority, query_context, dest_path, output_constraints, updated_at, retry_count FROM tickets {} ORDER BY priority DESC, created_at ASC LIMIT ? OFFSET ?",
             where_clause
         );
 
@@ -257,7 +266,7 @@ impl TicketStore for SqliteTicketStore {
 
         // First, get the current ticket to check state
         let current = conn.query_row(
-            "SELECT id, created_at, created_by, state, priority, query_context, dest_path, output_constraints, updated_at FROM tickets WHERE id = ?",
+            "SELECT id, created_at, created_by, state, priority, query_context, dest_path, output_constraints, updated_at, retry_count FROM tickets WHERE id = ?",
             params![id],
             Self::row_to_ticket,
         );
@@ -299,7 +308,42 @@ impl TicketStore for SqliteTicketStore {
             query_context: current_ticket.query_context,
             dest_path: current_ticket.dest_path,
             output_constraints: current_ticket.output_constraints,
+            retry_count: current_ticket.retry_count,
             updated_at: now,
+        })
+    }
+
+    fn increment_retry_count(&self, id: &str) -> Result<Ticket, TicketError> {
+        let conn = self.conn.lock().unwrap();
+
+        // Get current ticket
+        let current = conn.query_row(
+            "SELECT id, created_at, created_by, state, priority, query_context, dest_path, output_constraints, updated_at, retry_count FROM tickets WHERE id = ?",
+            params![id],
+            Self::row_to_ticket,
+        );
+
+        let current_ticket = match current {
+            Ok(ticket) => ticket,
+            Err(rusqlite::Error::QueryReturnedNoRows) => {
+                return Err(TicketError::NotFound(id.to_string()));
+            }
+            Err(e) => return Err(TicketError::Database(e.to_string())),
+        };
+
+        let new_retry_count = current_ticket.retry_count + 1;
+        let now = Utc::now();
+
+        conn.execute(
+            "UPDATE tickets SET retry_count = ?, updated_at = ? WHERE id = ?",
+            params![new_retry_count, now.to_rfc3339(), id],
+        )
+        .map_err(|e| TicketError::Database(e.to_string()))?;
+
+        Ok(Ticket {
+            retry_count: new_retry_count,
+            updated_at: now,
+            ..current_ticket
         })
     }
 
@@ -308,7 +352,7 @@ impl TicketStore for SqliteTicketStore {
 
         // First, get the ticket to return it
         let ticket = conn.query_row(
-            "SELECT id, created_at, created_by, state, priority, query_context, dest_path, output_constraints, updated_at FROM tickets WHERE id = ?",
+            "SELECT id, created_at, created_by, state, priority, query_context, dest_path, output_constraints, updated_at, retry_count FROM tickets WHERE id = ?",
             params![id],
             Self::row_to_ticket,
         );
