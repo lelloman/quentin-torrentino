@@ -1689,7 +1689,7 @@ Phases 1-4 and most of Phase 5 are complete. Below is the remaining work.
 - [ ] Retry logic with exponential backoff (integrate with orchestrator)
 - [ ] Metrics/observability (Prometheus metrics for all workers)
 - [ ] Docker packaging
-- [x] E2E test suite for server (65 tests, ~85% API coverage)
+- [x] E2E test suite for server (145 tests, ~95% API coverage including chaos/stress tests)
 - [ ] E2E test suite for dashboard
 
 ## Design Decisions
