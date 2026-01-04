@@ -12,7 +12,10 @@ use crate::config::JackettConfig;
 use crate::metrics;
 
 use super::dedup::deduplicate_results;
-use super::{IndexerStatus, RawTorrentResult, SearchCategory, SearchError, SearchQuery, SearchResult, Searcher};
+use super::{
+    IndexerStatus, RawTorrentResult, SearchCategory, SearchError, SearchQuery, SearchResult,
+    Searcher,
+};
 
 /// Jackett search backend implementation.
 pub struct JackettSearcher {
@@ -74,23 +77,18 @@ impl Searcher for JackettSearcher {
 
         debug!(query = %query.query, "Searching Jackett (all indexers)");
 
-        let response = self
-            .client
-            .get(&url)
-            .send()
-            .await
-            .map_err(|e| {
-                metrics::EXTERNAL_SERVICE_REQUESTS
-                    .with_label_values(&["jackett", "search", "error"])
-                    .inc();
-                if e.is_timeout() {
-                    SearchError::Timeout
-                } else if e.is_connect() {
-                    SearchError::ConnectionFailed(e.to_string())
-                } else {
-                    SearchError::ApiError(e.to_string())
-                }
-            })?;
+        let response = self.client.get(&url).send().await.map_err(|e| {
+            metrics::EXTERNAL_SERVICE_REQUESTS
+                .with_label_values(&["jackett", "search", "error"])
+                .inc();
+            if e.is_timeout() {
+                SearchError::Timeout
+            } else if e.is_connect() {
+                SearchError::ConnectionFailed(e.to_string())
+            } else {
+                SearchError::ApiError(e.to_string())
+            }
+        })?;
 
         if !response.status().is_success() {
             metrics::EXTERNAL_SERVICE_REQUESTS
@@ -122,7 +120,11 @@ impl Searcher for JackettSearcher {
                 info_hash: r.InfoHash.map(|h| h.to_lowercase()),
                 size_bytes: r.Size.unwrap_or(0) as u64,
                 seeders: r.Seeders.unwrap_or(0).max(0) as u32,
-                leechers: r.Peers.unwrap_or(0).saturating_sub(r.Seeders.unwrap_or(0)).max(0) as u32,
+                leechers: r
+                    .Peers
+                    .unwrap_or(0)
+                    .saturating_sub(r.Seeders.unwrap_or(0))
+                    .max(0) as u32,
                 category: r.CategoryDesc,
                 publish_date: r.PublishDate.and_then(|d| parse_jackett_date(&d)),
                 details_url: r.Details,
@@ -132,21 +134,23 @@ impl Searcher for JackettSearcher {
 
         // Collect indexer errors from response
         let mut indexer_errors: HashMap<String, String> = HashMap::new();
-        let total_indexers = jackett_response.Indexers.as_ref().map(|i| i.len()).unwrap_or(0);
+        let total_indexers = jackett_response
+            .Indexers
+            .as_ref()
+            .map(|i| i.len())
+            .unwrap_or(0);
         if let Some(indexers) = jackett_response.Indexers {
             for indexer in indexers {
                 if let Some(error) = indexer.Error {
                     if !error.is_empty() {
-                        indexer_errors.insert(indexer.Name.unwrap_or_else(|| "unknown".to_string()), error);
+                        indexer_errors
+                            .insert(indexer.Name.unwrap_or_else(|| "unknown".to_string()), error);
                     }
                 }
             }
         }
 
-        debug!(
-            raw_results = raw_results.len(),
-            "Jackett search complete"
-        );
+        debug!(raw_results = raw_results.len(), "Jackett search complete");
 
         // Deduplicate results
         let mut candidates = deduplicate_results(raw_results);
@@ -172,7 +176,9 @@ impl Searcher for JackettSearcher {
         metrics::EXTERNAL_SERVICE_REQUESTS
             .with_label_values(&["jackett", "search", "success"])
             .inc();
-        metrics::SEARCH_RESULTS.with_label_values(&[]).observe(candidates.len() as f64);
+        metrics::SEARCH_RESULTS
+            .with_label_values(&[])
+            .observe(candidates.len() as f64);
 
         debug!(
             results = candidates.len(),

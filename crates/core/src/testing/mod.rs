@@ -33,10 +33,10 @@ pub use mock_torrent_client::MockTorrentClient;
 
 /// Test fixtures and helper functions.
 pub mod fixtures {
-    use crate::searcher::{TorrentCandidate, TorrentSource};
     use crate::external_catalog::{
-        MusicBrainzRelease, MusicBrainzTrack, TmdbMovie, TmdbSeries, TmdbSeason, TmdbEpisode,
+        MusicBrainzRelease, MusicBrainzTrack, TmdbEpisode, TmdbMovie, TmdbSeason, TmdbSeries,
     };
+    use crate::searcher::{TorrentCandidate, TorrentSource};
 
     /// Create a test torrent candidate with reasonable defaults.
     pub fn torrent_candidate(title: &str, info_hash: &str) -> TorrentCandidate {
@@ -68,7 +68,8 @@ pub mod fixtures {
 
     /// Create a test torrent candidate for video content.
     pub fn video_candidate(title: &str, year: u32, info_hash: &str) -> TorrentCandidate {
-        let mut candidate = torrent_candidate(&format!("{} ({}) 1080p BluRay", title, year), info_hash);
+        let mut candidate =
+            torrent_candidate(&format!("{} ({}) 1080p BluRay", title, year), info_hash);
         candidate.category = Some("Movies".to_string());
         candidate.size_bytes = 1024 * 1024 * 1024 * 4; // 4 GB
         candidate

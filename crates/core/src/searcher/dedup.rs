@@ -101,8 +101,8 @@ pub fn deduplicate_results(raw: Vec<RawTorrentResult>) -> Vec<TorrentCandidate> 
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::TorrentFile;
+    use super::*;
     use chrono::{Datelike, TimeZone, Utc};
 
     fn make_raw(
@@ -114,7 +114,10 @@ mod tests {
         RawTorrentResult {
             title: title.to_string(),
             indexer: indexer.to_string(),
-            magnet_uri: Some(format!("magnet:?xt=urn:btih:{}", info_hash.unwrap_or("none"))),
+            magnet_uri: Some(format!(
+                "magnet:?xt=urn:btih:{}",
+                info_hash.unwrap_or("none")
+            )),
             torrent_url: None,
             info_hash: info_hash.map(|s| s.to_string()),
             size_bytes: 1000,

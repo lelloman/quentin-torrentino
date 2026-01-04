@@ -206,10 +206,7 @@ impl FileEnricher {
             }
 
             // Find a torrent_url to fetch
-            let torrent_url = candidate
-                .sources
-                .iter()
-                .find_map(|s| s.torrent_url.clone());
+            let torrent_url = candidate.sources.iter().find_map(|s| s.torrent_url.clone());
 
             match torrent_url {
                 Some(url) => {
@@ -231,32 +228,33 @@ impl FileEnricher {
         );
 
         // Fetch in parallel with concurrency limit
-        let results: Vec<(usize, Result<Vec<TorrentFile>, FileEnrichError>)> = stream::iter(to_fetch)
-            .map(|(idx, info_hash, url)| {
-                let client = self.http_client.clone();
-                let catalog = self.catalog.clone();
-                let title = candidates[idx].title.clone();
+        let results: Vec<(usize, Result<Vec<TorrentFile>, FileEnrichError>)> =
+            stream::iter(to_fetch)
+                .map(|(idx, info_hash, url)| {
+                    let client = self.http_client.clone();
+                    let catalog = self.catalog.clone();
+                    let title = candidates[idx].title.clone();
 
-                async move {
-                    let result = Self::fetch_and_parse(&client, &url).await;
+                    async move {
+                        let result = Self::fetch_and_parse(&client, &url).await;
 
-                    // If successful, store in catalog
-                    if let Ok(ref files) = result {
-                        if let Err(e) = catalog.store_files(&info_hash, &title, files) {
-                            warn!(
-                                info_hash = %info_hash,
-                                error = %e,
-                                "Failed to store files in catalog"
-                            );
+                        // If successful, store in catalog
+                        if let Ok(ref files) = result {
+                            if let Err(e) = catalog.store_files(&info_hash, &title, files) {
+                                warn!(
+                                    info_hash = %info_hash,
+                                    error = %e,
+                                    "Failed to store files in catalog"
+                                );
+                            }
                         }
-                    }
 
-                    (idx, result)
-                }
-            })
-            .buffer_unordered(self.config.max_parallel_fetches)
-            .collect()
-            .await;
+                        (idx, result)
+                    }
+                })
+                .buffer_unordered(self.config.max_parallel_fetches)
+                .collect()
+                .await;
 
         // Apply results to candidates
         for (idx, result) in results {
@@ -291,23 +289,16 @@ impl FileEnricher {
     ) -> Result<Vec<TorrentFile>, FileEnrichError> {
         debug!(url = %url, "Fetching .torrent file");
 
-        let response = client
-            .get(url)
-            .send()
-            .await
-            .map_err(|e| {
-                if e.is_timeout() {
-                    FileEnrichError::Timeout
-                } else {
-                    FileEnrichError::Http(e.to_string())
-                }
-            })?;
+        let response = client.get(url).send().await.map_err(|e| {
+            if e.is_timeout() {
+                FileEnrichError::Timeout
+            } else {
+                FileEnrichError::Http(e.to_string())
+            }
+        })?;
 
         if !response.status().is_success() {
-            return Err(FileEnrichError::Http(format!(
-                "HTTP {}",
-                response.status()
-            )));
+            return Err(FileEnrichError::Http(format!("HTTP {}", response.status())));
         }
 
         let bytes = response
@@ -328,24 +319,16 @@ impl FileEnricher {
         &self,
         url: &str,
     ) -> Result<(String, Vec<TorrentFile>), FileEnrichError> {
-        let response = self
-            .http_client
-            .get(url)
-            .send()
-            .await
-            .map_err(|e| {
-                if e.is_timeout() {
-                    FileEnrichError::Timeout
-                } else {
-                    FileEnrichError::Http(e.to_string())
-                }
-            })?;
+        let response = self.http_client.get(url).send().await.map_err(|e| {
+            if e.is_timeout() {
+                FileEnrichError::Timeout
+            } else {
+                FileEnrichError::Http(e.to_string())
+            }
+        })?;
 
         if !response.status().is_success() {
-            return Err(FileEnrichError::Http(format!(
-                "HTTP {}",
-                response.status()
-            )));
+            return Err(FileEnrichError::Http(format!("HTTP {}", response.status())));
         }
 
         let bytes = response

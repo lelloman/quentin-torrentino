@@ -301,7 +301,10 @@ impl EmbeddedMetadata {
         }
         if let Some(track) = self.track_number {
             if let Some(total) = self.track_total {
-                args.extend(["-metadata".to_string(), format!("track={}/{}", track, total)]);
+                args.extend([
+                    "-metadata".to_string(),
+                    format!("track={}/{}", track, total),
+                ]);
             } else {
                 args.extend(["-metadata".to_string(), format!("track={}", track)]);
             }

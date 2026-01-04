@@ -224,9 +224,7 @@ impl Converter for MockConverter {
         // Determine output format
         let output_format = match &job.constraints {
             ConversionConstraints::Audio(audio) => audio.format.extension().to_string(),
-            ConversionConstraints::Video(video) => {
-                video.container.extension(None).to_string()
-            }
+            ConversionConstraints::Video(video) => video.container.extension(None).to_string(),
         };
 
         Ok(ConversionResult {
@@ -292,7 +290,9 @@ impl Converter for MockConverter {
     }
 
     fn supported_output_formats(&self) -> &[&str] {
-        &["flac", "mp3", "m4a", "ogg", "opus", "wav", "mkv", "mp4", "webm"]
+        &[
+            "flac", "mp3", "m4a", "ogg", "opus", "wav", "mkv", "mp4", "webm",
+        ]
     }
 }
 
@@ -363,7 +363,10 @@ mod tests {
             .set_probe_result("/custom/file.mp3", custom_info.clone())
             .await;
 
-        let result = converter.probe(Path::new("/custom/file.mp3")).await.unwrap();
+        let result = converter
+            .probe(Path::new("/custom/file.mp3"))
+            .await
+            .unwrap();
         assert_eq!(result.duration_secs, 300.0);
         assert_eq!(result.audio_bitrate_kbps, Some(192));
     }

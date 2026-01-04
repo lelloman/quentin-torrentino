@@ -13,7 +13,9 @@ use std::sync::Arc;
 use tokio::sync::broadcast;
 use tracing::{debug, error, info, warn};
 
-use crate::metrics::{WS_CONNECTIONS_ACTIVE, WS_CONNECTIONS_TOTAL, WS_LAG_EVENTS, WS_MESSAGES_SENT};
+use crate::metrics::{
+    WS_CONNECTIONS_ACTIVE, WS_CONNECTIONS_TOTAL, WS_LAG_EVENTS, WS_MESSAGES_SENT,
+};
 use crate::state::AppState;
 
 /// WebSocket message sent to clients for real-time updates.

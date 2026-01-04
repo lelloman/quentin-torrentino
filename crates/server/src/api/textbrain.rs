@@ -9,9 +9,9 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use torrentino_core::{
-    AnthropicClient, AuditEvent, CandidateMatcher, CompletionRequest, DumbMatcher, DumbQueryBuilder,
-    ExpectedContent, ExpectedTrack, FileEnricher, LlmClient, LlmUsage, QueryBuilder, QueryContext,
-    SearchQuery, TextBrain, TextBrainConfig, TextBrainMode,
+    AnthropicClient, AuditEvent, CandidateMatcher, CompletionRequest, DumbMatcher,
+    DumbQueryBuilder, ExpectedContent, ExpectedTrack, FileEnricher, LlmClient, LlmUsage,
+    QueryBuilder, QueryContext, SearchQuery, TextBrain, TextBrainConfig, TextBrainMode,
 };
 
 use crate::state::AppState;
@@ -86,7 +86,10 @@ pub async fn complete(
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
-                error: format!("Unsupported provider: {}. Only 'anthropic' is supported.", body.provider),
+                error: format!(
+                    "Unsupported provider: {}. Only 'anthropic' is supported.",
+                    body.provider
+                ),
             }),
         ));
     }
@@ -227,9 +230,8 @@ pub async fn process_ticket(
                 text.to_string()
             };
 
-            serde_json::from_str(&json_text).unwrap_or_else(|_| {
-                vec![ticket.query_context.description.clone()]
-            })
+            serde_json::from_str(&json_text)
+                .unwrap_or_else(|_| vec![ticket.query_context.description.clone()])
         }
         Err(e) => {
             return Err((
@@ -356,20 +358,21 @@ pub async fn process_ticket(
                 reasoning: String,
             }
 
-            let scores: Vec<ScoreItem> =
-                serde_json::from_str(&json_text).unwrap_or_default();
+            let scores: Vec<ScoreItem> = serde_json::from_str(&json_text).unwrap_or_default();
 
             let mut result: Vec<ScoredCandidate> = scores
                 .into_iter()
                 .filter_map(|s| {
-                    candidates.get(s.index.saturating_sub(1)).map(|c| ScoredCandidate {
-                        title: c.title.clone(),
-                        info_hash: c.info_hash.clone(),
-                        size_bytes: c.size_bytes,
-                        seeders: c.seeders,
-                        score: s.score,
-                        reasoning: s.reasoning,
-                    })
+                    candidates
+                        .get(s.index.saturating_sub(1))
+                        .map(|c| ScoredCandidate {
+                            title: c.title.clone(),
+                            info_hash: c.info_hash.clone(),
+                            size_bytes: c.size_bytes,
+                            seeders: c.seeders,
+                            score: s.score,
+                            reasoning: s.reasoning,
+                        })
                 })
                 .collect();
 
@@ -454,7 +457,11 @@ pub enum ExpectedContentRequest {
 impl From<ExpectedContentRequest> for ExpectedContent {
     fn from(req: ExpectedContentRequest) -> Self {
         match req {
-            ExpectedContentRequest::Album { artist, title, tracks } => {
+            ExpectedContentRequest::Album {
+                artist,
+                title,
+                tracks,
+            } => {
                 let tracks: Vec<ExpectedTrack> = tracks
                     .into_iter()
                     .map(|t| {
@@ -485,9 +492,11 @@ impl From<ExpectedContentRequest> for ExpectedContent {
                     ExpectedContent::movie(title)
                 }
             }
-            ExpectedContentRequest::TvEpisode { series, season, episodes } => {
-                ExpectedContent::tv_episodes(series, season, episodes)
-            }
+            ExpectedContentRequest::TvEpisode {
+                series,
+                season,
+                episodes,
+            } => ExpectedContent::tv_episodes(series, season, episodes),
         }
     }
 }
@@ -675,14 +684,17 @@ pub async fn acquire(
             })
             .collect();
 
-        let best_candidate = match_result.candidates.first().map(|c| AcquireCandidateResponse {
-            title: c.candidate.title.clone(),
-            info_hash: c.candidate.info_hash.clone(),
-            size_bytes: c.candidate.size_bytes,
-            seeders: c.candidate.seeders,
-            score: c.score,
-            reasoning: c.reasoning.clone(),
-        });
+        let best_candidate = match_result
+            .candidates
+            .first()
+            .map(|c| AcquireCandidateResponse {
+                title: c.candidate.title.clone(),
+                info_hash: c.candidate.info_hash.clone(),
+                size_bytes: c.candidate.size_bytes,
+                seeders: c.candidate.seeders,
+                score: c.score,
+                reasoning: c.reasoning.clone(),
+            });
 
         let auto_approved = best_candidate
             .as_ref()

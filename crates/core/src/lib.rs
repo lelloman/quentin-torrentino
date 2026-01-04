@@ -1,3 +1,10 @@
+// Allow some clippy lints that are too noisy for this codebase
+#![allow(clippy::type_complexity)]
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::manual_range_contains)]
+#![allow(clippy::needless_borrow)]
+#![allow(clippy::collapsible_if)]
+
 pub mod audit;
 pub mod auth;
 pub mod catalog;
@@ -28,16 +35,153 @@ pub use auth::{
     create_authenticator, ApiKeyAuthenticator, AuthError, AuthRequest, Authenticator, Identity,
     NoneAuthenticator,
 };
+pub use catalog::{
+    CachedTorrent, CachedTorrentFile, CachedTorrentSource, CatalogError, CatalogSearchQuery,
+    CatalogStats, SearchMode, SqliteCatalog, TorrentCatalog,
+};
 pub use config::{
     load_config, load_config_from_str, validate_config, AuthConfig, AuthMethod, Config,
     ConfigError, DatabaseConfig, ExternalCatalogsConfig, JackettConfig, LibrqbitConfig,
     QBittorrentConfig, SanitizedConfig, SearcherBackend, SearcherConfig, ServerConfig,
     TorrentClientBackend, TorrentClientConfig,
 };
+pub use content::{
+    // Error types
+    ContentError,
+    // Result types
+    PostProcessResult,
+};
+pub use converter::{
+    // Types
+    AudioConstraints,
+    AudioFormat,
+    ContainerFormat,
+    ConversionConstraints,
+    ConversionJob,
+    ConversionProgress,
+    ConversionResult,
+    // Traits
+    Converter,
+    // Configuration
+    ConverterConfig,
+    // Error types
+    ConverterError,
+    EmbeddedMetadata,
+    // Capabilities
+    EncoderCapabilities,
+    // Implementations
+    FfmpegConverter,
+    MediaInfo,
+    VideoConstraints,
+    VideoFormat,
+};
+pub use external_catalog::{
+    // Clients
+    CombinedCatalogClient,
+    // Trait
+    ExternalCatalog,
+    // Error types
+    ExternalCatalogError,
+    MusicBrainzClient,
+    // Configuration
+    MusicBrainzConfig,
+    // MusicBrainz types
+    MusicBrainzRelease,
+    MusicBrainzTrack,
+    TmdbClient,
+    TmdbConfig,
+    // TMDB types
+    TmdbEpisode,
+    TmdbMovie,
+    TmdbSeason,
+    TmdbSeasonSummary,
+    TmdbSeries,
+};
+pub use orchestrator::{
+    // Types
+    ActiveDownload,
+    // Configuration
+    OrchestratorConfig,
+    OrchestratorError,
+    OrchestratorStatus,
+    // Orchestrator
+    TicketOrchestrator,
+};
+pub use placer::{
+    // Types
+    ChecksumType,
+    FilePlacement,
+    // Implementations
+    FsPlacer,
+    PlacedFile,
+    PlacementJob,
+    PlacementProgress,
+    PlacementResult,
+    // Traits
+    Placer,
+    // Configuration
+    PlacerConfig,
+    // Error types
+    PlacerError,
+    RollbackFile,
+    RollbackPlan,
+    RollbackResult,
+};
+pub use processor::{
+    // Error types
+    PipelineError,
+    // Types
+    PipelineJob,
+    PipelineMetadata,
+    // Pipeline
+    PipelineProcessor,
+    PipelineProgress,
+    PipelineResult,
+    PipelineStatus,
+    PlacedFileInfo,
+    PoolStatus,
+    // Configuration
+    ProcessorConfig,
+    RetryConfig,
+    SourceFile,
+};
 pub use searcher::{
     deduplicate_results, FileEnricher, FileEnricherConfig, IndexerStatus, JackettSearcher,
     RawTorrentResult, SearchCategory, SearchError, SearchQuery, SearchResult, Searcher,
     TorrentCandidate, TorrentFile, TorrentSource,
+};
+pub use textbrain::{
+    // Result types
+    AcquisitionResult,
+    // LLM client types
+    AnthropicClient,
+    // Traits
+    CandidateMatcher,
+    CompletionRequest,
+    CompletionResponse,
+    // Dumb implementations
+    DumbMatcher,
+    DumbMatcherConfig,
+    DumbQueryBuilder,
+    DumbQueryBuilderConfig,
+    FileMapping,
+    LlmClient,
+    // Configuration
+    LlmConfig,
+    LlmError,
+    LlmProvider,
+    LlmUsage,
+    MatchResult,
+    OllamaClient,
+    QueryBuildResult,
+    QueryBuilder,
+    ScoredCandidate,
+    ScoredCandidateSummary,
+    // Coordinator
+    TextBrain,
+    TextBrainConfig,
+    TextBrainError,
+    TextBrainMode,
 };
 pub use ticket::{
     AcquisitionPhase, AudioSearchConstraints, CatalogReference, CompletionStats,
@@ -49,92 +193,4 @@ pub use ticket::{
 pub use torrent_client::{
     AddTorrentRequest, AddTorrentResult, LibrqbitClient, QBittorrentClient, TorrentClient,
     TorrentClientError, TorrentFilters, TorrentInfo, TorrentState,
-};
-pub use catalog::{
-    CachedTorrent, CachedTorrentFile, CachedTorrentSource, CatalogError, CatalogSearchQuery,
-    CatalogStats, SearchMode, SqliteCatalog, TorrentCatalog,
-};
-pub use textbrain::{
-    // LLM client types
-    AnthropicClient, CompletionRequest, CompletionResponse, LlmClient, LlmError, LlmUsage,
-    OllamaClient,
-    // Configuration
-    LlmConfig, LlmProvider, TextBrainConfig, TextBrainMode,
-    // Traits
-    CandidateMatcher, QueryBuilder, TextBrainError,
-    // Dumb implementations
-    DumbMatcher, DumbMatcherConfig, DumbQueryBuilder, DumbQueryBuilderConfig,
-    // Result types
-    AcquisitionResult, FileMapping, MatchResult, QueryBuildResult, ScoredCandidate,
-    ScoredCandidateSummary,
-    // Coordinator
-    TextBrain,
-};
-pub use converter::{
-    // Traits
-    Converter,
-    // Configuration
-    ConverterConfig,
-    // Error types
-    ConverterError,
-    // Implementations
-    FfmpegConverter,
-    // Capabilities
-    EncoderCapabilities,
-    // Types
-    AudioConstraints, AudioFormat, ContainerFormat, ConversionConstraints, ConversionJob,
-    ConversionProgress, ConversionResult, EmbeddedMetadata, MediaInfo, VideoConstraints,
-    VideoFormat,
-};
-pub use placer::{
-    // Traits
-    Placer,
-    // Configuration
-    PlacerConfig,
-    // Error types
-    PlacerError,
-    // Implementations
-    FsPlacer,
-    // Types
-    ChecksumType, FilePlacement, PlacedFile, PlacementJob, PlacementProgress, PlacementResult,
-    RollbackFile, RollbackPlan, RollbackResult,
-};
-pub use processor::{
-    // Configuration
-    ProcessorConfig, RetryConfig,
-    // Error types
-    PipelineError,
-    // Pipeline
-    PipelineProcessor,
-    // Types
-    PipelineJob, PipelineMetadata, PipelineProgress, PipelineResult, PipelineStatus,
-    PlacedFileInfo, PoolStatus, SourceFile,
-};
-pub use orchestrator::{
-    // Configuration
-    OrchestratorConfig,
-    // Orchestrator
-    TicketOrchestrator,
-    // Types
-    ActiveDownload, OrchestratorError, OrchestratorStatus,
-};
-pub use content::{
-    // Error types
-    ContentError,
-    // Result types
-    PostProcessResult,
-};
-pub use external_catalog::{
-    // Trait
-    ExternalCatalog,
-    // Error types
-    ExternalCatalogError,
-    // Clients
-    CombinedCatalogClient, MusicBrainzClient, TmdbClient,
-    // Configuration
-    MusicBrainzConfig, TmdbConfig,
-    // MusicBrainz types
-    MusicBrainzRelease, MusicBrainzTrack,
-    // TMDB types
-    TmdbEpisode, TmdbMovie, TmdbSeason, TmdbSeasonSummary, TmdbSeries,
 };

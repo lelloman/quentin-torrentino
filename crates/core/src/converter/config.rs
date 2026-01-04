@@ -141,6 +141,9 @@ mod tests {
         let config = ConverterConfig::default();
         let json = serde_json::to_string(&config).unwrap();
         let parsed: ConverterConfig = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed.max_parallel_conversions, config.max_parallel_conversions);
+        assert_eq!(
+            parsed.max_parallel_conversions,
+            config.max_parallel_conversions
+        );
     }
 }

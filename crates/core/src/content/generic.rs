@@ -7,7 +7,7 @@ use std::path::Path;
 use crate::searcher::{TorrentCandidate, TorrentFile};
 use crate::textbrain::{
     CandidateMatcher, DumbFileMapper, DumbMatcher, DumbQueryBuilder, FileMapping, MatchResult,
-    QueryBuilder, QueryBuildResult, TextBrainConfig, TextBrainError,
+    QueryBuildResult, QueryBuilder, TextBrainConfig, TextBrainError,
 };
 use crate::ticket::{QueryContext, Ticket};
 

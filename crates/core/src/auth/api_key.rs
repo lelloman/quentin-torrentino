@@ -58,9 +58,7 @@ impl Authenticator for ApiKeyAuthenticator {
                 claims: std::collections::HashMap::new(),
             })
         } else {
-            Err(AuthError::InvalidCredentials(
-                "Invalid API key".to_string(),
-            ))
+            Err(AuthError::InvalidCredentials("Invalid API key".to_string()))
         }
     }
 

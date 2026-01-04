@@ -4,7 +4,9 @@ use async_trait::async_trait;
 use tokio::sync::mpsc;
 
 use super::error::PlacerError;
-use super::types::{PlacementJob, PlacementProgress, PlacementResult, RollbackPlan, RollbackResult};
+use super::types::{
+    PlacementJob, PlacementProgress, PlacementResult, RollbackPlan, RollbackResult,
+};
 
 /// A placer that can move files to their final destinations.
 #[async_trait]
@@ -35,7 +37,6 @@ pub trait Placer: Send + Sync {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
 
     struct MockPlacer;
 

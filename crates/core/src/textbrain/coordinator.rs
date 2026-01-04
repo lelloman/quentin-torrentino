@@ -9,13 +9,13 @@ use tracing::{debug, info};
 use crate::audit::{AuditEvent, AuditHandle};
 use crate::content;
 use crate::searcher::{FileEnricher, SearchQuery, Searcher, TorrentCandidate};
-use crate::ticket::{AcquisitionPhase, QueryContext};
 use crate::textbrain::{
     config::{TextBrainConfig, TextBrainMode},
     llm::LlmUsage,
     traits::{CandidateMatcher, QueryBuilder, TextBrainError},
     types::{AcquisitionResult, MatchResult, QueryBuildResult, ScoredCandidate},
 };
+use crate::ticket::{AcquisitionPhase, QueryContext};
 
 /// Progress update for acquisition state.
 ///
@@ -115,7 +115,10 @@ impl TextBrain {
     /// Build search queries from the ticket context.
     ///
     /// Uses the configured mode to determine which builders to use.
-    pub async fn build_queries(&self, context: &QueryContext) -> Result<QueryBuildResult, TextBrainError> {
+    pub async fn build_queries(
+        &self,
+        context: &QueryContext,
+    ) -> Result<QueryBuildResult, TextBrainError> {
         match self.config.mode {
             TextBrainMode::DumbOnly => self.build_queries_dumb(context).await,
             TextBrainMode::DumbFirst => self.build_queries_dumb_first(context).await,
@@ -205,7 +208,9 @@ impl TextBrain {
             candidates_evaluated += search_result.candidates.len() as u32;
 
             // Step 3: Score candidates (title-only since files = None from Jackett)
-            let match_result = self.score_candidates(context, &search_result.candidates).await?;
+            let match_result = self
+                .score_candidates(context, &search_result.candidates)
+                .await?;
             if let Some(usage) = &match_result.llm_usage {
                 total_llm_usage.input_tokens += usage.input_tokens;
                 total_llm_usage.output_tokens += usage.output_tokens;
@@ -224,7 +229,11 @@ impl TextBrain {
         }
 
         // Sort by preliminary score
-        all_scored.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        all_scored.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         // Step 4: File enrichment (if configured)
         if let Some(ref enricher) = self.file_enricher {
@@ -264,10 +273,8 @@ impl TextBrain {
                     );
 
                     // Step 5: Re-score enriched candidates
-                    let enriched_with_files: Vec<&TorrentCandidate> = to_enrich
-                        .iter()
-                        .filter(|c| c.files.is_some())
-                        .collect();
+                    let enriched_with_files: Vec<&TorrentCandidate> =
+                        to_enrich.iter().filter(|c| c.files.is_some()).collect();
 
                     if !enriched_with_files.is_empty() {
                         debug!(
@@ -276,10 +283,8 @@ impl TextBrain {
                         );
 
                         // Re-score candidates that now have files
-                        let enriched_refs: Vec<TorrentCandidate> = enriched_with_files
-                            .into_iter()
-                            .cloned()
-                            .collect();
+                        let enriched_refs: Vec<TorrentCandidate> =
+                            enriched_with_files.into_iter().cloned().collect();
 
                         let rescore_result = self.score_candidates(context, &enriched_refs).await?;
                         if let Some(usage) = &rescore_result.llm_usage {
@@ -304,7 +309,9 @@ impl TextBrain {
 
                         // Re-sort after updating scores
                         all_scored.sort_by(|a, b| {
-                            b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal)
+                            b.score
+                                .partial_cmp(&a.score)
+                                .unwrap_or(std::cmp::Ordering::Equal)
                         });
                     }
                 }
@@ -357,7 +364,12 @@ impl TextBrain {
 
         // Check if primary acquisition succeeded
         let should_fallback = !primary_result.auto_approved
-            && primary_result.best_candidate.as_ref().map(|c| c.score).unwrap_or(0.0) < 0.7;
+            && primary_result
+                .best_candidate
+                .as_ref()
+                .map(|c| c.score)
+                .unwrap_or(0.0)
+                < 0.7;
 
         if !should_fallback {
             debug!(
@@ -411,7 +423,10 @@ impl TextBrain {
             // Score using discography-aware scoring
             for candidate in &search_result.candidates {
                 // Skip if we already have this candidate from primary search
-                if all_scored.iter().any(|c| c.candidate.info_hash == candidate.info_hash) {
+                if all_scored
+                    .iter()
+                    .any(|c| c.candidate.info_hash == candidate.info_hash)
+                {
                     continue;
                 }
 
@@ -432,7 +447,8 @@ impl TextBrain {
                     context,
                     &enriched_candidate,
                     &self.config,
-                ).await?;
+                )
+                .await?;
 
                 if let Some(usage) = &match_result.llm_usage {
                     total_llm_usage.input_tokens += usage.input_tokens;
@@ -448,7 +464,9 @@ impl TextBrain {
 
         // Sort all candidates by score
         all_scored.sort_by(|a, b| {
-            b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal)
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
         });
 
         let duration_ms = start.elapsed().as_millis() as u64;
@@ -459,7 +477,11 @@ impl TextBrain {
             .unwrap_or(false);
 
         // Determine score method
-        let score_method = if best_candidate.as_ref().map(|c| c.reasoning.contains("discography")).unwrap_or(false) {
+        let score_method = if best_candidate
+            .as_ref()
+            .map(|c| c.reasoning.contains("discography"))
+            .unwrap_or(false)
+        {
             "discography_fallback".to_string()
         } else {
             primary_result.score_method
@@ -494,11 +516,18 @@ impl TextBrain {
         let start = Instant::now();
 
         // Phase 1: Try specific album/content queries with audit
-        let primary_result = self.acquire_with_audit(context, searcher, audit_ctx).await?;
+        let primary_result = self
+            .acquire_with_audit(context, searcher, audit_ctx)
+            .await?;
 
         // Check if primary acquisition succeeded
         let should_fallback = !primary_result.auto_approved
-            && primary_result.best_candidate.as_ref().map(|c| c.score).unwrap_or(0.0) < 0.7;
+            && primary_result
+                .best_candidate
+                .as_ref()
+                .map(|c| c.score)
+                .unwrap_or(0.0)
+                < 0.7;
 
         if !should_fallback {
             return Ok(primary_result);
@@ -511,14 +540,17 @@ impl TextBrain {
         }
 
         // Emit fallback started event
-        audit_ctx.audit.emit(AuditEvent::FallbackSearchStarted {
-            ticket_id: audit_ctx.ticket_id.clone(),
-            reason: format!(
-                "Primary search failed (best score: {:?})",
-                primary_result.best_candidate.as_ref().map(|c| c.score)
-            ),
-            fallback_queries: fallback_queries.len() as u32,
-        }).await;
+        audit_ctx
+            .audit
+            .emit(AuditEvent::FallbackSearchStarted {
+                ticket_id: audit_ctx.ticket_id.clone(),
+                reason: format!(
+                    "Primary search failed (best score: {:?})",
+                    primary_result.best_candidate.as_ref().map(|c| c.score)
+                ),
+                fallback_queries: fallback_queries.len() as u32,
+            })
+            .await;
 
         // Phase 2: Fallback search
         let mut all_scored: Vec<ScoredCandidate> = primary_result.all_candidates;
@@ -553,7 +585,10 @@ impl TextBrain {
 
             // Score each candidate with discography-aware scoring
             for candidate in &search_result.candidates {
-                if all_scored.iter().any(|c| c.candidate.info_hash == candidate.info_hash) {
+                if all_scored
+                    .iter()
+                    .any(|c| c.candidate.info_hash == candidate.info_hash)
+                {
                     continue;
                 }
 
@@ -573,7 +608,8 @@ impl TextBrain {
                     context,
                     &enriched_candidate,
                     &self.config,
-                ).await?;
+                )
+                .await?;
 
                 if let Some(usage) = &match_result.llm_usage {
                     total_llm_usage.input_tokens += usage.input_tokens;
@@ -588,24 +624,30 @@ impl TextBrain {
 
                     // Emit DiscographyCandidateScored for discography candidates
                     if is_discography {
-                        audit_ctx.audit.emit(AuditEvent::DiscographyCandidateScored {
-                            ticket_id: audit_ctx.ticket_id.clone(),
-                            title: scored.candidate.title.clone(),
-                            info_hash: scored.candidate.info_hash.clone(),
-                            album_found,
-                            score: scored.score,
-                            file_count: scored.candidate.files.as_ref().map(|f| f.len() as u32),
-                        }).await;
+                        audit_ctx
+                            .audit
+                            .emit(AuditEvent::DiscographyCandidateScored {
+                                ticket_id: audit_ctx.ticket_id.clone(),
+                                title: scored.candidate.title.clone(),
+                                info_hash: scored.candidate.info_hash.clone(),
+                                album_found,
+                                score: scored.score,
+                                file_count: scored.candidate.files.as_ref().map(|f| f.len() as u32),
+                            })
+                            .await;
 
                         // Emit AlbumFoundInDiscography if album was found
                         if album_found {
-                            audit_ctx.audit.emit(AuditEvent::AlbumFoundInDiscography {
-                                ticket_id: audit_ctx.ticket_id.clone(),
-                                discography_title: scored.candidate.title.clone(),
-                                album_title: context.description.clone(),
-                                matching_tracks: scored.file_mappings.len() as u32,
-                                expected_tracks: None, // Could be enhanced with expected content
-                            }).await;
+                            audit_ctx
+                                .audit
+                                .emit(AuditEvent::AlbumFoundInDiscography {
+                                    ticket_id: audit_ctx.ticket_id.clone(),
+                                    discography_title: scored.candidate.title.clone(),
+                                    album_title: context.description.clone(),
+                                    matching_tracks: scored.file_mappings.len() as u32,
+                                    expected_tracks: None, // Could be enhanced with expected content
+                                })
+                                .await;
                         }
                     }
                 }
@@ -618,7 +660,9 @@ impl TextBrain {
 
         // Sort all candidates
         all_scored.sort_by(|a, b| {
-            b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal)
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
         });
 
         let duration_ms = start.elapsed().as_millis() as u64;
@@ -628,19 +672,29 @@ impl TextBrain {
             .map(|c| c.score >= self.config.auto_approve_threshold)
             .unwrap_or(false);
 
-        let score_method = if best_candidate.as_ref().map(|c| c.reasoning.contains("discography")).unwrap_or(false) {
+        let score_method = if best_candidate
+            .as_ref()
+            .map(|c| c.reasoning.contains("discography"))
+            .unwrap_or(false)
+        {
             "discography_fallback".to_string()
         } else {
             primary_result.score_method
         };
 
         // Emit fallback completed event
-        audit_ctx.audit.emit(AuditEvent::FallbackSearchCompleted {
-            ticket_id: audit_ctx.ticket_id.clone(),
-            candidates_found: fallback_candidates_found,
-            best_score: best_candidate.as_ref().map(|c| c.score),
-            used_discography: best_candidate.as_ref().map(|c| c.reasoning.contains("discography")).unwrap_or(false),
-        }).await;
+        audit_ctx
+            .audit
+            .emit(AuditEvent::FallbackSearchCompleted {
+                ticket_id: audit_ctx.ticket_id.clone(),
+                candidates_found: fallback_candidates_found,
+                best_score: best_candidate.as_ref().map(|c| c.score),
+                used_discography: best_candidate
+                    .as_ref()
+                    .map(|c| c.reasoning.contains("discography"))
+                    .unwrap_or(false),
+            })
+            .await;
 
         Ok(AcquisitionResult {
             best_candidate,
@@ -680,28 +734,36 @@ impl TextBrain {
             let updater = audit_ctx.state_updater.clone();
             async move {
                 if let Some(ref updater) = updater {
-                    updater.update_progress(AcquisitionProgress {
-                        queries_tried: queries,
-                        candidates_found: candidates,
-                        phase,
-                    }).await;
+                    updater
+                        .update_progress(AcquisitionProgress {
+                            queries_tried: queries,
+                            candidates_found: candidates,
+                            phase,
+                        })
+                        .await;
                 }
             }
         };
 
         // Emit acquisition started event
-        audit_ctx.audit.emit(AuditEvent::AcquisitionStarted {
-            ticket_id: audit_ctx.ticket_id.clone(),
-            mode: format!("{:?}", self.config.mode),
-            description: context.description.clone(),
-        }).await;
+        audit_ctx
+            .audit
+            .emit(AuditEvent::AcquisitionStarted {
+                ticket_id: audit_ctx.ticket_id.clone(),
+                mode: format!("{:?}", self.config.mode),
+                description: context.description.clone(),
+            })
+            .await;
 
         // Step 1: Build queries
         let method_name = format!("{:?}", self.config.mode);
-        audit_ctx.audit.emit(AuditEvent::QueryBuildingStarted {
-            ticket_id: audit_ctx.ticket_id.clone(),
-            method: method_name.clone(),
-        }).await;
+        audit_ctx
+            .audit
+            .emit(AuditEvent::QueryBuildingStarted {
+                ticket_id: audit_ctx.ticket_id.clone(),
+                method: method_name.clone(),
+            })
+            .await;
 
         // Update state: Query building phase
         update_state(vec![], 0, AcquisitionPhase::QueryBuilding).await;
@@ -712,25 +774,31 @@ impl TextBrain {
 
         let query_result = match query_result {
             Ok(result) => {
-                audit_ctx.audit.emit(AuditEvent::QueryBuildingCompleted {
-                    ticket_id: audit_ctx.ticket_id.clone(),
-                    queries: result.queries.clone(),
-                    method: result.method.clone(),
-                    duration_ms: query_duration,
-                }).await;
+                audit_ctx
+                    .audit
+                    .emit(AuditEvent::QueryBuildingCompleted {
+                        ticket_id: audit_ctx.ticket_id.clone(),
+                        queries: result.queries.clone(),
+                        method: result.method.clone(),
+                        duration_ms: query_duration,
+                    })
+                    .await;
                 result
             }
             Err(e) => {
                 // Emit acquisition completed with failure
-                audit_ctx.audit.emit(AuditEvent::AcquisitionCompleted {
-                    ticket_id: audit_ctx.ticket_id.clone(),
-                    success: false,
-                    queries_tried: 0,
-                    candidates_evaluated: 0,
-                    best_score: None,
-                    duration_ms: start.elapsed().as_millis() as u64,
-                    outcome: "failed".to_string(),
-                }).await;
+                audit_ctx
+                    .audit
+                    .emit(AuditEvent::AcquisitionCompleted {
+                        ticket_id: audit_ctx.ticket_id.clone(),
+                        success: false,
+                        queries_tried: 0,
+                        candidates_evaluated: 0,
+                        best_score: None,
+                        duration_ms: start.elapsed().as_millis() as u64,
+                        outcome: "failed".to_string(),
+                    })
+                    .await;
                 return Err(e);
             }
         };
@@ -742,15 +810,18 @@ impl TextBrain {
         let query_method = query_result.method.clone();
 
         if query_result.queries.is_empty() {
-            audit_ctx.audit.emit(AuditEvent::AcquisitionCompleted {
-                ticket_id: audit_ctx.ticket_id.clone(),
-                success: false,
-                queries_tried: 0,
-                candidates_evaluated: 0,
-                best_score: None,
-                duration_ms: start.elapsed().as_millis() as u64,
-                outcome: "no_queries".to_string(),
-            }).await;
+            audit_ctx
+                .audit
+                .emit(AuditEvent::AcquisitionCompleted {
+                    ticket_id: audit_ctx.ticket_id.clone(),
+                    success: false,
+                    queries_tried: 0,
+                    candidates_evaluated: 0,
+                    best_score: None,
+                    duration_ms: start.elapsed().as_millis() as u64,
+                    outcome: "no_queries".to_string(),
+                })
+                .await;
             return Err(TextBrainError::NoQueriesGenerated);
         }
 
@@ -765,16 +836,22 @@ impl TextBrain {
             update_state(
                 queries_tried.clone(),
                 candidates_evaluated,
-                AcquisitionPhase::Searching { query: query_str.clone() },
-            ).await;
+                AcquisitionPhase::Searching {
+                    query: query_str.clone(),
+                },
+            )
+            .await;
 
             // Emit search started event
-            audit_ctx.audit.emit(AuditEvent::SearchStarted {
-                ticket_id: audit_ctx.ticket_id.clone(),
-                query: query_str.clone(),
-                query_index: (idx + 1) as u32,
-                total_queries,
-            }).await;
+            audit_ctx
+                .audit
+                .emit(AuditEvent::SearchStarted {
+                    ticket_id: audit_ctx.ticket_id.clone(),
+                    query: query_str.clone(),
+                    query_index: (idx + 1) as u32,
+                    total_queries,
+                })
+                .await;
 
             // Execute search
             let search_query = SearchQuery {
@@ -792,12 +869,15 @@ impl TextBrain {
             let search_duration = search_start.elapsed().as_millis() as u64;
 
             // Emit search completed event
-            audit_ctx.audit.emit(AuditEvent::SearchCompleted {
-                ticket_id: audit_ctx.ticket_id.clone(),
-                query: query_str.clone(),
-                candidates_found: search_result.candidates.len() as u32,
-                duration_ms: search_duration,
-            }).await;
+            audit_ctx
+                .audit
+                .emit(AuditEvent::SearchCompleted {
+                    ticket_id: audit_ctx.ticket_id.clone(),
+                    query: query_str.clone(),
+                    candidates_found: search_result.candidates.len() as u32,
+                    duration_ms: search_duration,
+                })
+                .await;
 
             if search_result.candidates.is_empty() {
                 continue; // Try next query
@@ -809,31 +889,42 @@ impl TextBrain {
             update_state(
                 queries_tried.clone(),
                 candidates_evaluated,
-                AcquisitionPhase::Scoring { candidates_count: candidates_evaluated },
-            ).await;
+                AcquisitionPhase::Scoring {
+                    candidates_count: candidates_evaluated,
+                },
+            )
+            .await;
 
             // Emit scoring started event
-            audit_ctx.audit.emit(AuditEvent::ScoringStarted {
-                ticket_id: audit_ctx.ticket_id.clone(),
-                candidates_count: search_result.candidates.len() as u32,
-                method: format!("{:?}", self.config.mode),
-            }).await;
+            audit_ctx
+                .audit
+                .emit(AuditEvent::ScoringStarted {
+                    ticket_id: audit_ctx.ticket_id.clone(),
+                    candidates_count: search_result.candidates.len() as u32,
+                    method: format!("{:?}", self.config.mode),
+                })
+                .await;
 
             // Score candidates
             let score_start = Instant::now();
-            let match_result = self.score_candidates(context, &search_result.candidates).await?;
+            let match_result = self
+                .score_candidates(context, &search_result.candidates)
+                .await?;
             let score_duration = score_start.elapsed().as_millis() as u64;
 
             // Emit scoring completed event
             let top_candidate = match_result.candidates.first();
-            audit_ctx.audit.emit(AuditEvent::ScoringCompleted {
-                ticket_id: audit_ctx.ticket_id.clone(),
-                candidates_count: match_result.candidates.len() as u32,
-                top_candidate_hash: top_candidate.map(|c| c.candidate.info_hash.clone()),
-                top_candidate_score: top_candidate.map(|c| c.score),
-                method: match_result.method.clone(),
-                duration_ms: score_duration,
-            }).await;
+            audit_ctx
+                .audit
+                .emit(AuditEvent::ScoringCompleted {
+                    ticket_id: audit_ctx.ticket_id.clone(),
+                    candidates_count: match_result.candidates.len() as u32,
+                    top_candidate_hash: top_candidate.map(|c| c.candidate.info_hash.clone()),
+                    top_candidate_score: top_candidate.map(|c| c.score),
+                    method: match_result.method.clone(),
+                    duration_ms: score_duration,
+                })
+                .await;
 
             if let Some(usage) = &match_result.llm_usage {
                 total_llm_usage.input_tokens += usage.input_tokens;
@@ -853,7 +944,11 @@ impl TextBrain {
         }
 
         // Sort by preliminary score
-        all_candidates.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        all_candidates.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         // Step 4: File enrichment (if configured)
         if let Some(ref enricher) = self.file_enricher {
@@ -880,8 +975,11 @@ impl TextBrain {
                     update_state(
                         queries_tried.clone(),
                         candidates_evaluated,
-                        AcquisitionPhase::Scoring { candidates_count: candidates_to_enrich.len() as u32 },
-                    ).await;
+                        AcquisitionPhase::Scoring {
+                            candidates_count: candidates_to_enrich.len() as u32,
+                        },
+                    )
+                    .await;
 
                     // Extract candidates for enrichment
                     let mut to_enrich: Vec<TorrentCandidate> = candidates_to_enrich
@@ -900,10 +998,8 @@ impl TextBrain {
                     );
 
                     // Re-score enriched candidates
-                    let enriched_with_files: Vec<&TorrentCandidate> = to_enrich
-                        .iter()
-                        .filter(|c| c.files.is_some())
-                        .collect();
+                    let enriched_with_files: Vec<&TorrentCandidate> =
+                        to_enrich.iter().filter(|c| c.files.is_some()).collect();
 
                     if !enriched_with_files.is_empty() {
                         debug!(
@@ -912,10 +1008,8 @@ impl TextBrain {
                         );
 
                         // Re-score candidates that now have files
-                        let enriched_refs: Vec<TorrentCandidate> = enriched_with_files
-                            .into_iter()
-                            .cloned()
-                            .collect();
+                        let enriched_refs: Vec<TorrentCandidate> =
+                            enriched_with_files.into_iter().cloned().collect();
 
                         let rescore_result = self.score_candidates(context, &enriched_refs).await?;
                         if let Some(usage) = &rescore_result.llm_usage {
@@ -939,7 +1033,9 @@ impl TextBrain {
 
                         // Re-sort after updating scores
                         all_candidates.sort_by(|a, b| {
-                            b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal)
+                            b.score
+                                .partial_cmp(&a.score)
+                                .unwrap_or(std::cmp::Ordering::Equal)
                         });
                     }
                 }
@@ -962,15 +1058,18 @@ impl TextBrain {
             "needs_approval"
         };
 
-        audit_ctx.audit.emit(AuditEvent::AcquisitionCompleted {
-            ticket_id: audit_ctx.ticket_id.clone(),
-            success: best_candidate.is_some(),
-            queries_tried: queries_tried.len() as u32,
-            candidates_evaluated,
-            best_score: best_candidate.as_ref().map(|c| c.score),
-            duration_ms,
-            outcome: outcome.to_string(),
-        }).await;
+        audit_ctx
+            .audit
+            .emit(AuditEvent::AcquisitionCompleted {
+                ticket_id: audit_ctx.ticket_id.clone(),
+                success: best_candidate.is_some(),
+                queries_tried: queries_tried.len() as u32,
+                candidates_evaluated,
+                best_score: best_candidate.as_ref().map(|c| c.score),
+                duration_ms,
+                outcome: outcome.to_string(),
+            })
+            .await;
 
         Ok(AcquisitionResult {
             best_candidate,
@@ -993,16 +1092,21 @@ impl TextBrain {
     // Query Building Strategies
     // ========================================================================
 
-    async fn build_queries_dumb(&self, context: &QueryContext) -> Result<QueryBuildResult, TextBrainError> {
-        let builder = self
-            .dumb_query_builder
-            .as_ref()
-            .ok_or_else(|| TextBrainError::ConfigError("Dumb query builder not configured".to_string()))?;
+    async fn build_queries_dumb(
+        &self,
+        context: &QueryContext,
+    ) -> Result<QueryBuildResult, TextBrainError> {
+        let builder = self.dumb_query_builder.as_ref().ok_or_else(|| {
+            TextBrainError::ConfigError("Dumb query builder not configured".to_string())
+        })?;
 
         builder.build_queries(context).await
     }
 
-    async fn build_queries_llm(&self, context: &QueryContext) -> Result<QueryBuildResult, TextBrainError> {
+    async fn build_queries_llm(
+        &self,
+        context: &QueryContext,
+    ) -> Result<QueryBuildResult, TextBrainError> {
         let builder = self
             .llm_query_builder
             .as_ref()
@@ -1011,7 +1115,10 @@ impl TextBrain {
         builder.build_queries(context).await
     }
 
-    async fn build_queries_dumb_first(&self, context: &QueryContext) -> Result<QueryBuildResult, TextBrainError> {
+    async fn build_queries_dumb_first(
+        &self,
+        context: &QueryContext,
+    ) -> Result<QueryBuildResult, TextBrainError> {
         // Try dumb first
         if let Some(builder) = &self.dumb_query_builder {
             let result = builder.build_queries(context).await?;
@@ -1056,7 +1163,10 @@ impl TextBrain {
         self.build_queries_llm(context).await
     }
 
-    async fn build_queries_llm_first(&self, context: &QueryContext) -> Result<QueryBuildResult, TextBrainError> {
+    async fn build_queries_llm_first(
+        &self,
+        context: &QueryContext,
+    ) -> Result<QueryBuildResult, TextBrainError> {
         // Try LLM first
         if let Some(builder) = &self.llm_query_builder {
             match builder.build_queries(context).await {
@@ -1081,10 +1191,9 @@ impl TextBrain {
         context: &QueryContext,
         candidates: &[TorrentCandidate],
     ) -> Result<MatchResult, TextBrainError> {
-        let matcher = self
-            .dumb_matcher
-            .as_ref()
-            .ok_or_else(|| TextBrainError::ConfigError("Dumb matcher not configured".to_string()))?;
+        let matcher = self.dumb_matcher.as_ref().ok_or_else(|| {
+            TextBrainError::ConfigError("Dumb matcher not configured".to_string())
+        })?;
 
         matcher.score_candidates(context, candidates).await
     }
@@ -1179,7 +1288,7 @@ fn merge_llm_usage(a: Option<LlmUsage>, b: Option<LlmUsage>) -> Option<LlmUsage>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::searcher::{SearchError, SearchResult, TorrentSource, IndexerStatus};
+    use crate::searcher::{IndexerStatus, SearchError, SearchResult, TorrentSource};
     use crate::textbrain::types::ScoredCandidate;
 
     // Mock query builder for testing
@@ -1194,7 +1303,10 @@ mod tests {
             "mock"
         }
 
-        async fn build_queries(&self, _context: &QueryContext) -> Result<QueryBuildResult, TextBrainError> {
+        async fn build_queries(
+            &self,
+            _context: &QueryContext,
+        ) -> Result<QueryBuildResult, TextBrainError> {
             Ok(QueryBuildResult {
                 queries: self.queries.clone(),
                 method: "mock".to_string(),

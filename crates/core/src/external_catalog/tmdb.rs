@@ -44,9 +44,7 @@ impl TmdbClient {
             ));
         }
 
-        let client = Client::builder()
-            .timeout(Duration::from_secs(30))
-            .build()?;
+        let client = Client::builder().timeout(Duration::from_secs(30)).build()?;
 
         let base_url = config
             .base_url
@@ -102,9 +100,13 @@ impl TmdbClient {
             });
         }
 
-        let search_result: TmdbSearchResponse<TmdbMovieResult> = response.json().await.map_err(|e| {
-            ExternalCatalogError::ParseError(format!("Failed to parse movie search response: {}", e))
-        })?;
+        let search_result: TmdbSearchResponse<TmdbMovieResult> =
+            response.json().await.map_err(|e| {
+                ExternalCatalogError::ParseError(format!(
+                    "Failed to parse movie search response: {}",
+                    e
+                ))
+            })?;
 
         let movies = search_result
             .results
@@ -180,9 +182,13 @@ impl TmdbClient {
             });
         }
 
-        let search_result: TmdbSearchResponse<TmdbTvResult> = response.json().await.map_err(|e| {
-            ExternalCatalogError::ParseError(format!("Failed to parse TV search response: {}", e))
-        })?;
+        let search_result: TmdbSearchResponse<TmdbTvResult> =
+            response.json().await.map_err(|e| {
+                ExternalCatalogError::ParseError(format!(
+                    "Failed to parse TV search response: {}",
+                    e
+                ))
+            })?;
 
         let series = search_result
             .results

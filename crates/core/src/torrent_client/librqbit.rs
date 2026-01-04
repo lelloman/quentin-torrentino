@@ -5,8 +5,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use librqbit::{
-    AddTorrent as RqbitAddTorrent, AddTorrentOptions, AddTorrentResponse, ManagedTorrent,
-    Session, SessionOptions, SessionPersistenceConfig,
+    AddTorrent as RqbitAddTorrent, AddTorrentOptions, AddTorrentResponse, ManagedTorrent, Session,
+    SessionOptions, SessionPersistenceConfig,
 };
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
@@ -136,7 +136,12 @@ impl LibrqbitClient {
                     + live.snapshot.peer_stats.connecting
                     + live.snapshot.peer_stats.live;
 
-                (dl_speed, ul_speed, live.snapshot.peer_stats.live as u32, total_peers as u32)
+                (
+                    dl_speed,
+                    ul_speed,
+                    live.snapshot.peer_stats.live as u32,
+                    total_peers as u32,
+                )
             })
             .unwrap_or((0, 0, 0, 0));
 
@@ -172,8 +177,8 @@ impl LibrqbitClient {
             added_at: None, // librqbit doesn't expose this easily
             completed_at: None,
             save_path: Some(self.download_path.display().to_string()),
-            category: None, // librqbit doesn't have categories
-            upload_limit: 0,   // librqbit manages this differently
+            category: None,  // librqbit doesn't have categories
+            upload_limit: 0, // librqbit manages this differently
             download_limit: 0,
         }
     }
@@ -268,7 +273,10 @@ impl TorrentClient for LibrqbitClient {
 
                 // Cache the name if available
                 if let Some(ref n) = name {
-                    self.name_cache.write().await.insert(hash.clone(), n.clone());
+                    self.name_cache
+                        .write()
+                        .await
+                        .insert(hash.clone(), n.clone());
                 }
 
                 debug!(hash = %hash, name = ?name, "Torrent added successfully");
@@ -299,9 +307,9 @@ impl TorrentClient for LibrqbitClient {
         let mut torrents = Vec::new();
 
         // Collect all torrents first
-        let all_torrents: Vec<Arc<ManagedTorrent>> = self.session.with_torrents(|iter| {
-            iter.map(|(_, t)| t.clone()).collect()
-        });
+        let all_torrents: Vec<Arc<ManagedTorrent>> = self
+            .session
+            .with_torrents(|iter| iter.map(|(_, t)| t.clone()).collect());
 
         for torrent in all_torrents {
             let info = self.torrent_to_info(&torrent).await;
@@ -353,7 +361,9 @@ impl TorrentClient for LibrqbitClient {
         self.session
             .delete(id.into(), delete_files)
             .await
-            .map_err(|e| TorrentClientError::ApiError(format!("Failed to remove torrent: {}", e)))?;
+            .map_err(|e| {
+                TorrentClientError::ApiError(format!("Failed to remove torrent: {}", e))
+            })?;
 
         // Remove from name cache
         self.name_cache.write().await.remove(hash);
@@ -383,10 +393,9 @@ impl TorrentClient for LibrqbitClient {
             .find_torrent(hash)
             .ok_or_else(|| TorrentClientError::TorrentNotFound(hash.to_string()))?;
 
-        self.session
-            .unpause(&torrent)
-            .await
-            .map_err(|e| TorrentClientError::ApiError(format!("Failed to resume torrent: {}", e)))?;
+        self.session.unpause(&torrent).await.map_err(|e| {
+            TorrentClientError::ApiError(format!("Failed to resume torrent: {}", e))
+        })?;
 
         debug!(hash = %hash, "Torrent resumed");
 
@@ -454,11 +463,10 @@ mod tests {
     fn test_state_mapping_logic() {
         // Test the logic of state mapping
         // Paused always returns Paused
-        assert!(true); // Placeholder - actual testing would require mocking
-
         // When finished and live, it's seeding
         // When not finished and live, it's downloading
         // Initializing maps to Checking
         // Error maps to Error
+        // Note: actual testing would require mocking the librqbit session
     }
 }

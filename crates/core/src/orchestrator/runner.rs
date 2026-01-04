@@ -18,9 +18,9 @@ use tracing::{debug, error, info, warn};
 use crate::audit::{AuditEvent, AuditHandle};
 use crate::catalog::TorrentCatalog;
 use crate::metrics;
-use crate::textbrain::training::create_acquisition_training_events;
 use crate::processor::{PipelineJob, PipelineProcessor, SourceFile};
 use crate::searcher::{FileEnricher, Searcher};
+use crate::textbrain::training::create_acquisition_training_events;
 use crate::textbrain::{
     AcquisitionAuditContext, AcquisitionProgress, AcquisitionStateUpdater, AnthropicClient,
     DumbMatcher, DumbQueryBuilder, LlmMatcher, LlmProvider, LlmQueryBuilder, OllamaClient,
@@ -90,7 +90,8 @@ fn schedule_retry(
         .expect("should_retry returned true, so delay must exist");
 
     let now = Utc::now();
-    let retry_after = now + chrono::Duration::from_std(delay).unwrap_or(chrono::Duration::seconds(60));
+    let retry_after =
+        now + chrono::Duration::from_std(delay).unwrap_or(chrono::Duration::seconds(60));
 
     let new_state = TicketState::PendingRetry {
         error: error.to_string(),
@@ -283,7 +284,9 @@ where
 
     /// Recover tickets that were downloading when we shut down.
     async fn recover_downloading_tickets(&self) {
-        let filter = TicketFilter::new().with_state("downloading").with_limit(100);
+        let filter = TicketFilter::new()
+            .with_state("downloading")
+            .with_limit(100);
 
         match self.ticket_store.list(&filter) {
             Ok(tickets) => {
@@ -469,7 +472,9 @@ where
         on_update: &Option<TicketUpdateCallback>,
     ) -> Result<(), OrchestratorError> {
         // Get all PendingRetry tickets
-        let filter = TicketFilter::new().with_state("pending_retry").with_limit(50);
+        let filter = TicketFilter::new()
+            .with_state("pending_retry")
+            .with_limit(50);
         let tickets = ticket_store.list(&filter)?;
 
         let now = Utc::now();
@@ -512,24 +517,21 @@ where
                     let from_state = ticket.state.state_type().to_string();
                     let to_state = new_state.state_type();
 
-                    update_and_notify_static(
-                        ticket_store,
-                        on_update,
-                        &ticket.id,
-                        new_state,
-                    )?;
+                    update_and_notify_static(ticket_store, on_update, &ticket.id, new_state)?;
 
                     // Emit audit event
                     if let Some(ref audit_handle) = audit {
-                        audit_handle.emit(AuditEvent::TicketStateChanged {
-                            ticket_id: ticket.id.clone(),
-                            from_state,
-                            to_state: to_state.to_string(),
-                            reason: Some(format!(
-                                "Retry attempt {} after error: {}",
-                                retry_attempt, error
-                            )),
-                        }).await;
+                        audit_handle
+                            .emit(AuditEvent::TicketStateChanged {
+                                ticket_id: ticket.id.clone(),
+                                from_state,
+                                to_state: to_state.to_string(),
+                                reason: Some(format!(
+                                    "Retry attempt {} after error: {}",
+                                    retry_attempt, error
+                                )),
+                            })
+                            .await;
                     }
 
                     info!(
@@ -579,12 +581,14 @@ where
 
         // Emit state change event
         if let Some(ref audit_handle) = audit {
-            audit_handle.emit(AuditEvent::TicketStateChanged {
-                ticket_id: ticket.id.clone(),
-                from_state: "pending".to_string(),
-                to_state: "acquiring".to_string(),
-                reason: Some("Starting acquisition".to_string()),
-            }).await;
+            audit_handle
+                .emit(AuditEvent::TicketStateChanged {
+                    ticket_id: ticket.id.clone(),
+                    from_state: "pending".to_string(),
+                    to_state: "acquiring".to_string(),
+                    reason: Some("Starting acquisition".to_string()),
+                })
+                .await;
         }
 
         // Build TextBrain with configured implementations
@@ -608,7 +612,11 @@ where
                 state_updater: Some(state_updater),
             };
             textbrain
-                .acquire_with_fallback_and_audit(&ticket.query_context, searcher.as_ref(), &audit_ctx)
+                .acquire_with_fallback_and_audit(
+                    &ticket.query_context,
+                    searcher.as_ref(),
+                    &audit_ctx,
+                )
                 .await
         } else {
             // No audit configured, use regular acquire with fallback
@@ -621,10 +629,16 @@ where
             Ok(acq) => {
                 // Record acquisition metrics
                 let duration_secs = acq.duration_ms as f64 / 1000.0;
-                metrics::QUERIES_GENERATED.with_label_values(&[]).observe(acq.queries_tried.len() as f64);
-                metrics::CANDIDATES_FOUND.with_label_values(&[]).observe(acq.candidates_evaluated as f64);
+                metrics::QUERIES_GENERATED
+                    .with_label_values(&[])
+                    .observe(acq.queries_tried.len() as f64);
+                metrics::CANDIDATES_FOUND
+                    .with_label_values(&[])
+                    .observe(acq.candidates_evaluated as f64);
                 if let Some(ref best) = acq.best_candidate {
-                    metrics::MATCH_CONFIDENCE.with_label_values(&[]).observe(best.score as f64);
+                    metrics::MATCH_CONFIDENCE
+                        .with_label_values(&[])
+                        .observe(best.score as f64);
                 }
 
                 // Emit summary audit events for the acquisition (QueriesGenerated, CandidatesScored)
@@ -645,8 +659,14 @@ where
                     let scored_event = AuditEvent::CandidatesScored {
                         ticket_id: ticket.id.clone(),
                         candidates_count: acq.candidates_evaluated,
-                        top_candidate_hash: acq.best_candidate.as_ref().map(|c| c.candidate.info_hash.clone()),
-                        top_candidate_score: acq.best_candidate.as_ref().map(|c| (c.score * 100.0) as u32),
+                        top_candidate_hash: acq
+                            .best_candidate
+                            .as_ref()
+                            .map(|c| c.candidate.info_hash.clone()),
+                        top_candidate_score: acq
+                            .best_candidate
+                            .as_ref()
+                            .map(|c| (c.score * 100.0) as u32),
                         method: acq.score_method.clone(),
                         llm_input_tokens: acq.llm_usage.as_ref().map(|u| u.input_tokens),
                         llm_output_tokens: acq.llm_usage.as_ref().map(|u| u.output_tokens),
@@ -655,11 +675,8 @@ where
                     audit_handle.emit(scored_event).await;
 
                     // Training events (for LLM fine-tuning data)
-                    let training_events = create_acquisition_training_events(
-                        &ticket.id,
-                        &ticket.query_context,
-                        &acq,
-                    );
+                    let training_events =
+                        create_acquisition_training_events(&ticket.id, &ticket.query_context, &acq);
                     for event in training_events {
                         audit_handle.emit(event).await;
                     }
@@ -691,17 +708,26 @@ where
 
                         // Emit state change event
                         if let Some(ref audit_handle) = audit {
-                            audit_handle.emit(AuditEvent::TicketStateChanged {
-                                ticket_id: ticket.id.clone(),
-                                from_state: "acquiring".to_string(),
-                                to_state: "auto_approved".to_string(),
-                                reason: Some(format!("Auto-approved with score {:.2}", candidate.score)),
-                            }).await;
+                            audit_handle
+                                .emit(AuditEvent::TicketStateChanged {
+                                    ticket_id: ticket.id.clone(),
+                                    from_state: "acquiring".to_string(),
+                                    to_state: "auto_approved".to_string(),
+                                    reason: Some(format!(
+                                        "Auto-approved with score {:.2}",
+                                        candidate.score
+                                    )),
+                                })
+                                .await;
                         }
 
                         // Record acquisition success metrics
-                        metrics::ACQUISITION_ATTEMPTS.with_label_values(&["auto_approved"]).inc();
-                        metrics::ACQUISITION_DURATION.with_label_values(&["auto_approved"]).observe(duration_secs);
+                        metrics::ACQUISITION_ATTEMPTS
+                            .with_label_values(&["auto_approved"])
+                            .inc();
+                        metrics::ACQUISITION_DURATION
+                            .with_label_values(&["auto_approved"])
+                            .observe(duration_secs);
 
                         info!(
                             "Ticket {} auto-approved with score {:.2}",
@@ -709,8 +735,12 @@ where
                         );
                     } else {
                         // No candidate found - record failure
-                        metrics::ACQUISITION_ATTEMPTS.with_label_values(&["failed"]).inc();
-                        metrics::ACQUISITION_DURATION.with_label_values(&["failed"]).observe(duration_secs);
+                        metrics::ACQUISITION_ATTEMPTS
+                            .with_label_values(&["failed"])
+                            .inc();
+                        metrics::ACQUISITION_DURATION
+                            .with_label_values(&["failed"])
+                            .observe(duration_secs);
                         update_and_notify_static(
                             &ticket_store,
                             &on_update,
@@ -725,12 +755,14 @@ where
 
                         // Emit state change event
                         if let Some(ref audit_handle) = audit {
-                            audit_handle.emit(AuditEvent::TicketStateChanged {
-                                ticket_id: ticket.id.clone(),
-                                from_state: "acquiring".to_string(),
-                                to_state: "acquisition_failed".to_string(),
-                                reason: Some("No candidates found".to_string()),
-                            }).await;
+                            audit_handle
+                                .emit(AuditEvent::TicketStateChanged {
+                                    ticket_id: ticket.id.clone(),
+                                    from_state: "acquiring".to_string(),
+                                    to_state: "acquisition_failed".to_string(),
+                                    reason: Some("No candidates found".to_string()),
+                                })
+                                .await;
                         }
                     }
                 } else if let Some(ref candidate) = acq.best_candidate {
@@ -756,17 +788,26 @@ where
 
                     // Emit state change event
                     if let Some(ref audit_handle) = audit {
-                        audit_handle.emit(AuditEvent::TicketStateChanged {
-                            ticket_id: ticket.id.clone(),
-                            from_state: "acquiring".to_string(),
-                            to_state: "needs_approval".to_string(),
-                            reason: Some(format!("Best score {:.2} below threshold", candidate.score)),
-                        }).await;
+                        audit_handle
+                            .emit(AuditEvent::TicketStateChanged {
+                                ticket_id: ticket.id.clone(),
+                                from_state: "acquiring".to_string(),
+                                to_state: "needs_approval".to_string(),
+                                reason: Some(format!(
+                                    "Best score {:.2} below threshold",
+                                    candidate.score
+                                )),
+                            })
+                            .await;
                     }
 
                     // Record needs_approval metrics
-                    metrics::ACQUISITION_ATTEMPTS.with_label_values(&["needs_approval"]).inc();
-                    metrics::ACQUISITION_DURATION.with_label_values(&["needs_approval"]).observe(duration_secs);
+                    metrics::ACQUISITION_ATTEMPTS
+                        .with_label_values(&["needs_approval"])
+                        .inc();
+                    metrics::ACQUISITION_DURATION
+                        .with_label_values(&["needs_approval"])
+                        .observe(duration_secs);
 
                     info!(
                         "Ticket {} needs approval, best score {:.2} < threshold {:.2}",
@@ -774,8 +815,12 @@ where
                     );
                 } else {
                     // No candidate found - record failure
-                    metrics::ACQUISITION_ATTEMPTS.with_label_values(&["failed"]).inc();
-                    metrics::ACQUISITION_DURATION.with_label_values(&["failed"]).observe(duration_secs);
+                    metrics::ACQUISITION_ATTEMPTS
+                        .with_label_values(&["failed"])
+                        .inc();
+                    metrics::ACQUISITION_DURATION
+                        .with_label_values(&["failed"])
+                        .observe(duration_secs);
 
                     update_and_notify_static(
                         &ticket_store,
@@ -791,12 +836,14 @@ where
 
                     // Emit state change event
                     if let Some(ref audit_handle) = audit {
-                        audit_handle.emit(AuditEvent::TicketStateChanged {
-                            ticket_id: ticket.id.clone(),
-                            from_state: "acquiring".to_string(),
-                            to_state: "acquisition_failed".to_string(),
-                            reason: Some("No suitable candidates found".to_string()),
-                        }).await;
+                        audit_handle
+                            .emit(AuditEvent::TicketStateChanged {
+                                ticket_id: ticket.id.clone(),
+                                from_state: "acquiring".to_string(),
+                                to_state: "acquisition_failed".to_string(),
+                                reason: Some("No suitable candidates found".to_string()),
+                            })
+                            .await;
                     }
                 }
             }
@@ -822,16 +869,23 @@ where
 
                     if retry_scheduled {
                         // Record retry metric
-                        metrics::RETRY_ATTEMPTS.with_label_values(&["acquisition"]).inc();
+                        metrics::RETRY_ATTEMPTS
+                            .with_label_values(&["acquisition"])
+                            .inc();
 
                         // Emit state change event
                         if let Some(ref audit_handle) = audit {
-                            audit_handle.emit(AuditEvent::TicketStateChanged {
-                                ticket_id: ticket.id.clone(),
-                                from_state: "acquiring".to_string(),
-                                to_state: "pending_retry".to_string(),
-                                reason: Some(format!("Transient error, scheduling retry: {}", error_reason)),
-                            }).await;
+                            audit_handle
+                                .emit(AuditEvent::TicketStateChanged {
+                                    ticket_id: ticket.id.clone(),
+                                    from_state: "acquiring".to_string(),
+                                    to_state: "pending_retry".to_string(),
+                                    reason: Some(format!(
+                                        "Transient error, scheduling retry: {}",
+                                        error_reason
+                                    )),
+                                })
+                                .await;
                         }
 
                         warn!(
@@ -843,7 +897,9 @@ where
                 }
 
                 // Record acquisition failure metric
-                metrics::ACQUISITION_ATTEMPTS.with_label_values(&["failed"]).inc();
+                metrics::ACQUISITION_ATTEMPTS
+                    .with_label_values(&["failed"])
+                    .inc();
 
                 // Either not retryable or max retries exceeded - go to AcquisitionFailed
                 update_and_notify_static(
@@ -860,15 +916,20 @@ where
 
                 // Emit state change event
                 if let Some(ref audit_handle) = audit {
-                    audit_handle.emit(AuditEvent::TicketStateChanged {
-                        ticket_id: ticket.id.clone(),
-                        from_state: "acquiring".to_string(),
-                        to_state: "acquisition_failed".to_string(),
-                        reason: Some(error_reason.clone()),
-                    }).await;
+                    audit_handle
+                        .emit(AuditEvent::TicketStateChanged {
+                            ticket_id: ticket.id.clone(),
+                            from_state: "acquiring".to_string(),
+                            to_state: "acquisition_failed".to_string(),
+                            reason: Some(error_reason.clone()),
+                        })
+                        .await;
                 }
 
-                warn!("Acquisition failed for ticket {}: {}", ticket.id, error_reason);
+                warn!(
+                    "Acquisition failed for ticket {}: {}",
+                    ticket.id, error_reason
+                );
             }
         }
 
@@ -924,10 +985,8 @@ where
                         candidate.title
                     );
 
-                    let add_result = Self::add_torrent_from_candidate(
-                        torrent_client.as_ref(),
-                        candidate,
-                    ).await;
+                    let add_result =
+                        Self::add_torrent_from_candidate(torrent_client.as_ref(), candidate).await;
 
                     match add_result {
                         Ok(result) => {
@@ -970,12 +1029,14 @@ where
 
                             // Emit state change event
                             if let Some(ref audit_handle) = audit {
-                                audit_handle.emit(AuditEvent::TicketStateChanged {
-                                    ticket_id: ticket.id.clone(),
-                                    from_state: state_type.to_string(),
-                                    to_state: "downloading".to_string(),
-                                    reason: Some(format!("Started download: {}", result.hash)),
-                                }).await;
+                                audit_handle
+                                    .emit(AuditEvent::TicketStateChanged {
+                                        ticket_id: ticket.id.clone(),
+                                        from_state: state_type.to_string(),
+                                        to_state: "downloading".to_string(),
+                                        reason: Some(format!("Started download: {}", result.hash)),
+                                    })
+                                    .await;
                             }
 
                             // Record download started metric
@@ -983,7 +1044,9 @@ where
 
                             info!(
                                 "Started download for ticket {} (candidate {}): {}",
-                                ticket.id, candidate_idx + 1, result.hash
+                                ticket.id,
+                                candidate_idx + 1,
+                                result.hash
                             );
                             success = true;
                             break;
@@ -991,7 +1054,9 @@ where
                         Err(e) => {
                             warn!(
                                 "Failed to add candidate {} for ticket {}: {}",
-                                candidate_idx + 1, ticket.id, e
+                                candidate_idx + 1,
+                                ticket.id,
+                                e
                             );
                             last_error = format!("{}", e);
                             // Continue to next candidate
@@ -1003,11 +1068,13 @@ where
                 if !success {
                     let error_msg = format!(
                         "All {} candidates failed to add. Last error: {}",
-                        candidates.len(), last_error
+                        candidates.len(),
+                        last_error
                     );
                     error!(
                         "All {} candidates failed for ticket {}",
-                        candidates.len(), ticket.id
+                        candidates.len(),
+                        ticket.id
                     );
 
                     // Check if error is retryable
@@ -1026,16 +1093,23 @@ where
 
                         if retry_scheduled {
                             // Record retry metric
-                            metrics::RETRY_ATTEMPTS.with_label_values(&["download"]).inc();
+                            metrics::RETRY_ATTEMPTS
+                                .with_label_values(&["download"])
+                                .inc();
 
                             // Emit state change event
                             if let Some(ref audit_handle) = audit {
-                                audit_handle.emit(AuditEvent::TicketStateChanged {
-                                    ticket_id: ticket.id.clone(),
-                                    from_state: state_type.to_string(),
-                                    to_state: "pending_retry".to_string(),
-                                    reason: Some(format!("Transient error, scheduling retry: {}", error_msg)),
-                                }).await;
+                                audit_handle
+                                    .emit(AuditEvent::TicketStateChanged {
+                                        ticket_id: ticket.id.clone(),
+                                        from_state: state_type.to_string(),
+                                        to_state: "pending_retry".to_string(),
+                                        reason: Some(format!(
+                                            "Transient error, scheduling retry: {}",
+                                            error_msg
+                                        )),
+                                    })
+                                    .await;
                             }
                             continue; // Skip to next ticket
                         }
@@ -1059,12 +1133,14 @@ where
 
                     // Emit state change event
                     if let Some(ref audit_handle) = audit {
-                        audit_handle.emit(AuditEvent::TicketStateChanged {
-                            ticket_id: ticket.id.clone(),
-                            from_state: state_type.to_string(),
-                            to_state: "failed".to_string(),
-                            reason: Some(error_msg),
-                        }).await;
+                        audit_handle
+                            .emit(AuditEvent::TicketStateChanged {
+                                ticket_id: ticket.id.clone(),
+                                from_state: state_type.to_string(),
+                                to_state: "failed".to_string(),
+                                reason: Some(error_msg),
+                            })
+                            .await;
                     }
                 }
             }
@@ -1099,7 +1175,10 @@ where
                 Err(e) => {
                     // Check if this is a "torrent not found" error (torrent was deleted externally)
                     let error_str = e.to_string().to_lowercase();
-                    if error_str.contains("not found") || error_str.contains("404") || error_str.contains("no such") {
+                    if error_str.contains("not found")
+                        || error_str.contains("404")
+                        || error_str.contains("no such")
+                    {
                         warn!(
                             "Torrent {} was deleted externally for ticket {}, triggering failover",
                             download.info_hash, download.ticket_id
@@ -1113,7 +1192,9 @@ where
                             config,
                             audit,
                             on_update,
-                        ).await {
+                        )
+                        .await
+                        {
                             warn!(
                                 "Failed to handle deleted torrent for ticket {}: {}",
                                 download.ticket_id, failover_err
@@ -1146,13 +1227,8 @@ where
                 }
 
                 // Trigger pipeline
-                if let Err(e) = Self::trigger_pipeline(
-                    ticket_store,
-                    pipeline,
-                    &download.ticket_id,
-                    &info,
-                )
-                .await
+                if let Err(e) =
+                    Self::trigger_pipeline(ticket_store, pipeline, &download.ticket_id, &info).await
                 {
                     warn!(
                         "Failed to trigger pipeline for ticket {}: {}",
@@ -1174,12 +1250,14 @@ where
 
                     // Emit state change event
                     if let Some(ref audit_handle) = audit {
-                        audit_handle.emit(AuditEvent::TicketStateChanged {
-                            ticket_id: download.ticket_id.clone(),
-                            from_state: "downloading".to_string(),
-                            to_state: "failed".to_string(),
-                            reason: Some(error_msg),
-                        }).await;
+                        audit_handle
+                            .emit(AuditEvent::TicketStateChanged {
+                                ticket_id: download.ticket_id.clone(),
+                                from_state: "downloading".to_string(),
+                                to_state: "failed".to_string(),
+                                reason: Some(error_msg),
+                            })
+                            .await;
                     }
                 }
             } else {
@@ -1317,7 +1395,8 @@ where
     async fn add_torrent_from_candidate(
         torrent_client: &dyn TorrentClient,
         candidate: &SelectedCandidate,
-    ) -> Result<crate::torrent_client::AddTorrentResult, crate::torrent_client::TorrentClientError> {
+    ) -> Result<crate::torrent_client::AddTorrentResult, crate::torrent_client::TorrentClientError>
+    {
         // First, try the magnet URI if it looks valid
         if candidate.magnet_uri.starts_with("magnet:") {
             let request = AddTorrentRequest::magnet(&candidate.magnet_uri);
@@ -1326,8 +1405,13 @@ where
 
         // If magnet_uri doesn't start with "magnet:", it might be a .torrent URL
         // Try to download it
-        if candidate.magnet_uri.starts_with("http://") || candidate.magnet_uri.starts_with("https://") {
-            debug!("magnet_uri is actually a URL, downloading .torrent file: {}", candidate.magnet_uri);
+        if candidate.magnet_uri.starts_with("http://")
+            || candidate.magnet_uri.starts_with("https://")
+        {
+            debug!(
+                "magnet_uri is actually a URL, downloading .torrent file: {}",
+                candidate.magnet_uri
+            );
             match Self::download_torrent_file(&candidate.magnet_uri).await {
                 Ok(data) => {
                     let request = AddTorrentRequest::torrent_file(data);
@@ -1355,7 +1439,10 @@ where
 
         // Last resort: construct magnet from info_hash
         if !candidate.info_hash.is_empty() {
-            debug!("Constructing magnet URI from info_hash: {}", candidate.info_hash);
+            debug!(
+                "Constructing magnet URI from info_hash: {}",
+                candidate.info_hash
+            );
             let constructed_magnet = format!(
                 "magnet:?xt=urn:btih:{}&dn={}",
                 candidate.info_hash,
@@ -1366,7 +1453,7 @@ where
         }
 
         Err(crate::torrent_client::TorrentClientError::ApiError(
-            "No valid magnet URI, torrent URL, or info hash available".to_string()
+            "No valid magnet URI, torrent URL, or info hash available".to_string(),
         ))
     }
 
@@ -1375,13 +1462,13 @@ where
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(30))
             .build()
-            .map_err(|e| OrchestratorError::MissingData(format!("Failed to create HTTP client: {}", e)))?;
+            .map_err(|e| {
+                OrchestratorError::MissingData(format!("Failed to create HTTP client: {}", e))
+            })?;
 
-        let response = client
-            .get(url)
-            .send()
-            .await
-            .map_err(|e| OrchestratorError::MissingData(format!("Failed to download .torrent: {}", e)))?;
+        let response = client.get(url).send().await.map_err(|e| {
+            OrchestratorError::MissingData(format!("Failed to download .torrent: {}", e))
+        })?;
 
         if !response.status().is_success() {
             return Err(OrchestratorError::MissingData(format!(
@@ -1390,10 +1477,9 @@ where
             )));
         }
 
-        let bytes = response
-            .bytes()
-            .await
-            .map_err(|e| OrchestratorError::MissingData(format!("Failed to read .torrent body: {}", e)))?;
+        let bytes = response.bytes().await.map_err(|e| {
+            OrchestratorError::MissingData(format!("Failed to read .torrent body: {}", e))
+        })?;
 
         Ok(bytes.to_vec())
     }
@@ -1443,12 +1529,11 @@ where
                 ..
             } => {
                 // When triggering pipeline after download, use the current candidate
-                candidates
-                    .get(*candidate_idx)
-                    .cloned()
-                    .ok_or_else(|| OrchestratorError::MissingData(
-                        "No candidate at current index in Downloading state".to_string()
-                    ))
+                candidates.get(*candidate_idx).cloned().ok_or_else(|| {
+                    OrchestratorError::MissingData(
+                        "No candidate at current index in Downloading state".to_string(),
+                    )
+                })
             }
             _ => Err(OrchestratorError::InvalidState {
                 expected: "AutoApproved, Approved, or Downloading".to_string(),
@@ -1550,12 +1635,14 @@ where
 
             // Emit state change event
             if let Some(ref audit_handle) = audit {
-                audit_handle.emit(AuditEvent::TicketStateChanged {
-                    ticket_id: download.ticket_id.clone(),
-                    from_state: "downloading".to_string(),
-                    to_state: "failed".to_string(),
-                    reason: Some(error_msg),
-                }).await;
+                audit_handle
+                    .emit(AuditEvent::TicketStateChanged {
+                        ticket_id: download.ticket_id.clone(),
+                        from_state: "downloading".to_string(),
+                        to_state: "failed".to_string(),
+                        reason: Some(error_msg),
+                    })
+                    .await;
             }
 
             return Ok(());
@@ -1600,12 +1687,14 @@ where
 
             // Emit state change event
             if let Some(ref audit_handle) = audit {
-                audit_handle.emit(AuditEvent::TicketStateChanged {
-                    ticket_id: download.ticket_id.clone(),
-                    from_state: "downloading".to_string(),
-                    to_state: "failed".to_string(),
-                    reason: Some(error_msg),
-                }).await;
+                audit_handle
+                    .emit(AuditEvent::TicketStateChanged {
+                        ticket_id: download.ticket_id.clone(),
+                        from_state: "downloading".to_string(),
+                        to_state: "failed".to_string(),
+                        reason: Some(error_msg),
+                    })
+                    .await;
             }
 
             info!(
@@ -1728,7 +1817,10 @@ where
                                     client.clone(),
                                 )))
                                 .with_llm_matcher(Arc::new(LlmMatcher::new(client)));
-                            info!("LLM integration enabled with Anthropic ({})", llm_config.model);
+                            info!(
+                                "LLM integration enabled with Anthropic ({})",
+                                llm_config.model
+                            );
                         } else {
                             warn!("Anthropic provider configured but no API key provided");
                         }
@@ -1763,8 +1855,7 @@ where
             textbrain = textbrain.with_file_enricher(Arc::new(enricher));
             info!(
                 "File enrichment enabled (max_candidates={}, min_score={})",
-                config.file_enrichment.max_candidates,
-                config.file_enrichment.min_score_threshold
+                config.file_enrichment.max_candidates, config.file_enrichment.min_score_threshold
             );
         }
 
@@ -1870,7 +1961,9 @@ mod tests {
     #[test]
     fn test_retryable_network_errors() {
         assert!(TestOrchestrator::is_retryable_error("Connection refused"));
-        assert!(TestOrchestrator::is_retryable_error("connection reset by peer"));
+        assert!(TestOrchestrator::is_retryable_error(
+            "connection reset by peer"
+        ));
         assert!(TestOrchestrator::is_retryable_error("Network unreachable"));
         assert!(TestOrchestrator::is_retryable_error("DNS lookup failed"));
         assert!(TestOrchestrator::is_retryable_error("Request timeout"));
@@ -1879,24 +1972,36 @@ mod tests {
 
     #[test]
     fn test_retryable_server_errors() {
-        assert!(TestOrchestrator::is_retryable_error("HTTP 500 Internal Server Error"));
+        assert!(TestOrchestrator::is_retryable_error(
+            "HTTP 500 Internal Server Error"
+        ));
         assert!(TestOrchestrator::is_retryable_error("502 Bad Gateway"));
-        assert!(TestOrchestrator::is_retryable_error("503 Service Unavailable"));
+        assert!(TestOrchestrator::is_retryable_error(
+            "503 Service Unavailable"
+        ));
         assert!(TestOrchestrator::is_retryable_error("504 Gateway Timeout"));
-        assert!(TestOrchestrator::is_retryable_error("Service temporarily unavailable"));
+        assert!(TestOrchestrator::is_retryable_error(
+            "Service temporarily unavailable"
+        ));
     }
 
     #[test]
     fn test_retryable_rate_limit_errors() {
-        assert!(TestOrchestrator::is_retryable_error("429 Too Many Requests"));
+        assert!(TestOrchestrator::is_retryable_error(
+            "429 Too Many Requests"
+        ));
         assert!(TestOrchestrator::is_retryable_error("Rate limit exceeded"));
-        assert!(TestOrchestrator::is_retryable_error("Too many requests, please slow down"));
+        assert!(TestOrchestrator::is_retryable_error(
+            "Too many requests, please slow down"
+        ));
     }
 
     #[test]
     fn test_permanent_not_found_errors() {
         assert!(!TestOrchestrator::is_retryable_error("No candidates found"));
-        assert!(!TestOrchestrator::is_retryable_error("No suitable candidates found"));
+        assert!(!TestOrchestrator::is_retryable_error(
+            "No suitable candidates found"
+        ));
         assert!(!TestOrchestrator::is_retryable_error("404 Not Found"));
     }
 
@@ -1904,13 +2009,19 @@ mod tests {
     fn test_permanent_auth_errors() {
         assert!(!TestOrchestrator::is_retryable_error("401 Unauthorized"));
         assert!(!TestOrchestrator::is_retryable_error("403 Forbidden"));
-        assert!(!TestOrchestrator::is_retryable_error("Authentication failed"));
+        assert!(!TestOrchestrator::is_retryable_error(
+            "Authentication failed"
+        ));
     }
 
     #[test]
     fn test_permanent_invalid_errors() {
-        assert!(!TestOrchestrator::is_retryable_error("Invalid torrent file"));
-        assert!(!TestOrchestrator::is_retryable_error("Invalid configuration"));
+        assert!(!TestOrchestrator::is_retryable_error(
+            "Invalid torrent file"
+        ));
+        assert!(!TestOrchestrator::is_retryable_error(
+            "Invalid configuration"
+        ));
     }
 
     #[test]

@@ -410,8 +410,7 @@ mod tests {
 
     #[test]
     fn test_ollama_client_custom_base() {
-        let client = OllamaClient::new("mistral")
-            .with_api_base("http://remote-server:11434");
+        let client = OllamaClient::new("mistral").with_api_base("http://remote-server:11434");
         assert_eq!(client.api_base, "http://remote-server:11434");
     }
 

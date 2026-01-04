@@ -3,12 +3,7 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use axum::{
-    extract::State,
-    http::StatusCode,
-    response::IntoResponse,
-    Json,
-};
+use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use serde::{Deserialize, Serialize};
 use torrentino_core::{
     AuditEvent, CatalogSearchQuery, IndexerStatus, SearchCategory, SearchMode, SearchQuery,
@@ -59,7 +54,6 @@ pub struct SearchQueryResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub limit: Option<u32>,
 }
-
 
 #[derive(Debug, Serialize)]
 pub struct SearcherStatusResponse {

@@ -40,9 +40,7 @@ impl FsPlacer {
             Err(e) => {
                 // Cross-filesystem moves fail with EXDEV (18 on Linux)
                 // We check for CrossesDevices error kind or the raw EXDEV code
-                if e.kind() == std::io::ErrorKind::CrossesDevices
-                    || e.raw_os_error() == Some(18)
-                {
+                if e.kind() == std::io::ErrorKind::CrossesDevices || e.raw_os_error() == Some(18) {
                     Ok(false)
                 } else {
                     Err(e)
@@ -119,12 +117,12 @@ impl FsPlacer {
         path: &Path,
         checksum_type: ChecksumType,
     ) -> Result<String, PlacerError> {
-        let file = File::open(path).await.map_err(|e| {
-            PlacerError::ChecksumCalculationFailed {
+        let file = File::open(path)
+            .await
+            .map_err(|e| PlacerError::ChecksumCalculationFailed {
                 path: path.to_path_buf(),
                 source: e,
-            }
-        })?;
+            })?;
 
         let mut reader = BufReader::with_capacity(self.config.buffer_size, file);
         let mut buffer = vec![0u8; self.config.buffer_size];
@@ -165,9 +163,12 @@ impl FsPlacer {
         }
     }
 
-
     /// Creates parent directories for a path.
-    async fn ensure_parent_dirs(&self, path: &Path, plan: &mut RollbackPlan) -> Result<(), PlacerError> {
+    async fn ensure_parent_dirs(
+        &self,
+        path: &Path,
+        plan: &mut RollbackPlan,
+    ) -> Result<(), PlacerError> {
         if let Some(parent) = path.parent() {
             if !parent.exists() {
                 // Track which directories we create for rollback
@@ -221,7 +222,8 @@ impl FsPlacer {
         }
 
         // Create parent directories
-        self.ensure_parent_dirs(&placement.destination, plan).await?;
+        self.ensure_parent_dirs(&placement.destination, plan)
+            .await?;
 
         // Try atomic move first if preferred and we're not keeping source
         let (size_bytes, checksum) = if self.config.prefer_atomic_moves && !keep_source {
@@ -236,20 +238,24 @@ impl FsPlacer {
                 (meta.len(), checksum)
             } else {
                 // Fall back to copy
-                let (size, cs) = self.copy_file(
-                    &placement.source,
-                    &placement.destination,
-                    placement.verify_checksum.is_some(),
-                ).await?;
+                let (size, cs) = self
+                    .copy_file(
+                        &placement.source,
+                        &placement.destination,
+                        placement.verify_checksum.is_some(),
+                    )
+                    .await?;
                 (size, cs)
             }
         } else {
             // Copy the file
-            let (size, cs) = self.copy_file(
-                &placement.source,
-                &placement.destination,
-                placement.verify_checksum.is_some(),
-            ).await?;
+            let (size, cs) = self
+                .copy_file(
+                    &placement.source,
+                    &placement.destination,
+                    placement.verify_checksum.is_some(),
+                )
+                .await?;
             (size, cs)
         };
 
@@ -302,7 +308,9 @@ impl FsPlacer {
                     job_id: job.job_id.clone(),
                     files_placed: idx,
                     total_files,
-                    current_file: placement.source.file_name()
+                    current_file: placement
+                        .source
+                        .file_name()
                         .map(|n| n.to_string_lossy().to_string())
                         .unwrap_or_else(|| "unknown".to_string()),
                     bytes_copied,
@@ -312,7 +320,10 @@ impl FsPlacer {
             }
 
             // Place the file
-            match self.place_file(placement, &mut rollback_plan, keep_sources).await {
+            match self
+                .place_file(placement, &mut rollback_plan, keep_sources)
+                .await
+            {
                 Ok(placed) => {
                     bytes_copied += placed.size_bytes;
                     placed_files.push(placed);
@@ -429,11 +440,9 @@ impl Placer for FsPlacer {
                             )),
                         }
                     }
-                    Err(e) => errors.push(format!(
-                        "Failed to read directory {}: {}",
-                        dir.display(),
-                        e
-                    )),
+                    Err(e) => {
+                        errors.push(format!("Failed to read directory {}: {}", dir.display(), e))
+                    }
                 }
             }
         }
@@ -630,7 +639,9 @@ mod tests {
         let source_path = temp.path().join("source.txt");
         let dest_path = temp.path().join("output.txt");
 
-        fs::write(&source_path, "test content for checksum").await.unwrap();
+        fs::write(&source_path, "test content for checksum")
+            .await
+            .unwrap();
 
         let placer = FsPlacer::new(PlacerConfig::default().with_atomic_moves(false));
         let job = PlacementJob {

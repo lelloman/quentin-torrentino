@@ -162,11 +162,7 @@ pub fn build_discography_queries(
         &mut seen,
         format!("{} anthology", artist_clean),
     );
-    add_query(
-        &mut queries,
-        &mut seen,
-        format!("{} box set", artist_clean),
-    );
+    add_query(&mut queries, &mut seen, format!("{} box set", artist_clean));
 
     // Artist name with just format (broad search - might catch discographies)
     for keyword in &format_keywords {
@@ -697,7 +693,10 @@ impl<'a> MusicScorer<'a> {
                     .collect();
 
                 if !significant_words.is_empty() {
-                    let matches = significant_words.iter().filter(|w| title.contains(*w)).count();
+                    let matches = significant_words
+                        .iter()
+                        .filter(|w| title.contains(*w))
+                        .count();
                     score += (matches as f32 / significant_words.len() as f32) * 0.8;
                 }
             }
@@ -1078,9 +1077,12 @@ impl<'a> DiscographyScorer<'a> {
                     tracks.len(),
                     tracks.iter().map(|t| t.title.clone()).collect(),
                 ),
-                Some(ExpectedContent::Track { artist, title }) => {
-                    (artist.as_deref(), Some(title.as_str()), 1, vec![title.clone()])
-                }
+                Some(ExpectedContent::Track { artist, title }) => (
+                    artist.as_deref(),
+                    Some(title.as_str()),
+                    1,
+                    vec![title.clone()],
+                ),
                 _ => (None, None, 0, vec![]),
             };
 
@@ -1122,18 +1124,15 @@ impl<'a> DiscographyScorer<'a> {
                 + constraint_bonus
         } else if candidate.files.is_some() {
             // Files available but album not found - low score
-            (artist_score * 0.30)
-                + (format_score * 0.10)
-                + (health_score * 0.10)
-                + constraint_bonus
-                - 0.3  // Penalty for not finding album
+            (artist_score * 0.30) + (format_score * 0.10) + (health_score * 0.10) + constraint_bonus
+                - 0.3 // Penalty for not finding album
         } else {
             // No file info - moderate score based on title alone
             (artist_score * 0.40)
                 + (format_score * 0.15)
                 + (health_score * 0.10)
                 + constraint_bonus
-                + 0.15  // Slight bonus for being a discography (might contain album)
+                + 0.15 // Slight bonus for being a discography (might contain album)
         };
 
         let reasoning = self.generate_reasoning(
@@ -1159,10 +1158,7 @@ impl<'a> DiscographyScorer<'a> {
     /// - `{Artist} - {Album}/01 - Track.flac`
     /// - `{Year} - {Album}/01 - Track.flac`
     /// - `{Album} ({Year})/01 - Track.flac`
-    fn check_album_in_files(
-        &self,
-        candidate: &TorrentCandidate,
-    ) -> (bool, f32, Vec<FileMapping>) {
+    fn check_album_in_files(&self, candidate: &TorrentCandidate) -> (bool, f32, Vec<FileMapping>) {
         let files = match &candidate.files {
             Some(f) if !f.is_empty() => f,
             _ => return (false, 0.0, vec![]),
@@ -1236,14 +1232,14 @@ impl<'a> DiscographyScorer<'a> {
         let track_count_score = if self.expected_track_count > 0 {
             let ratio = audio_files.len() as f32 / self.expected_track_count as f32;
             if (0.8..=1.2).contains(&ratio) {
-                1.0  // Track count roughly matches
+                1.0 // Track count roughly matches
             } else if (0.5..=1.5).contains(&ratio) {
-                0.7  // Somewhat close
+                0.7 // Somewhat close
             } else {
-                0.4  // Mismatch but album found
+                0.4 // Mismatch but album found
             }
         } else {
-            0.8  // No expected track count, but album found
+            0.8 // No expected track count, but album found
         };
 
         // Try to map tracks if we have expected track names
@@ -1320,7 +1316,7 @@ impl<'a> DiscographyScorer<'a> {
                 return (matches as f32 / words.len() as f32) * 0.8;
             }
         }
-        0.3  // No artist to match
+        0.3 // No artist to match
     }
 
     fn format_score(&self, title: &str) -> f32 {
@@ -1535,14 +1531,14 @@ mod tests {
         }
     }
 
-    fn make_album_context(artist: Option<&str>, title: &str, tracks: Vec<ExpectedTrack>) -> QueryContext {
+    fn make_album_context(
+        artist: Option<&str>,
+        title: &str,
+        tracks: Vec<ExpectedTrack>,
+    ) -> QueryContext {
         QueryContext {
             tags: vec!["music".to_string(), "flac".to_string()],
-            description: format!(
-                "{} {}",
-                artist.unwrap_or(""),
-                title
-            ),
+            description: format!("{} {}", artist.unwrap_or(""), title),
             expected: Some(ExpectedContent::Album {
                 artist: artist.map(String::from),
                 title: title.to_string(),
@@ -1594,11 +1590,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_build_album_queries() {
-        let context = make_album_context(
-            Some("Pink Floyd"),
-            "Dark Side of the Moon",
-            vec![],
-        );
+        let context = make_album_context(Some("Pink Floyd"), "Dark Side of the Moon", vec![]);
 
         let result = build_queries(&context, &make_config()).await.unwrap();
 
@@ -1606,7 +1598,10 @@ mod tests {
         assert!(!result.queries.is_empty());
 
         // Should contain artist + album query
-        assert!(result.queries.iter().any(|q| q.contains("Pink Floyd") && q.contains("Dark Side")));
+        assert!(result
+            .queries
+            .iter()
+            .any(|q| q.contains("Pink Floyd") && q.contains("Dark Side")));
 
         // Should contain FLAC query
         assert!(result.queries.iter().any(|q| q.contains("FLAC")));
@@ -1622,27 +1617,21 @@ mod tests {
         assert!(!result.queries.is_empty());
 
         // Should contain artist + track
-        assert!(result.queries.iter().any(|q| q.contains("Beatles") && q.contains("Yesterday")));
+        assert!(result
+            .queries
+            .iter()
+            .any(|q| q.contains("Beatles") && q.contains("Yesterday")));
     }
 
     #[tokio::test]
     async fn test_clean_album_title() {
-        assert_eq!(
-            clean_album_title("Abbey Road (Remastered)"),
-            "Abbey Road"
-        );
-        assert_eq!(
-            clean_album_title("Rumours (Deluxe Edition)"),
-            "Rumours"
-        );
+        assert_eq!(clean_album_title("Abbey Road (Remastered)"), "Abbey Road");
+        assert_eq!(clean_album_title("Rumours (Deluxe Edition)"), "Rumours");
     }
 
     #[tokio::test]
     async fn test_clean_artist_name() {
-        assert_eq!(
-            clean_artist_name("Queen feat. David Bowie"),
-            "Queen"
-        );
+        assert_eq!(clean_artist_name("Queen feat. David Bowie"), "Queen");
         assert_eq!(
             clean_artist_name("Pink Floyd ft. Roger Waters"),
             "Pink Floyd"
@@ -1721,7 +1710,10 @@ mod tests {
             .unwrap();
 
         // Original should beat tribute/compilation
-        assert!(result.candidates[0].candidate.title.contains("A Night at the Opera"));
+        assert!(result.candidates[0]
+            .candidate
+            .title
+            .contains("A Night at the Opera"));
     }
 
     #[tokio::test]
@@ -1816,7 +1808,9 @@ mod tests {
         assert!(queries.iter().any(|q| q.contains("complete")));
         assert!(queries.iter().any(|q| q.contains("collection")));
         // All should contain artist name
-        assert!(queries.iter().all(|q| q.to_lowercase().contains("pink floyd")));
+        assert!(queries
+            .iter()
+            .all(|q| q.to_lowercase().contains("pink floyd")));
     }
 
     #[test]
@@ -1837,7 +1831,9 @@ mod tests {
         let queries = build_discography_queries(Some("Beatles"), Some(&constraints));
 
         // Should contain format-specific discography queries
-        assert!(queries.iter().any(|q| q.contains("FLAC") && q.contains("discography")));
+        assert!(queries
+            .iter()
+            .any(|q| q.contains("FLAC") && q.contains("discography")));
     }
 
     // =========================================================================
@@ -1894,7 +1890,11 @@ mod tests {
     // Discography Scoring Tests
     // =========================================================================
 
-    fn make_candidate_with_files(title: &str, seeders: u32, files: Vec<TorrentFile>) -> TorrentCandidate {
+    fn make_candidate_with_files(
+        title: &str,
+        seeders: u32,
+        files: Vec<TorrentFile>,
+    ) -> TorrentCandidate {
         TorrentCandidate {
             title: title.to_string(),
             info_hash: "abc123".to_string(),
@@ -1943,11 +1943,8 @@ mod tests {
             },
         ];
 
-        let candidate = make_candidate_with_files(
-            "Pink Floyd - Discography (1967-2014) FLAC",
-            50,
-            files,
-        );
+        let candidate =
+            make_candidate_with_files("Pink Floyd - Discography (1967-2014) FLAC", 50, files);
 
         let result = score_discography_candidate(&context, &candidate, &make_config())
             .await
@@ -1958,17 +1955,17 @@ mod tests {
 
         let scored = &result.candidates[0];
         // Score should be reasonably high since album was found
-        assert!(scored.score > 0.5, "Score should be > 0.5, got {}", scored.score);
+        assert!(
+            scored.score > 0.5,
+            "Score should be > 0.5, got {}",
+            scored.score
+        );
         assert!(scored.reasoning.contains("album found"));
     }
 
     #[tokio::test]
     async fn test_score_discography_candidate_penalizes_missing_album() {
-        let context = make_album_context(
-            Some("Pink Floyd"),
-            "Dark Side of the Moon",
-            vec![],
-        );
+        let context = make_album_context(Some("Pink Floyd"), "Dark Side of the Moon", vec![]);
 
         // Discography that does NOT contain the target album
         let files = vec![
@@ -1982,11 +1979,8 @@ mod tests {
             },
         ];
 
-        let candidate = make_candidate_with_files(
-            "Pink Floyd - Discography (1975-1994) FLAC",
-            50,
-            files,
-        );
+        let candidate =
+            make_candidate_with_files("Pink Floyd - Discography (1975-1994) FLAC", 50, files);
 
         let result = score_discography_candidate(&context, &candidate, &make_config())
             .await
@@ -1994,17 +1988,17 @@ mod tests {
 
         let scored = &result.candidates[0];
         // Score should be low since target album not found
-        assert!(scored.score < 0.5, "Score should be < 0.5 when album not found, got {}", scored.score);
+        assert!(
+            scored.score < 0.5,
+            "Score should be < 0.5 when album not found, got {}",
+            scored.score
+        );
         assert!(scored.reasoning.contains("NOT found"));
     }
 
     #[tokio::test]
     async fn test_score_discography_candidate_without_files() {
-        let context = make_album_context(
-            Some("Pink Floyd"),
-            "Dark Side of the Moon",
-            vec![],
-        );
+        let context = make_album_context(Some("Pink Floyd"), "Dark Side of the Moon", vec![]);
 
         // Discography without file listing (no enrichment available)
         let candidate = make_candidate("Pink Floyd - Discography (1967-2014) FLAC", 50);
@@ -2046,11 +2040,8 @@ mod tests {
             },
         ];
 
-        let candidate = make_candidate_with_files(
-            "Pink Floyd - Complete Discography FLAC",
-            50,
-            files,
-        );
+        let candidate =
+            make_candidate_with_files("Pink Floyd - Complete Discography FLAC", 50, files);
 
         let result = score_discography_candidate(&context, &candidate, &make_config())
             .await
@@ -2058,7 +2049,13 @@ mod tests {
 
         let scored = &result.candidates[0];
         // Should have file mappings for the tracks
-        assert!(!scored.file_mappings.is_empty(), "Should have file mappings");
-        assert!(scored.file_mappings.iter().any(|m| m.ticket_item_id == "track-1"));
+        assert!(
+            !scored.file_mappings.is_empty(),
+            "Should have file mappings"
+        );
+        assert!(scored
+            .file_mappings
+            .iter()
+            .any(|m| m.ticket_item_id == "track-1"));
     }
 }

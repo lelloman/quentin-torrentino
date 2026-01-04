@@ -136,7 +136,10 @@ async fn test_cancel_ticket() {
 
     assert_eq!(cancel_response.status, StatusCode::OK);
     assert_eq!(cancel_response.body["state"]["type"], "cancelled");
-    assert_eq!(cancel_response.body["state"]["reason"], "Testing cancellation");
+    assert_eq!(
+        cancel_response.body["state"]["reason"],
+        "Testing cancellation"
+    );
 }
 
 // =============================================================================
@@ -227,7 +230,11 @@ async fn test_musicbrainz_search() {
     // Configure mock external catalog
     fixture
         .external_catalog
-        .add_release(fixtures::musicbrainz_release("The Beatles", "Abbey Road", 17))
+        .add_release(fixtures::musicbrainz_release(
+            "The Beatles",
+            "Abbey Road",
+            17,
+        ))
         .await;
 
     // Search MusicBrainz
@@ -364,7 +371,10 @@ async fn test_search_results_cached_in_catalog() {
 
     assert_eq!(catalog_response.status, StatusCode::OK);
     let entries = catalog_response.body["entries"].as_array().unwrap();
-    assert!(!entries.is_empty(), "Search results should be cached in catalog");
+    assert!(
+        !entries.is_empty(),
+        "Search results should be cached in catalog"
+    );
 }
 
 // =============================================================================
@@ -788,7 +798,10 @@ async fn test_add_magnet_torrent() {
 
     // Verify it was added
     let list_response = fixture.get("/api/v1/torrents").await;
-    assert!(list_response.body["torrents"].as_array().unwrap().len() >= 1);
+    assert!(!list_response.body["torrents"]
+        .as_array()
+        .unwrap()
+        .is_empty());
 }
 
 #[tokio::test]
@@ -885,7 +898,10 @@ async fn test_tmdb_get_movie() {
 
     // Get movie by ID
     let response = fixture
-        .get(&format!("/api/v1/external-catalog/tmdb/movies/{}", movie.id))
+        .get(&format!(
+            "/api/v1/external-catalog/tmdb/movies/{}",
+            movie.id
+        ))
         .await;
 
     assert_eq!(response.status, StatusCode::OK);
@@ -918,10 +934,7 @@ async fn test_tmdb_get_season() {
     let series = fixtures::tmdb_series("Breaking Bad", 5);
     let season = fixtures::tmdb_season(1, 7);
     fixture.external_catalog.add_series(series.clone()).await;
-    fixture
-        .external_catalog
-        .add_season(series.id, season)
-        .await;
+    fixture.external_catalog.add_season(series.id, season).await;
 
     // Get season
     let response = fixture
@@ -961,13 +974,14 @@ async fn test_audit_query_by_event_type() {
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
     // Query by event type
-    let response = fixture
-        .get("/api/v1/audit?event_type=ticket_created")
-        .await;
+    let response = fixture.get("/api/v1/audit?event_type=ticket_created").await;
 
     assert_eq!(response.status, StatusCode::OK);
     let events = response.body["events"].as_array().unwrap();
-    assert!(events.len() >= 3, "Should have at least 3 ticket_created events");
+    assert!(
+        events.len() >= 3,
+        "Should have at least 3 ticket_created events"
+    );
 }
 
 #[tokio::test]
@@ -1268,7 +1282,10 @@ async fn test_pipeline_process_ticket_wrong_state() {
 
     // Try to process a pending ticket (should fail - needs to be Downloaded)
     let process_response = fixture
-        .post(&format!("/api/v1/pipeline/process/{}", ticket_id), json!({}))
+        .post(
+            &format!("/api/v1/pipeline/process/{}", ticket_id),
+            json!({}),
+        )
         .await;
 
     // Should fail because ticket is not in Downloaded state
@@ -1939,7 +1956,13 @@ async fn test_create_ticket_with_full_query_context() {
 
     assert_eq!(response.status, StatusCode::CREATED);
     assert_eq!(response.body["priority"], 500);
-    assert_eq!(response.body["query_context"]["tags"].as_array().unwrap().len(), 3);
+    assert_eq!(
+        response.body["query_context"]["tags"]
+            .as_array()
+            .unwrap()
+            .len(),
+        3
+    );
 }
 
 #[tokio::test]
@@ -2814,13 +2837,20 @@ async fn test_search_stress() {
 
     fixture
         .searcher
-        .set_results(vec![fixtures::audio_candidate("Flood", "Test", "flood_hash")])
+        .set_results(vec![fixtures::audio_candidate(
+            "Flood",
+            "Test",
+            "flood_hash",
+        )])
         .await;
 
     // 100 rapid searches
     for i in 0..100 {
         let response = fixture
-            .post("/api/v1/search", json!({ "query": format!("search {}", i) }))
+            .post(
+                "/api/v1/search",
+                json!({ "query": format!("search {}", i) }),
+            )
             .await;
 
         assert_eq!(response.status, StatusCode::OK);
@@ -2841,18 +2871,18 @@ async fn test_unicode_in_ticket_description() {
 
     // Various unicode edge cases
     let descriptions = vec![
-        "日本語のアルバム",                           // Japanese
-        "Björk - Homogenic",                         // Accented chars
-        "🎵 Music with emoji 🎶",                    // Emoji
-        "RTL text: مرحبا",                           // Arabic RTL
-        "Ṱ̈́h̴̢̄i̷͔͑s̵̱̀ ̵̣̾ỉ̵̦s̴̰̀ ̴̣̈z̸͖̄a̴͖͝l̸̰̆g̴̻̈́o̶̜͂", // Zalgo text
-        "Line1\nLine2\rLine3\r\nLine4",              // Various newlines
-        "\t\tTabbed\t\tcontent",                     // Tabs
-        "Null\x00byte",                              // Null byte
-        "",                                          // Empty string
-        " ",                                         // Just whitespace
-        "   leading and trailing   ",               // Whitespace padding
-        "a]",                                // Very long
+        "日本語のアルバム",             // Japanese
+        "Björk - Homogenic",            // Accented chars
+        "🎵 Music with emoji 🎶",       // Emoji
+        "RTL text: مرحبا",              // Arabic RTL
+        "Ṱ̈́h̴̢̄i̷͔͑s̵̱̀ ̵̣̾ỉ̵̦s̴̰̀ ̴̣̈z̸͖̄a̴͖͝l̸̰̆g̴̻̈́o̶̜͂",                // Zalgo text
+        "Line1\nLine2\rLine3\r\nLine4", // Various newlines
+        "\t\tTabbed\t\tcontent",        // Tabs
+        "Null\x00byte",                 // Null byte
+        "",                             // Empty string
+        " ",                            // Just whitespace
+        "   leading and trailing   ",   // Whitespace padding
+        "a]",                           // Very long
     ];
 
     for (i, desc) in descriptions.iter().enumerate() {
@@ -3101,12 +3131,12 @@ async fn test_pagination_boundaries() {
 
     // Edge cases
     let test_cases = vec![
-        ("limit=0", true),           // Zero limit - should clamp to 1
-        ("limit=1000000", true),     // Huge limit - should clamp to max
-        ("offset=-1", true),         // Negative offset - should clamp to 0
-        ("offset=1000000", true),    // Huge offset - valid, just empty
-        ("limit=NaN", false),        // Invalid type
-        ("offset=abc", false),       // Invalid type
+        ("limit=0", true),        // Zero limit - should clamp to 1
+        ("limit=1000000", true),  // Huge limit - should clamp to max
+        ("offset=-1", true),      // Negative offset - should clamp to 0
+        ("offset=1000000", true), // Huge offset - valid, just empty
+        ("limit=NaN", false),     // Invalid type
+        ("offset=abc", false),    // Invalid type
     ];
 
     for (query, should_succeed) in test_cases {
@@ -3138,12 +3168,12 @@ async fn test_torrent_hash_edge_cases() {
 
     // Invalid hash formats
     let hashes = vec![
-        "",                                                              // Empty
-        "abc",                                                           // Too short
-        "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ",                      // Invalid hex chars
-        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",                      // Valid 40-char
-        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",                      // Uppercase
-        "123456789012345678901234567890123456789012345678901234567890",  // 64 chars (SHA256?)
+        "",                                                             // Empty
+        "abc",                                                          // Too short
+        "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ",                     // Invalid hex chars
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",                     // Valid 40-char
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",                     // Uppercase
+        "123456789012345678901234567890123456789012345678901234567890", // 64 chars (SHA256?)
         "../../../etc/passwd",                                          // Path traversal in hash
     ];
 
@@ -3623,9 +3653,7 @@ async fn test_many_files_in_candidate() {
 async fn test_search_empty_query() {
     let fixture = TestFixture::new().await;
 
-    let response = fixture
-        .post("/api/v1/search", json!({ "query": "" }))
-        .await;
+    let response = fixture.post("/api/v1/search", json!({ "query": "" })).await;
 
     // Empty query - should reject or return empty
     assert!(
@@ -3657,16 +3685,16 @@ async fn test_search_special_characters() {
         .await;
 
     let queries = vec![
-        "artist:name AND album:title",  // Lucene-like syntax
+        "artist:name AND album:title", // Lucene-like syntax
         "foo OR bar",
         "\"exact phrase\"",
         "wild*card",
         "regex[0-9]+",
         "(parentheses)",
         "a && b || c",
-        "<script>alert(1)</script>",    // XSS attempt
-        "{{template}}",                  // Template injection
-        "${env.PATH}",                   // Variable expansion
+        "<script>alert(1)</script>", // XSS attempt
+        "{{template}}",              // Template injection
+        "${env.PATH}",               // Variable expansion
     ];
 
     for query in queries {
@@ -3780,11 +3808,11 @@ async fn test_invalid_json() {
         "{not valid json}",
         "{'single': 'quotes'}",
         "{trailing: comma,}",
-        "[1, 2, 3",  // Unclosed array
+        "[1, 2, 3", // Unclosed array
         r#"{"key": undefined}"#,
-        "null",  // Valid JSON but not an object
-        "[]",    // Valid JSON but array, not object
-        "42",    // Valid JSON but number
+        "null", // Valid JSON but not an object
+        "[]",   // Valid JSON but array, not object
+        "42",   // Valid JSON but number
     ];
 
     for invalid in invalid_jsons {

@@ -235,8 +235,10 @@ mod tests {
 
     #[test]
     fn test_config_validation_invalid_threshold() {
-        let mut config = TextBrainConfig::default();
-        config.auto_approve_threshold = 1.5;
+        let config = TextBrainConfig {
+            auto_approve_threshold: 1.5,
+            ..Default::default()
+        };
         assert!(config.validate().is_err());
     }
 

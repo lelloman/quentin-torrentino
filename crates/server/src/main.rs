@@ -13,8 +13,8 @@ use torrentino_core::{
     AuditStore, Authenticator, CombinedCatalogClient, ConverterConfig, EncoderCapabilities,
     ExternalCatalog, FfmpegConverter, FsPlacer, JackettSearcher, LibrqbitClient, MusicBrainzClient,
     PipelineProcessor, PlacerConfig, ProcessorConfig, QBittorrentClient, Searcher, SearcherBackend,
-    SqliteAuditStore, SqliteCatalog, SqliteTicketStore, TicketOrchestrator, TicketStore, TmdbClient,
-    TorrentCatalog, TorrentClient, TorrentClientBackend,
+    SqliteAuditStore, SqliteCatalog, SqliteTicketStore, TicketOrchestrator, TicketStore,
+    TmdbClient, TorrentCatalog, TorrentClient, TorrentClientBackend,
 };
 
 use torrentino_server::api::{create_router, WsBroadcaster};
@@ -67,9 +67,8 @@ async fn run() -> Result<()> {
     let config_hash_short = &config_hash[..16];
 
     // Create authenticator
-    let authenticator: Arc<dyn Authenticator> = Arc::from(
-        create_authenticator(&config.auth).context("Failed to create authenticator")?,
-    );
+    let authenticator: Arc<dyn Authenticator> =
+        Arc::from(create_authenticator(&config.auth).context("Failed to create authenticator")?);
     info!("Using authenticator: {}", authenticator.method_name());
 
     // Create SQLite audit store
@@ -111,9 +110,7 @@ async fn run() -> Result<()> {
         Some(searcher_config) => match searcher_config.backend {
             SearcherBackend::Jackett => {
                 if let Some(jackett_config) = &searcher_config.jackett {
-                    info!(
-                        "Initializing Jackett searcher (indexers auto-discovered from Jackett)"
-                    );
+                    info!("Initializing Jackett searcher (indexers auto-discovered from Jackett)");
                     Some(Arc::new(JackettSearcher::new(jackett_config.clone())))
                 } else {
                     error!("Jackett backend selected but no jackett config provided");
@@ -202,10 +199,23 @@ async fn run() -> Result<()> {
 
     // Create pipeline progress callback that broadcasts progress via WebSocket
     let progress_broadcaster = ws_broadcaster.clone();
-    let progress_callback: torrentino_core::processor::PipelineProgressCallback =
-        Arc::new(move |ticket_id: &str, phase: &str, current: usize, total: usize, current_name: &str, percent: f32| {
-            progress_broadcaster.pipeline_progress(ticket_id, phase, current, total, current_name, percent);
-        });
+    let progress_callback: torrentino_core::processor::PipelineProgressCallback = Arc::new(
+        move |ticket_id: &str,
+              phase: &str,
+              current: usize,
+              total: usize,
+              current_name: &str,
+              percent: f32| {
+            progress_broadcaster.pipeline_progress(
+                ticket_id,
+                phase,
+                current,
+                total,
+                current_name,
+                percent,
+            );
+        },
+    );
 
     let pipeline = PipelineProcessor::new(processor_config, converter, placer)
         .with_audit(audit_handle.clone())

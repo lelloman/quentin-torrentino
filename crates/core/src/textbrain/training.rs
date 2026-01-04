@@ -12,14 +12,12 @@
 
 use uuid::Uuid;
 
-use crate::audit::{
-    AuditEvent, TrainingCandidate, TrainingFile, TrainingFileMapping,
-};
+use crate::audit::{AuditEvent, TrainingCandidate, TrainingFile, TrainingFileMapping};
 use crate::searcher::TorrentCandidate;
-use crate::ticket::{ExpectedContent, QueryContext};
 use crate::textbrain::types::{
     AcquisitionResult, FileMapping, MatchResult, QueryBuildResult, ScoredCandidate,
 };
+use crate::ticket::{ExpectedContent, QueryContext};
 
 /// Generate a unique sample ID for training data.
 fn generate_sample_id() -> String {
@@ -37,7 +35,10 @@ pub fn create_query_training_event(
         ticket_id: ticket_id.to_string(),
         input_tags: context.tags.clone(),
         input_description: context.description.clone(),
-        input_expected: context.expected.as_ref().and_then(|e| serde_json::to_string(e).ok()),
+        input_expected: context
+            .expected
+            .as_ref()
+            .and_then(|e| serde_json::to_string(e).ok()),
         output_queries: result.queries.clone(),
         method: result.method.clone(),
         confidence: result.confidence,
@@ -69,7 +70,10 @@ pub fn create_scoring_training_event(
         sample_id: generate_sample_id(),
         ticket_id: ticket_id.to_string(),
         input_description: context.description.clone(),
-        input_expected: context.expected.as_ref().and_then(|e| serde_json::to_string(e).ok()),
+        input_expected: context
+            .expected
+            .as_ref()
+            .and_then(|e| serde_json::to_string(e).ok()),
         input_candidates: candidates,
         output_recommended_idx: 0, // First candidate is always recommended
         output_scores: scores,
@@ -147,7 +151,10 @@ pub fn create_user_correction_event(
         recommended_idx,
         selected_idx,
         context_description: context.description.clone(),
-        expected_content: context.expected.as_ref().and_then(|e| serde_json::to_string(e).ok()),
+        expected_content: context
+            .expected
+            .as_ref()
+            .and_then(|e| serde_json::to_string(e).ok()),
         candidates: training_candidates,
         user_id: user_id.to_string(),
     }
@@ -170,7 +177,10 @@ pub fn create_acquisition_training_events(
         ticket_id: ticket_id.to_string(),
         input_tags: context.tags.clone(),
         input_description: context.description.clone(),
-        input_expected: context.expected.as_ref().and_then(|e| serde_json::to_string(e).ok()),
+        input_expected: context
+            .expected
+            .as_ref()
+            .and_then(|e| serde_json::to_string(e).ok()),
         output_queries: result.queries_tried.clone(),
         method: result.query_method.clone(),
         confidence: if result.best_candidate.is_some() {
@@ -207,7 +217,10 @@ pub fn create_acquisition_training_events(
             sample_id: generate_sample_id(),
             ticket_id: ticket_id.to_string(),
             input_description: context.description.clone(),
-            input_expected: context.expected.as_ref().and_then(|e| serde_json::to_string(e).ok()),
+            input_expected: context
+                .expected
+                .as_ref()
+                .and_then(|e| serde_json::to_string(e).ok()),
             input_candidates: candidates,
             output_recommended_idx: 0,
             output_scores: scores,
@@ -219,10 +232,8 @@ pub fn create_acquisition_training_events(
     if let Some(expected) = &context.expected {
         for candidate in result.all_candidates.iter().take(3) {
             if !candidate.file_mappings.is_empty() {
-                let quality = crate::textbrain::calculate_mapping_quality(
-                    &candidate.file_mappings,
-                    expected,
-                );
+                let quality =
+                    crate::textbrain::calculate_mapping_quality(&candidate.file_mappings, expected);
 
                 if let Some(event) = create_file_mapping_training_event(
                     ticket_id,
@@ -463,8 +474,12 @@ mod tests {
         // Should have query context, scoring context, and file mapping events
         assert!(events.len() >= 2);
 
-        let has_query_event = events.iter().any(|e| matches!(e, AuditEvent::TrainingQueryContext { .. }));
-        let has_scoring_event = events.iter().any(|e| matches!(e, AuditEvent::TrainingScoringContext { .. }));
+        let has_query_event = events
+            .iter()
+            .any(|e| matches!(e, AuditEvent::TrainingQueryContext { .. }));
+        let has_scoring_event = events
+            .iter()
+            .any(|e| matches!(e, AuditEvent::TrainingScoringContext { .. }));
 
         assert!(has_query_event, "Should have query training event");
         assert!(has_scoring_event, "Should have scoring training event");

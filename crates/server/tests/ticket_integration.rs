@@ -114,7 +114,10 @@ async fn test_create_ticket() {
     assert_eq!(json["state"]["type"], "pending");
     assert_eq!(json["query_context"]["tags"][0], "music");
     assert_eq!(json["query_context"]["tags"][1], "flac");
-    assert_eq!(json["query_context"]["description"], "Abbey Road by The Beatles");
+    assert_eq!(
+        json["query_context"]["description"],
+        "Abbey Road by The Beatles"
+    );
     assert_eq!(json["dest_path"], "/media/music/beatles");
     assert_eq!(json["created_by"], "anonymous");
 
@@ -146,7 +149,10 @@ async fn test_get_ticket() {
 
     // Get the ticket
     let get_response = client
-        .get(format!("http://127.0.0.1:{}/api/v1/tickets/{}", port, ticket_id))
+        .get(format!(
+            "http://127.0.0.1:{}/api/v1/tickets/{}",
+            port, ticket_id
+        ))
         .send()
         .await
         .expect("Failed to get ticket");
@@ -166,7 +172,10 @@ async fn test_get_nonexistent_ticket() {
 
     let client = Client::new();
     let response = client
-        .get(format!("http://127.0.0.1:{}/api/v1/tickets/nonexistent-id", port))
+        .get(format!(
+            "http://127.0.0.1:{}/api/v1/tickets/nonexistent-id",
+            port
+        ))
         .send()
         .await
         .expect("Failed to send request");
@@ -255,14 +264,20 @@ async fn test_list_tickets_with_state_filter() {
 
     // Cancel ticket 1
     client
-        .delete(format!("http://127.0.0.1:{}/api/v1/tickets/{}", port, ticket1_id))
+        .delete(format!(
+            "http://127.0.0.1:{}/api/v1/tickets/{}",
+            port, ticket1_id
+        ))
         .send()
         .await
         .unwrap();
 
     // List only pending tickets
     let response = client
-        .get(format!("http://127.0.0.1:{}/api/v1/tickets?state=pending", port))
+        .get(format!(
+            "http://127.0.0.1:{}/api/v1/tickets?state=pending",
+            port
+        ))
         .send()
         .await
         .unwrap();
@@ -272,7 +287,10 @@ async fn test_list_tickets_with_state_filter() {
 
     // List only cancelled tickets
     let response = client
-        .get(format!("http://127.0.0.1:{}/api/v1/tickets?state=cancelled", port))
+        .get(format!(
+            "http://127.0.0.1:{}/api/v1/tickets?state=cancelled",
+            port
+        ))
         .send()
         .await
         .unwrap();
@@ -304,7 +322,10 @@ async fn test_list_tickets_pagination() {
 
     // Get first page
     let response = client
-        .get(format!("http://127.0.0.1:{}/api/v1/tickets?limit=2&offset=0", port))
+        .get(format!(
+            "http://127.0.0.1:{}/api/v1/tickets?limit=2&offset=0",
+            port
+        ))
         .send()
         .await
         .unwrap();
@@ -317,7 +338,10 @@ async fn test_list_tickets_pagination() {
 
     // Get second page
     let response = client
-        .get(format!("http://127.0.0.1:{}/api/v1/tickets?limit=2&offset=2", port))
+        .get(format!(
+            "http://127.0.0.1:{}/api/v1/tickets?limit=2&offset=2",
+            port
+        ))
         .send()
         .await
         .unwrap();
@@ -327,7 +351,10 @@ async fn test_list_tickets_pagination() {
 
     // Get last page
     let response = client
-        .get(format!("http://127.0.0.1:{}/api/v1/tickets?limit=2&offset=4", port))
+        .get(format!(
+            "http://127.0.0.1:{}/api/v1/tickets?limit=2&offset=4",
+            port
+        ))
         .send()
         .await
         .unwrap();
@@ -360,7 +387,10 @@ async fn test_cancel_ticket() {
 
     // Cancel the ticket
     let cancel_response = client
-        .delete(format!("http://127.0.0.1:{}/api/v1/tickets/{}", port, ticket_id))
+        .delete(format!(
+            "http://127.0.0.1:{}/api/v1/tickets/{}",
+            port, ticket_id
+        ))
         .json(&json!({ "reason": "Testing cancellation" }))
         .send()
         .await
@@ -398,14 +428,20 @@ async fn test_cancel_already_cancelled_ticket() {
 
     // Cancel once
     client
-        .delete(format!("http://127.0.0.1:{}/api/v1/tickets/{}", port, ticket_id))
+        .delete(format!(
+            "http://127.0.0.1:{}/api/v1/tickets/{}",
+            port, ticket_id
+        ))
         .send()
         .await
         .unwrap();
 
     // Try to cancel again
     let response = client
-        .delete(format!("http://127.0.0.1:{}/api/v1/tickets/{}", port, ticket_id))
+        .delete(format!(
+            "http://127.0.0.1:{}/api/v1/tickets/{}",
+            port, ticket_id
+        ))
         .send()
         .await
         .unwrap();
@@ -424,7 +460,10 @@ async fn test_cancel_nonexistent_ticket() {
 
     let client = Client::new();
     let response = client
-        .delete(format!("http://127.0.0.1:{}/api/v1/tickets/nonexistent-id", port))
+        .delete(format!(
+            "http://127.0.0.1:{}/api/v1/tickets/nonexistent-id",
+            port
+        ))
         .send()
         .await
         .unwrap();
@@ -463,7 +502,10 @@ async fn test_ticket_creates_audit_event() {
 
     // Check audit log for ticket_created event
     let audit_response = client
-        .get(format!("http://127.0.0.1:{}/api/v1/audit?event_type=ticket_created", port))
+        .get(format!(
+            "http://127.0.0.1:{}/api/v1/audit?event_type=ticket_created",
+            port
+        ))
         .send()
         .await
         .unwrap();
@@ -471,9 +513,7 @@ async fn test_ticket_creates_audit_event() {
     let json: Value = audit_response.json().await.unwrap();
     let events = json["events"].as_array().unwrap();
 
-    let ticket_event = events
-        .iter()
-        .find(|e| e["data"]["ticket_id"] == ticket_id);
+    let ticket_event = events.iter().find(|e| e["data"]["ticket_id"] == ticket_id);
 
     assert!(ticket_event.is_some(), "Should have ticket_created event");
 
@@ -505,7 +545,10 @@ async fn test_cancel_creates_audit_event() {
     let ticket_id = created["id"].as_str().unwrap();
 
     client
-        .delete(format!("http://127.0.0.1:{}/api/v1/tickets/{}", port, ticket_id))
+        .delete(format!(
+            "http://127.0.0.1:{}/api/v1/tickets/{}",
+            port, ticket_id
+        ))
         .json(&json!({ "reason": "Audit test" }))
         .send()
         .await
@@ -516,7 +559,10 @@ async fn test_cancel_creates_audit_event() {
 
     // Check audit log for ticket_cancelled event
     let audit_response = client
-        .get(format!("http://127.0.0.1:{}/api/v1/audit?event_type=ticket_cancelled", port))
+        .get(format!(
+            "http://127.0.0.1:{}/api/v1/audit?event_type=ticket_cancelled",
+            port
+        ))
         .send()
         .await
         .unwrap();
@@ -524,9 +570,7 @@ async fn test_cancel_creates_audit_event() {
     let json: Value = audit_response.json().await.unwrap();
     let events = json["events"].as_array().unwrap();
 
-    let cancel_event = events
-        .iter()
-        .find(|e| e["data"]["ticket_id"] == ticket_id);
+    let cancel_event = events.iter().find(|e| e["data"]["ticket_id"] == ticket_id);
 
     assert!(cancel_event.is_some(), "Should have ticket_cancelled event");
 

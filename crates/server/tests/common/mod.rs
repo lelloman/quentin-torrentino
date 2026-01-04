@@ -16,11 +16,11 @@ use tempfile::TempDir;
 use tower::ServiceExt;
 
 use torrentino_core::{
-    create_audit_system, AuditStore, AuthMethod, Config, DatabaseConfig, EncoderCapabilities,
-    FfmpegConverter, FsPlacer, NoneAuthenticator, OrchestratorConfig, PipelineProcessor,
-    PlacerConfig, ProcessorConfig, ServerConfig, SqliteAuditStore, SqliteCatalog,
-    SqliteTicketStore, TextBrainConfig,
+    create_audit_system,
     testing::{MockExternalCatalog, MockSearcher, MockTorrentClient},
+    AuditStore, AuthMethod, Config, DatabaseConfig, EncoderCapabilities, FfmpegConverter, FsPlacer,
+    NoneAuthenticator, OrchestratorConfig, PipelineProcessor, PlacerConfig, ProcessorConfig,
+    ServerConfig, SqliteAuditStore, SqliteCatalog, SqliteTicketStore, TextBrainConfig,
 };
 
 /// Re-export fixtures for test convenience
@@ -58,8 +58,10 @@ pub struct TestFixture {
     /// Mock external catalog - configure MusicBrainz/TMDB responses
     pub external_catalog: Arc<MockExternalCatalog>,
     /// Temporary directory for test database and pipeline output
+    #[allow(dead_code)]
     pub temp_dir: TempDir,
     /// Pipeline output directory (if pipeline enabled)
+    #[allow(dead_code)]
     pub output_dir: Option<PathBuf>,
 }
 
@@ -110,15 +112,11 @@ impl TestFixture {
         };
 
         // Create stores
-        let audit_store: Arc<dyn AuditStore> = Arc::new(
-            SqliteAuditStore::new(&db_path).expect("Failed to create audit store"),
-        );
-        let ticket_store = Arc::new(
-            SqliteTicketStore::new(&db_path).expect("Failed to create ticket store"),
-        );
-        let catalog = Arc::new(
-            SqliteCatalog::new(&db_path).expect("Failed to create catalog"),
-        );
+        let audit_store: Arc<dyn AuditStore> =
+            Arc::new(SqliteAuditStore::new(&db_path).expect("Failed to create audit store"));
+        let ticket_store =
+            Arc::new(SqliteTicketStore::new(&db_path).expect("Failed to create ticket store"));
+        let catalog = Arc::new(SqliteCatalog::new(&db_path).expect("Failed to create catalog"));
 
         // Create audit system
         let (audit_handle, audit_writer) = create_audit_system(Arc::clone(&audit_store), 100);
@@ -185,6 +183,7 @@ impl TestFixture {
     }
 
     /// Send a PUT request with JSON body.
+    #[allow(dead_code)]
     pub async fn put(&self, path: &str, body: Value) -> TestResponse {
         self.request("PUT", path, Some(body)).await
     }
@@ -201,7 +200,8 @@ impl TestFixture {
 
     /// Send a POST request with raw string body (for testing malformed JSON).
     pub async fn post_raw(&self, path: &str, body: &str) -> TestResponse {
-        self.request_raw("POST", path, body, "application/json").await
+        self.request_raw("POST", path, body, "application/json")
+            .await
     }
 
     /// Send a POST request with custom content type (for testing wrong content types).
@@ -255,9 +255,7 @@ impl TestFixture {
 
     /// Send a request to the test server.
     async fn request(&self, method: &str, path: &str, body: Option<Value>) -> TestResponse {
-        let mut request_builder = Request::builder()
-            .method(method)
-            .uri(path);
+        let mut request_builder = Request::builder().method(method).uri(path);
 
         let body = if let Some(json_body) = body {
             request_builder = request_builder.header("Content-Type", "application/json");
@@ -304,6 +302,7 @@ pub struct TestConfig {
 
 impl TestConfig {
     /// Create config with orchestrator enabled.
+    #[allow(dead_code)]
     pub fn with_orchestrator() -> Self {
         Self {
             enable_orchestrator: true,
@@ -312,6 +311,7 @@ impl TestConfig {
     }
 
     /// Create config with pipeline enabled.
+    #[allow(dead_code)]
     pub fn with_pipeline() -> Self {
         Self {
             enable_orchestrator: false,
@@ -320,6 +320,7 @@ impl TestConfig {
     }
 
     /// Create config with both orchestrator and pipeline enabled.
+    #[allow(dead_code)]
     pub fn with_all() -> Self {
         Self {
             enable_orchestrator: true,
@@ -333,7 +334,8 @@ impl TestConfig {
 macro_rules! assert_status {
     ($response:expr, $status:expr) => {
         assert_eq!(
-            $response.status, $status,
+            $response.status,
+            $status,
             "Expected status {:?}, got {:?}. Body: {}",
             $status,
             $response.status,

@@ -9,11 +9,10 @@ use std::time::Duration;
 use tempfile::TempDir;
 
 use torrentino_core::{
-    OrchestratorConfig, PipelineProcessor, ProcessorConfig,
-    SqliteCatalog, SqliteTicketStore, TextBrainConfig, TicketOrchestrator,
-    TicketStore,
     testing::{fixtures, MockConverter, MockPlacer, MockSearcher, MockTorrentClient},
     ticket::{CreateTicketRequest, QueryContext, TicketState},
+    OrchestratorConfig, PipelineProcessor, ProcessorConfig, SqliteCatalog, SqliteTicketStore,
+    TextBrainConfig, TicketOrchestrator, TicketStore,
 };
 
 /// Test helper to create all dependencies for orchestrator testing.
@@ -32,20 +31,21 @@ impl TestHarness {
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
         let db_path = temp_dir.path().join("test.db");
 
-        let ticket_store = Arc::new(
-            SqliteTicketStore::new(&db_path).expect("Failed to create ticket store"),
-        );
-        let catalog = Arc::new(
-            SqliteCatalog::new(&db_path).expect("Failed to create catalog"),
-        );
+        let ticket_store =
+            Arc::new(SqliteTicketStore::new(&db_path).expect("Failed to create ticket store"));
+        let catalog = Arc::new(SqliteCatalog::new(&db_path).expect("Failed to create catalog"));
         let searcher = Arc::new(MockSearcher::new());
         let torrent_client = Arc::new(MockTorrentClient::new());
         let converter = MockConverter::new();
         let placer = MockPlacer::new();
 
         // Set fast durations for testing
-        converter.set_conversion_duration(Duration::from_millis(10)).await;
-        placer.set_placement_duration(Duration::from_millis(10)).await;
+        converter
+            .set_conversion_duration(Duration::from_millis(10))
+            .await;
+        placer
+            .set_placement_duration(Duration::from_millis(10))
+            .await;
 
         Self {
             ticket_store,
@@ -99,18 +99,23 @@ impl TestHarness {
         let request = CreateTicketRequest {
             created_by: "test".to_string(),
             priority: 100,
-            query_context: QueryContext::new(
-                vec!["test".to_string()],
-                description,
-            ),
+            query_context: QueryContext::new(vec!["test".to_string()], description),
             dest_path: "/media/test".into(),
             output_constraints: None,
         };
 
-        self.ticket_store.create(request).expect("Failed to create ticket").id
+        self.ticket_store
+            .create(request)
+            .expect("Failed to create ticket")
+            .id
     }
 
-    async fn wait_for_state(&self, ticket_id: &str, expected_state: &str, timeout: Duration) -> bool {
+    async fn wait_for_state(
+        &self,
+        ticket_id: &str,
+        expected_state: &str,
+        timeout: Duration,
+    ) -> bool {
         let start = std::time::Instant::now();
         let poll_interval = Duration::from_millis(50);
 
@@ -123,8 +128,10 @@ impl TestHarness {
                 }
 
                 // Stop if we hit a terminal state
-                if matches!(state_type, "failed" | "cancelled" | "completed" | "acquisition_failed" | "rejected")
-                    && expected_state != state_type
+                if matches!(
+                    state_type,
+                    "failed" | "cancelled" | "completed" | "acquisition_failed" | "rejected"
+                ) && expected_state != state_type
                 {
                     return false;
                 }
@@ -135,9 +142,11 @@ impl TestHarness {
     }
 
     fn get_ticket_state(&self, ticket_id: &str) -> Option<String> {
-        self.ticket_store.get(ticket_id).ok().flatten().map(|t| {
-            Self::state_name(&t.state).to_string()
-        })
+        self.ticket_store
+            .get(ticket_id)
+            .ok()
+            .flatten()
+            .map(|t| Self::state_name(&t.state).to_string())
     }
 
     fn state_name(state: &TicketState) -> &'static str {
@@ -172,21 +181,35 @@ async fn test_ticket_transitions_to_acquiring_when_orchestrator_starts() {
     let ticket_id = harness.create_ticket("Test album");
 
     // Verify it starts in pending state
-    assert_eq!(harness.get_ticket_state(&ticket_id), Some("pending".to_string()));
+    assert_eq!(
+        harness.get_ticket_state(&ticket_id),
+        Some("pending".to_string())
+    );
 
     // Configure mock to return search results
-    harness.searcher.set_results(vec![
-        fixtures::audio_candidate("Test Artist", "Test Album", "hash123"),
-    ]).await;
+    harness
+        .searcher
+        .set_results(vec![fixtures::audio_candidate(
+            "Test Artist",
+            "Test Album",
+            "hash123",
+        )])
+        .await;
 
     // Start orchestrator
     let orchestrator = harness.create_orchestrator();
     orchestrator.start().await;
 
     // Wait for ticket to transition from pending
-    let found = harness.wait_for_state(&ticket_id, "acquiring", Duration::from_secs(2)).await
-        || harness.wait_for_state(&ticket_id, "auto_approved", Duration::from_secs(2)).await
-        || harness.wait_for_state(&ticket_id, "downloading", Duration::from_secs(2)).await;
+    let found = harness
+        .wait_for_state(&ticket_id, "acquiring", Duration::from_secs(2))
+        .await
+        || harness
+            .wait_for_state(&ticket_id, "auto_approved", Duration::from_secs(2))
+            .await
+        || harness
+            .wait_for_state(&ticket_id, "downloading", Duration::from_secs(2))
+            .await;
 
     orchestrator.stop().await;
 
@@ -198,9 +221,14 @@ async fn test_ticket_reaches_auto_approved_with_search_results() {
     let harness = TestHarness::new().await;
 
     // Configure mock to return search results
-    harness.searcher.set_results(vec![
-        fixtures::audio_candidate("Test Artist", "Test Album", "hash123"),
-    ]).await;
+    harness
+        .searcher
+        .set_results(vec![fixtures::audio_candidate(
+            "Test Artist",
+            "Test Album",
+            "hash123",
+        )])
+        .await;
 
     // Create ticket
     let ticket_id = harness.create_ticket("Test album");
@@ -210,16 +238,26 @@ async fn test_ticket_reaches_auto_approved_with_search_results() {
     orchestrator.start().await;
 
     // Wait for auto_approved or later state (with threshold 0.0, should auto-approve)
-    let reached = harness.wait_for_state(&ticket_id, "auto_approved", Duration::from_secs(5)).await
-        || harness.wait_for_state(&ticket_id, "downloading", Duration::from_secs(5)).await;
+    let reached = harness
+        .wait_for_state(&ticket_id, "auto_approved", Duration::from_secs(5))
+        .await
+        || harness
+            .wait_for_state(&ticket_id, "downloading", Duration::from_secs(5))
+            .await;
 
     orchestrator.stop().await;
 
-    assert!(reached, "Ticket should reach auto_approved or downloading with search results");
+    assert!(
+        reached,
+        "Ticket should reach auto_approved or downloading with search results"
+    );
 
     // Verify search was recorded
     let searches = harness.searcher.recorded_searches().await;
-    assert!(!searches.is_empty(), "Searcher should have recorded the search");
+    assert!(
+        !searches.is_empty(),
+        "Searcher should have recorded the search"
+    );
 }
 
 #[tokio::test]
@@ -237,11 +275,16 @@ async fn test_no_search_results_transitions_to_acquisition_failed() {
     orchestrator.start().await;
 
     // Wait for acquisition_failed state (no candidates available)
-    let reached = harness.wait_for_state(&ticket_id, "acquisition_failed", Duration::from_secs(5)).await;
+    let reached = harness
+        .wait_for_state(&ticket_id, "acquisition_failed", Duration::from_secs(5))
+        .await;
 
     orchestrator.stop().await;
 
-    assert!(reached, "Ticket should reach acquisition_failed when no search results are found");
+    assert!(
+        reached,
+        "Ticket should reach acquisition_failed when no search results are found"
+    );
 }
 
 #[tokio::test]
@@ -249,9 +292,14 @@ async fn test_download_progress_updates_ticket_state() {
     let harness = TestHarness::new().await;
 
     // Configure search results
-    harness.searcher.set_results(vec![
-        fixtures::audio_candidate("Test Artist", "Test Album", "testhash"),
-    ]).await;
+    harness
+        .searcher
+        .set_results(vec![fixtures::audio_candidate(
+            "Test Artist",
+            "Test Album",
+            "testhash",
+        )])
+        .await;
 
     // Configure torrent client to simulate slow download (50% progress)
     harness.torrent_client.set_progress("testhash", 0.5).await;
@@ -264,7 +312,9 @@ async fn test_download_progress_updates_ticket_state() {
     orchestrator.start().await;
 
     // Wait for downloading state
-    let reached = harness.wait_for_state(&ticket_id, "downloading", Duration::from_secs(5)).await;
+    let reached = harness
+        .wait_for_state(&ticket_id, "downloading", Duration::from_secs(5))
+        .await;
 
     orchestrator.stop().await;
 
@@ -276,10 +326,13 @@ async fn test_multiple_tickets_processed_concurrently() {
     let harness = TestHarness::new().await;
 
     // Configure search results for both tickets
-    harness.searcher.set_results(vec![
-        fixtures::audio_candidate("Artist 1", "Album 1", "hash1"),
-        fixtures::audio_candidate("Artist 2", "Album 2", "hash2"),
-    ]).await;
+    harness
+        .searcher
+        .set_results(vec![
+            fixtures::audio_candidate("Artist 1", "Album 1", "hash1"),
+            fixtures::audio_candidate("Artist 2", "Album 2", "hash2"),
+        ])
+        .await;
 
     // Create two tickets
     let ticket1 = harness.create_ticket("Album 1");
@@ -298,8 +351,16 @@ async fn test_multiple_tickets_processed_concurrently() {
     orchestrator.stop().await;
 
     // Both should have progressed from pending
-    assert!(state1.as_deref() != Some("pending"), "Ticket 1 should have progressed from pending, got {:?}", state1);
-    assert!(state2.as_deref() != Some("pending"), "Ticket 2 should have progressed from pending, got {:?}", state2);
+    assert!(
+        state1.as_deref() != Some("pending"),
+        "Ticket 1 should have progressed from pending, got {:?}",
+        state1
+    );
+    assert!(
+        state2.as_deref() != Some("pending"),
+        "Ticket 2 should have progressed from pending, got {:?}",
+        state2
+    );
 }
 
 #[tokio::test]
@@ -307,9 +368,10 @@ async fn test_orchestrator_stop_is_graceful() {
     let harness = TestHarness::new().await;
 
     // Configure slow search
-    harness.searcher.set_results(vec![
-        fixtures::audio_candidate("Test", "Album", "hash"),
-    ]).await;
+    harness
+        .searcher
+        .set_results(vec![fixtures::audio_candidate("Test", "Album", "hash")])
+        .await;
 
     // Create ticket
     let _ticket_id = harness.create_ticket("Test album");
@@ -322,12 +384,12 @@ async fn test_orchestrator_stop_is_graceful() {
     tokio::time::sleep(Duration::from_millis(200)).await;
 
     // Stop should complete without hanging
-    let stop_result = tokio::time::timeout(
-        Duration::from_secs(5),
-        orchestrator.stop()
-    ).await;
+    let stop_result = tokio::time::timeout(Duration::from_secs(5), orchestrator.stop()).await;
 
-    assert!(stop_result.is_ok(), "Orchestrator stop should complete within timeout");
+    assert!(
+        stop_result.is_ok(),
+        "Orchestrator stop should complete within timeout"
+    );
 }
 
 #[tokio::test]
@@ -337,17 +399,26 @@ async fn test_orchestrator_status_reflects_running_state() {
     let orchestrator = harness.create_orchestrator();
 
     // Before start, should not be running
-    assert!(!orchestrator.status().await.running, "Orchestrator should not be running before start");
+    assert!(
+        !orchestrator.status().await.running,
+        "Orchestrator should not be running before start"
+    );
 
     orchestrator.start().await;
 
     // After start, should be running
-    assert!(orchestrator.status().await.running, "Orchestrator should be running after start");
+    assert!(
+        orchestrator.status().await.running,
+        "Orchestrator should be running after start"
+    );
 
     orchestrator.stop().await;
 
     // After stop, should not be running
-    assert!(!orchestrator.status().await.running, "Orchestrator should not be running after stop");
+    assert!(
+        !orchestrator.status().await.running,
+        "Orchestrator should not be running after stop"
+    );
 }
 
 // =============================================================================
@@ -356,49 +427,54 @@ async fn test_orchestrator_status_reflects_running_state() {
 
 #[tokio::test]
 async fn test_discography_fallback_finds_album_in_discography() {
-    use torrentino_core::ticket::ExpectedContent;
     use torrentino_core::searcher::TorrentFile;
+    use torrentino_core::ticket::ExpectedContent;
 
     let harness = TestHarness::new().await;
 
     // Configure mock searcher with a query handler that:
     // - Returns empty for specific album queries ("Dark Side of the Moon")
     // - Returns a discography for fallback queries ("discography", "complete", "collection")
-    harness.searcher.set_query_handler(|query| {
-        let query_lower = query.to_lowercase();
+    harness
+        .searcher
+        .set_query_handler(|query| {
+            let query_lower = query.to_lowercase();
 
-        // Fallback queries should return a discography
-        if query_lower.contains("discography")
-            || query_lower.contains("complete")
-            || query_lower.contains("collection")
-        {
-            // Return a discography with the target album in files
-            let mut candidate = fixtures::audio_candidate(
-                "Pink Floyd",
-                "Discography (1967-2014)",
-                "discography_hash",
-            );
-            candidate.files = Some(vec![
-                TorrentFile {
-                    path: "Pink Floyd/1973 - Dark Side of the Moon/01 - Speak to Me.flac".to_string(),
-                    size_bytes: 30_000_000,
-                },
-                TorrentFile {
-                    path: "Pink Floyd/1973 - Dark Side of the Moon/02 - Breathe.flac".to_string(),
-                    size_bytes: 35_000_000,
-                },
-                TorrentFile {
-                    path: "Pink Floyd/1979 - The Wall/01 - In the Flesh.flac".to_string(),
-                    size_bytes: 25_000_000,
-                },
-            ]);
-            candidate.size_bytes = 10_000_000_000; // 10 GB discography
-            Some(vec![candidate])
-        } else {
-            // Specific album queries return nothing
-            Some(vec![])
-        }
-    }).await;
+            // Fallback queries should return a discography
+            if query_lower.contains("discography")
+                || query_lower.contains("complete")
+                || query_lower.contains("collection")
+            {
+                // Return a discography with the target album in files
+                let mut candidate = fixtures::audio_candidate(
+                    "Pink Floyd",
+                    "Discography (1967-2014)",
+                    "discography_hash",
+                );
+                candidate.files = Some(vec![
+                    TorrentFile {
+                        path: "Pink Floyd/1973 - Dark Side of the Moon/01 - Speak to Me.flac"
+                            .to_string(),
+                        size_bytes: 30_000_000,
+                    },
+                    TorrentFile {
+                        path: "Pink Floyd/1973 - Dark Side of the Moon/02 - Breathe.flac"
+                            .to_string(),
+                        size_bytes: 35_000_000,
+                    },
+                    TorrentFile {
+                        path: "Pink Floyd/1979 - The Wall/01 - In the Flesh.flac".to_string(),
+                        size_bytes: 25_000_000,
+                    },
+                ]);
+                candidate.size_bytes = 10_000_000_000; // 10 GB discography
+                Some(vec![candidate])
+            } else {
+                // Specific album queries return nothing
+                Some(vec![])
+            }
+        })
+        .await;
 
     // Create ticket for a specific album with expected content
     let request = CreateTicketRequest {
@@ -419,7 +495,11 @@ async fn test_discography_fallback_finds_album_in_discography() {
         output_constraints: None,
     };
 
-    let ticket_id = harness.ticket_store.create(request).expect("Failed to create ticket").id;
+    let ticket_id = harness
+        .ticket_store
+        .create(request)
+        .expect("Failed to create ticket")
+        .id;
 
     // Start orchestrator
     let orchestrator = harness.create_orchestrator();
@@ -453,10 +533,16 @@ async fn test_discography_fallback_finds_album_in_discography() {
     let searches = harness.searcher.recorded_searches().await;
     let has_fallback_query = searches.iter().any(|s| {
         let q_lower = s.query.query.to_lowercase();
-        q_lower.contains("discography") || q_lower.contains("complete") || q_lower.contains("collection")
+        q_lower.contains("discography")
+            || q_lower.contains("complete")
+            || q_lower.contains("collection")
     });
     let query_strings: Vec<_> = searches.iter().map(|s| s.query.query.clone()).collect();
-    assert!(has_fallback_query, "Should have made fallback discography queries. Searches: {:?}", query_strings);
+    assert!(
+        has_fallback_query,
+        "Should have made fallback discography queries. Searches: {:?}",
+        query_strings
+    );
 }
 
 #[tokio::test]
@@ -464,9 +550,14 @@ async fn test_discography_fallback_not_triggered_when_album_found() {
     let harness = TestHarness::new().await;
 
     // Configure mock searcher to always return a matching album
-    harness.searcher.set_results(vec![
-        fixtures::audio_candidate("Pink Floyd", "Dark Side of the Moon", "album_hash"),
-    ]).await;
+    harness
+        .searcher
+        .set_results(vec![fixtures::audio_candidate(
+            "Pink Floyd",
+            "Dark Side of the Moon",
+            "album_hash",
+        )])
+        .await;
 
     // Create ticket
     let ticket_id = harness.create_ticket("Pink Floyd - Dark Side of the Moon");
@@ -476,16 +567,23 @@ async fn test_discography_fallback_not_triggered_when_album_found() {
     orchestrator.start().await;
 
     // Wait for auto_approved or downloading
-    let reached = harness.wait_for_state(&ticket_id, "auto_approved", Duration::from_secs(5)).await
-        || harness.wait_for_state(&ticket_id, "downloading", Duration::from_secs(5)).await;
+    let reached = harness
+        .wait_for_state(&ticket_id, "auto_approved", Duration::from_secs(5))
+        .await
+        || harness
+            .wait_for_state(&ticket_id, "downloading", Duration::from_secs(5))
+            .await;
 
     orchestrator.stop().await;
 
-    assert!(reached, "Ticket should reach auto_approved with direct album match");
+    assert!(
+        reached,
+        "Ticket should reach auto_approved with direct album match"
+    );
 
     // Verify no fallback queries were made (primary search was successful)
     let searches = harness.searcher.recorded_searches().await;
-    let has_fallback_query = searches.iter().any(|s| {
+    let _has_fallback_query = searches.iter().any(|s| {
         let q_lower = s.query.query.to_lowercase();
         q_lower.contains("discography") || q_lower.contains("complete collection")
     });
@@ -493,5 +591,8 @@ async fn test_discography_fallback_not_triggered_when_album_found() {
     // Fallback queries shouldn't be needed since primary search succeeded
     // Note: This depends on the scoring - if primary results are good enough,
     // fallback won't be triggered
-    assert!(!searches.is_empty(), "Should have made at least some queries");
+    assert!(
+        !searches.is_empty(),
+        "Should have made at least some queries"
+    );
 }

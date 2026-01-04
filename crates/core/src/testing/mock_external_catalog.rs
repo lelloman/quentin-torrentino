@@ -279,7 +279,7 @@ impl ExternalCatalog for MockExternalCatalog {
             .values()
             .filter(|m| {
                 let title_match = m.title.to_lowercase().contains(&query_lower);
-                let year_match = year.map_or(true, |y| m.year() == Some(y));
+                let year_match = year.is_none_or(|y| m.year() == Some(y));
                 title_match && year_match
             })
             .cloned()
@@ -293,7 +293,8 @@ impl ExternalCatalog for MockExternalCatalog {
             return Err(err);
         }
 
-        self.record(RecordedCatalogQuery::GetMovie { tmdb_id }).await;
+        self.record(RecordedCatalogQuery::GetMovie { tmdb_id })
+            .await;
 
         self.movies
             .read()
@@ -375,7 +376,11 @@ mod tests {
     async fn test_search_releases() {
         let catalog = MockExternalCatalog::new();
         catalog
-            .add_release(fixtures::musicbrainz_release("The Beatles", "Abbey Road", 17))
+            .add_release(fixtures::musicbrainz_release(
+                "The Beatles",
+                "Abbey Road",
+                17,
+            ))
             .await;
         catalog
             .add_release(fixtures::musicbrainz_release("Pink Floyd", "The Wall", 26))
@@ -400,8 +405,12 @@ mod tests {
     #[tokio::test]
     async fn test_search_movies() {
         let catalog = MockExternalCatalog::new();
-        catalog.add_movie(fixtures::tmdb_movie("The Matrix", 1999)).await;
-        catalog.add_movie(fixtures::tmdb_movie("The Matrix Reloaded", 2003)).await;
+        catalog
+            .add_movie(fixtures::tmdb_movie("The Matrix", 1999))
+            .await;
+        catalog
+            .add_movie(fixtures::tmdb_movie("The Matrix Reloaded", 2003))
+            .await;
 
         // Search without year filter
         let results = catalog.search_movies("matrix", None).await.unwrap();
@@ -416,8 +425,12 @@ mod tests {
     #[tokio::test]
     async fn test_search_tv() {
         let catalog = MockExternalCatalog::new();
-        catalog.add_series(fixtures::tmdb_series("Breaking Bad", 5)).await;
-        catalog.add_series(fixtures::tmdb_series("The Office", 9)).await;
+        catalog
+            .add_series(fixtures::tmdb_series("Breaking Bad", 5))
+            .await;
+        catalog
+            .add_series(fixtures::tmdb_series("The Office", 9))
+            .await;
 
         let results = catalog.search_tv("breaking").await.unwrap();
         assert_eq!(results.len(), 1);
@@ -431,8 +444,12 @@ mod tests {
         let series = fixtures::tmdb_series("Test Show", 3);
         let series_id = series.id;
         catalog.add_series(series).await;
-        catalog.add_season(series_id, fixtures::tmdb_season(1, 10)).await;
-        catalog.add_season(series_id, fixtures::tmdb_season(2, 12)).await;
+        catalog
+            .add_season(series_id, fixtures::tmdb_season(1, 10))
+            .await;
+        catalog
+            .add_season(series_id, fixtures::tmdb_season(2, 12))
+            .await;
 
         let season = catalog.get_tv_season(series_id, 2).await.unwrap();
         assert_eq!(season.season_number, 2);

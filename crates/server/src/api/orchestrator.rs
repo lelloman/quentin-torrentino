@@ -1,11 +1,6 @@
 //! Orchestrator API handlers.
 
-use axum::{
-    extract::State,
-    http::StatusCode,
-    response::IntoResponse,
-    Json,
-};
+use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use serde::Serialize;
 use std::sync::Arc;
 
@@ -51,9 +46,7 @@ pub struct MessageResponse {
 // ============================================================================
 
 /// Get orchestrator status
-pub async fn get_status(
-    State(state): State<Arc<AppState>>,
-) -> Json<OrchestratorStatusResponse> {
+pub async fn get_status(State(state): State<Arc<AppState>>) -> Json<OrchestratorStatusResponse> {
     match state.orchestrator() {
         Some(orch) => {
             let status = orch.status().await;

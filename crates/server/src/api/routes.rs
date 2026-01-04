@@ -62,8 +62,14 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/torrents/add/url", post(torrents::add_from_url))
         .route("/torrents/{hash}/pause", post(torrents::pause_torrent))
         .route("/torrents/{hash}/resume", post(torrents::resume_torrent))
-        .route("/torrents/{hash}/upload-limit", post(torrents::set_upload_limit))
-        .route("/torrents/{hash}/download-limit", post(torrents::set_download_limit))
+        .route(
+            "/torrents/{hash}/upload-limit",
+            post(torrents::set_upload_limit),
+        )
+        .route(
+            "/torrents/{hash}/download-limit",
+            post(torrents::set_download_limit),
+        )
         .route("/torrents/{hash}/recheck", post(torrents::recheck_torrent))
         // Catalog (search result cache)
         .route("/catalog", get(catalog::list_catalog))
@@ -76,14 +82,20 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/textbrain/queries", post(textbrain::build_queries))
         .route("/textbrain/score", post(textbrain::score_candidates))
         .route("/textbrain/complete", post(textbrain::complete))
-        .route("/textbrain/process/{ticket_id}", post(textbrain::process_ticket))
+        .route(
+            "/textbrain/process/{ticket_id}",
+            post(textbrain::process_ticket),
+        )
         .route("/textbrain/acquire", post(textbrain::acquire))
         // Pipeline (Phase 4 - conversion & placement)
         .route("/pipeline/status", get(pipeline::get_status))
         .route("/pipeline/converter", get(pipeline::get_converter_info))
         .route("/pipeline/placer", get(pipeline::get_placer_info))
         .route("/pipeline/validate", get(pipeline::validate_ffmpeg))
-        .route("/pipeline/encoders", get(pipeline::get_encoder_capabilities))
+        .route(
+            "/pipeline/encoders",
+            get(pipeline::get_encoder_capabilities),
+        )
         .route(
             "/pipeline/process/{ticket_id}",
             post(pipeline::process_ticket),
@@ -131,7 +143,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         )
         // WebSocket (no auth middleware - handles its own connection)
         .route("/ws", get(ws::ws_handler))
-        .layer(middleware::from_fn_with_state(state.clone(), auth_middleware))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ))
         .with_state(state.clone());
 
     // Serve dashboard with SPA fallback

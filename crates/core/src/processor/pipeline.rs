@@ -7,14 +7,16 @@ use std::time::Instant;
 use tokio::sync::{mpsc, RwLock, Semaphore};
 
 use crate::audit::{AuditEvent, AuditHandle};
-use crate::converter::{ConversionConstraints, ConversionJob, ConversionProgress, Converter, EmbeddedMetadata};
+use crate::converter::{
+    ConversionConstraints, ConversionJob, ConversionProgress, Converter, EmbeddedMetadata,
+};
 use crate::metrics;
 use crate::placer::{FilePlacement, PlacementJob, Placer};
 use crate::ticket::{CompletionStats, TicketState, TicketStore};
 
 use super::config::ProcessorConfig;
 use super::types::{
-    PipelineJob, PipelineProgress, PipelineResult, PlacedFileInfo, PoolStatus, PipelineStatus,
+    PipelineJob, PipelineProgress, PipelineResult, PipelineStatus, PlacedFileInfo, PoolStatus,
 };
 
 /// Callback type for pipeline update notifications.
@@ -24,8 +26,7 @@ pub type PipelineUpdateCallback = Arc<dyn Fn(&str, &str) + Send + Sync>;
 /// Callback type for pipeline progress notifications.
 /// Called with (ticket_id, phase, current, total, current_name, percent) for real-time progress.
 /// The percent field (0.0-100.0) shows intra-file progress from FFmpeg.
-pub type PipelineProgressCallback =
-    Arc<dyn Fn(&str, &str, usize, usize, &str, f32) + Send + Sync>;
+pub type PipelineProgressCallback = Arc<dyn Fn(&str, &str, usize, usize, &str, f32) + Send + Sync>;
 
 /// Error type for pipeline operations.
 #[derive(Debug, thiserror::Error)]
@@ -313,7 +314,7 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
         let total_files = job.source_files.len();
 
         // Helper to notify WebSocket clients
-        let notify_update = |state_type: &str| {
+        let _notify_update = |state_type: &str| {
             if let Some(ref cb) = on_update {
                 cb(&ticket_id, state_type);
             }
@@ -344,25 +345,33 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
 
             // Emit state change event
             if let Some(ref audit) = audit {
-                audit.emit(AuditEvent::TicketStateChanged {
-                    ticket_id: ticket_id.clone(),
-                    from_state: "downloading".to_string(),
-                    to_state: "converting".to_string(),
-                    reason: Some(format!("Starting conversion of {} files", total_files)),
-                }).await;
+                audit
+                    .emit(AuditEvent::TicketStateChanged {
+                        ticket_id: ticket_id.clone(),
+                        from_state: "downloading".to_string(),
+                        to_state: "converting".to_string(),
+                        reason: Some(format!("Starting conversion of {} files", total_files)),
+                    })
+                    .await;
             }
         }
 
         // Emit conversion started event
         if let Some(ref audit) = audit {
-            audit.emit(AuditEvent::ConversionStarted {
-                ticket_id: ticket_id.clone(),
-                job_id: ticket_id.clone(),
-                input_path: job.source_files.first().map(|f| f.path.to_string_lossy().to_string()).unwrap_or_default(),
-                output_path: job.dest_dir.to_string_lossy().to_string(),
-                target_format: format!("{:?}", job.constraints),
-                total_files,
-            }).await;
+            audit
+                .emit(AuditEvent::ConversionStarted {
+                    ticket_id: ticket_id.clone(),
+                    job_id: ticket_id.clone(),
+                    input_path: job
+                        .source_files
+                        .first()
+                        .map(|f| f.path.to_string_lossy().to_string())
+                        .unwrap_or_default(),
+                    output_path: job.dest_dir.to_string_lossy().to_string(),
+                    target_format: format!("{:?}", job.constraints),
+                    total_files,
+                })
+                .await;
         }
 
         // Register job as converting
@@ -395,8 +404,12 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
         // Create temp directory
         if let Err(e) = tokio::fs::create_dir_all(&temp_dir).await {
             conversion_stats.active.fetch_sub(1, Ordering::Relaxed);
-            conversion_stats.total_failed.fetch_add(1, Ordering::Relaxed);
-            metrics::CONVERSIONS_TOTAL.with_label_values(&["failed"]).inc();
+            conversion_stats
+                .total_failed
+                .fetch_add(1, Ordering::Relaxed);
+            metrics::CONVERSIONS_TOTAL
+                .with_label_values(&["failed"])
+                .inc();
             return Err(PipelineError::ConversionFailed(format!(
                 "Failed to create temp directory: {}",
                 e
@@ -457,13 +470,22 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
 
                 // Send initial progress via callback (for WebSocket) - 0% for this file
                 if let Some(ref cb) = on_progress {
-                    cb(&ticket_id, "converting", idx, total_files, &current_file_name, 0.0);
+                    cb(
+                        &ticket_id,
+                        "converting",
+                        idx,
+                        total_files,
+                        &current_file_name,
+                        0.0,
+                    );
                 }
 
                 // Build conversion job
                 let output_ext = match constraints {
                     ConversionConstraints::Audio(a) => a.format.extension(),
-                    ConversionConstraints::Video(v) => v.container.extension(v.audio.as_ref().map(|a| &a.format)),
+                    ConversionConstraints::Video(v) => {
+                        v.container.extension(v.audio.as_ref().map(|a| &a.format))
+                    }
                 };
                 let output_path = temp_dir.join(format!("{}.{}", source_file.item_id, output_ext));
 
@@ -492,7 +514,8 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
                 };
 
                 // Create channel for FFmpeg progress updates
-                let (conv_progress_tx, mut conv_progress_rx) = mpsc::channel::<ConversionProgress>(32);
+                let (conv_progress_tx, mut conv_progress_rx) =
+                    mpsc::channel::<ConversionProgress>(32);
 
                 // Spawn task to forward FFmpeg progress to the callback
                 let progress_ticket_id = ticket_id.clone();
@@ -516,7 +539,9 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
                 });
 
                 // Run conversion with progress
-                let conv_result = converter.convert_with_progress(conv_job, conv_progress_tx).await;
+                let conv_result = converter
+                    .convert_with_progress(conv_job, conv_progress_tx)
+                    .await;
 
                 // Wait for progress forwarder to complete
                 let _ = progress_forwarder.await;
@@ -525,14 +550,25 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
                     Ok(result) => {
                         // Send 100% progress for this file
                         if let Some(ref cb) = on_progress {
-                            cb(&ticket_id, "converting", idx, total_files, &current_file_name, 100.0);
+                            cb(
+                                &ticket_id,
+                                "converting",
+                                idx,
+                                total_files,
+                                &current_file_name,
+                                100.0,
+                            );
                         }
                         converted_files.push((source_file.clone(), result, output_path));
                     }
                     Err(e) => {
                         conversion_stats.active.fetch_sub(1, Ordering::Relaxed);
-                        conversion_stats.total_failed.fetch_add(1, Ordering::Relaxed);
-                        metrics::CONVERSIONS_TOTAL.with_label_values(&["failed"]).inc();
+                        conversion_stats
+                            .total_failed
+                            .fetch_add(1, Ordering::Relaxed);
+                        metrics::CONVERSIONS_TOTAL
+                            .with_label_values(&["failed"])
+                            .inc();
 
                         // Update ticket state to Failed
                         if let Some(ref store) = ticket_store {
@@ -548,24 +584,30 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
 
                             // Emit state change event
                             if let Some(ref audit) = audit {
-                                audit.emit(AuditEvent::TicketStateChanged {
-                                    ticket_id: ticket_id.clone(),
-                                    from_state: "converting".to_string(),
-                                    to_state: "failed".to_string(),
-                                    reason: Some(format!("Conversion failed: {}", e)),
-                                }).await;
+                                audit
+                                    .emit(AuditEvent::TicketStateChanged {
+                                        ticket_id: ticket_id.clone(),
+                                        from_state: "converting".to_string(),
+                                        to_state: "failed".to_string(),
+                                        reason: Some(format!("Conversion failed: {}", e)),
+                                    })
+                                    .await;
                             }
                         }
 
                         if let Some(ref audit) = audit {
-                            audit.emit(AuditEvent::ConversionFailed {
-                                ticket_id: ticket_id.clone(),
-                                job_id: ticket_id.clone(),
-                                failed_file: Some(source_file.path.to_string_lossy().to_string()),
-                                error: e.to_string(),
-                                files_completed: idx,
-                                retryable: e.is_retryable(),
-                            }).await;
+                            audit
+                                .emit(AuditEvent::ConversionFailed {
+                                    ticket_id: ticket_id.clone(),
+                                    job_id: ticket_id.clone(),
+                                    failed_file: Some(
+                                        source_file.path.to_string_lossy().to_string(),
+                                    ),
+                                    error: e.to_string(),
+                                    files_completed: idx,
+                                    retryable: e.is_retryable(),
+                                })
+                                .await;
                         }
 
                         return Err(PipelineError::ConversionFailed(e.to_string()));
@@ -584,20 +626,31 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
 
         let conversion_duration = conversion_start.elapsed();
         conversion_stats.active.fetch_sub(1, Ordering::Relaxed);
-        conversion_stats.total_processed.fetch_add(1, Ordering::Relaxed);
+        conversion_stats
+            .total_processed
+            .fetch_add(1, Ordering::Relaxed);
 
         // Record conversion metrics
         if needs_conversion {
-            metrics::CONVERSIONS_TOTAL.with_label_values(&["success"]).inc();
-            metrics::CONVERSION_DURATION.with_label_values(&[]).observe(conversion_duration.as_secs_f64());
+            metrics::CONVERSIONS_TOTAL
+                .with_label_values(&["success"])
+                .inc();
+            metrics::CONVERSION_DURATION
+                .with_label_values(&[])
+                .observe(conversion_duration.as_secs_f64());
         } else {
-            metrics::CONVERSIONS_TOTAL.with_label_values(&["skipped"]).inc();
+            metrics::CONVERSIONS_TOTAL
+                .with_label_values(&["skipped"])
+                .inc();
         }
 
         // Calculate total output bytes and build placements based on whether conversion happened
         let (total_output_bytes, placements, cleanup_sources) = if needs_conversion {
             // Conversion happened - use converted files
-            let bytes: u64 = converted_files.iter().map(|(_, r, _)| r.output_size_bytes).sum();
+            let bytes: u64 = converted_files
+                .iter()
+                .map(|(_, r, _)| r.output_size_bytes)
+                .sum();
             let placements: Vec<FilePlacement> = converted_files
                 .iter()
                 .map(|(source, _, temp_path)| {
@@ -621,7 +674,8 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
                     bytes += meta.len();
                 }
             }
-            let placements: Vec<FilePlacement> = job.source_files
+            let placements: Vec<FilePlacement> = job
+                .source_files
                 .iter()
                 .map(|source| {
                     let dest_path = job.dest_dir.join(&source.dest_filename);
@@ -640,15 +694,23 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
         // Emit conversion completed event (only if conversion happened)
         if needs_conversion {
             if let Some(ref audit) = audit {
-                audit.emit(AuditEvent::ConversionCompleted {
-                    ticket_id: ticket_id.clone(),
-                    job_id: ticket_id.clone(),
-                    files_converted: converted_files.len(),
-                    output_bytes: total_output_bytes,
-                    duration_ms: conversion_duration.as_millis() as u64,
-                    input_format: converted_files.first().map(|(_, r, _)| r.input_format.clone()).unwrap_or_default(),
-                    output_format: converted_files.first().map(|(_, r, _)| r.output_format.clone()).unwrap_or_default(),
-                }).await;
+                audit
+                    .emit(AuditEvent::ConversionCompleted {
+                        ticket_id: ticket_id.clone(),
+                        job_id: ticket_id.clone(),
+                        files_converted: converted_files.len(),
+                        output_bytes: total_output_bytes,
+                        duration_ms: conversion_duration.as_millis() as u64,
+                        input_format: converted_files
+                            .first()
+                            .map(|(_, r, _)| r.input_format.clone())
+                            .unwrap_or_default(),
+                        output_format: converted_files
+                            .first()
+                            .map(|(_, r, _)| r.output_format.clone())
+                            .unwrap_or_default(),
+                    })
+                    .await;
             }
         }
 
@@ -682,12 +744,14 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
 
             // Emit state change event
             if let Some(ref audit) = audit {
-                audit.emit(AuditEvent::TicketStateChanged {
-                    ticket_id: ticket_id.clone(),
-                    from_state: "converting".to_string(),
-                    to_state: "placing".to_string(),
-                    reason: Some(format!("Placing {} files", files_to_place)),
-                }).await;
+                audit
+                    .emit(AuditEvent::TicketStateChanged {
+                        ticket_id: ticket_id.clone(),
+                        from_state: "converting".to_string(),
+                        to_state: "placing".to_string(),
+                        reason: Some(format!("Placing {} files", files_to_place)),
+                    })
+                    .await;
             }
         }
 
@@ -705,12 +769,14 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
 
         // Emit placement started event
         if let Some(ref audit) = audit {
-            audit.emit(AuditEvent::PlacementStarted {
-                ticket_id: ticket_id.clone(),
-                job_id: ticket_id.clone(),
-                total_files: files_to_place,
-                total_bytes: total_output_bytes,
-            }).await;
+            audit
+                .emit(AuditEvent::PlacementStarted {
+                    ticket_id: ticket_id.clone(),
+                    job_id: ticket_id.clone(),
+                    total_files: files_to_place,
+                    total_bytes: total_output_bytes,
+                })
+                .await;
         }
 
         let placement_start = Instant::now();
@@ -727,18 +793,22 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
             Ok(result) => {
                 let placement_duration = placement_start.elapsed();
                 placement_stats.active.fetch_sub(1, Ordering::Relaxed);
-                placement_stats.total_processed.fetch_add(1, Ordering::Relaxed);
+                placement_stats
+                    .total_processed
+                    .fetch_add(1, Ordering::Relaxed);
 
                 // Emit placement completed event
                 if let Some(ref audit) = audit {
-                    audit.emit(AuditEvent::PlacementCompleted {
-                        ticket_id: ticket_id.clone(),
-                        job_id: ticket_id.clone(),
-                        files_placed: result.files_placed.len(),
-                        total_bytes: result.total_bytes,
-                        duration_ms: placement_duration.as_millis() as u64,
-                        dest_dir: job.dest_dir.to_string_lossy().to_string(),
-                    }).await;
+                    audit
+                        .emit(AuditEvent::PlacementCompleted {
+                            ticket_id: ticket_id.clone(),
+                            job_id: ticket_id.clone(),
+                            files_placed: result.files_placed.len(),
+                            total_bytes: result.total_bytes,
+                            duration_ms: placement_duration.as_millis() as u64,
+                            dest_dir: job.dest_dir.to_string_lossy().to_string(),
+                        })
+                        .await;
                 }
 
                 // Clean up temp directory (only if conversion was used)
@@ -774,17 +844,24 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
 
                     // Emit state change event
                     if let Some(ref audit) = audit {
-                        audit.emit(AuditEvent::TicketStateChanged {
-                            ticket_id: ticket_id.clone(),
-                            from_state: "placing".to_string(),
-                            to_state: "completed".to_string(),
-                            reason: Some(format!("Successfully placed {} files", files_placed.len())),
-                        }).await;
+                        audit
+                            .emit(AuditEvent::TicketStateChanged {
+                                ticket_id: ticket_id.clone(),
+                                from_state: "placing".to_string(),
+                                to_state: "completed".to_string(),
+                                reason: Some(format!(
+                                    "Successfully placed {} files",
+                                    files_placed.len()
+                                )),
+                            })
+                            .await;
                     }
                 }
 
                 // Record pipeline success metrics
-                metrics::PLACEMENTS_TOTAL.with_label_values(&["success"]).inc();
+                metrics::PLACEMENTS_TOTAL
+                    .with_label_values(&["success"])
+                    .inc();
                 metrics::FILES_PLACED.inc_by(files_placed.len() as u64);
                 metrics::TICKETS_COMPLETED.inc();
 
@@ -816,28 +893,34 @@ impl<C: Converter + 'static, P: Placer + 'static> PipelineProcessor<C, P> {
 
                     // Emit state change event
                     if let Some(ref audit) = audit {
-                        audit.emit(AuditEvent::TicketStateChanged {
-                            ticket_id: ticket_id.clone(),
-                            from_state: "placing".to_string(),
-                            to_state: "failed".to_string(),
-                            reason: Some(format!("Placement failed: {}", e)),
-                        }).await;
+                        audit
+                            .emit(AuditEvent::TicketStateChanged {
+                                ticket_id: ticket_id.clone(),
+                                from_state: "placing".to_string(),
+                                to_state: "failed".to_string(),
+                                reason: Some(format!("Placement failed: {}", e)),
+                            })
+                            .await;
                     }
                 }
 
                 // Emit placement failed event
                 if let Some(ref audit) = audit {
-                    audit.emit(AuditEvent::PlacementFailed {
-                        ticket_id: ticket_id.clone(),
-                        job_id: ticket_id.clone(),
-                        failed_file: None,
-                        error: e.to_string(),
-                        files_completed: 0,
-                    }).await;
+                    audit
+                        .emit(AuditEvent::PlacementFailed {
+                            ticket_id: ticket_id.clone(),
+                            job_id: ticket_id.clone(),
+                            failed_file: None,
+                            error: e.to_string(),
+                            files_completed: 0,
+                        })
+                        .await;
                 }
 
                 // Record placement failure metric
-                metrics::PLACEMENTS_TOTAL.with_label_values(&["failed"]).inc();
+                metrics::PLACEMENTS_TOTAL
+                    .with_label_values(&["failed"])
+                    .inc();
 
                 // Clean up temp directory (only if conversion was used)
                 if needs_conversion {

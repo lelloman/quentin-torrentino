@@ -89,7 +89,10 @@ impl SqliteCatalog {
     }
 
     /// Load sources for a torrent.
-    fn load_sources(conn: &Connection, info_hash: &str) -> Result<Vec<CachedTorrentSource>, CatalogError> {
+    fn load_sources(
+        conn: &Connection,
+        info_hash: &str,
+    ) -> Result<Vec<CachedTorrentSource>, CatalogError> {
         let mut stmt = conn
             .prepare(
                 "SELECT indexer, magnet_uri, torrent_url, seeders, leechers, details_url, updated_at
@@ -124,7 +127,10 @@ impl SqliteCatalog {
     }
 
     /// Load files for a torrent.
-    fn load_files(conn: &Connection, info_hash: &str) -> Result<Vec<CachedTorrentFile>, CatalogError> {
+    fn load_files(
+        conn: &Connection,
+        info_hash: &str,
+    ) -> Result<Vec<CachedTorrentFile>, CatalogError> {
         let mut stmt = conn
             .prepare("SELECT path, size_bytes FROM torrent_cache_files WHERE info_hash = ?")
             .map_err(|e| CatalogError::Database(e.to_string()))?;
@@ -281,7 +287,10 @@ impl TorrentCatalog for SqliteCatalog {
             .map_err(|e| CatalogError::Database(e.to_string()))?;
 
         let rows = stmt
-            .query_map(params![&search_pattern, query.limit as i32], Self::row_to_cached_torrent)
+            .query_map(
+                params![&search_pattern, query.limit as i32],
+                Self::row_to_cached_torrent,
+            )
             .map_err(|e| CatalogError::Database(e.to_string()))?;
 
         let mut results = Vec::new();
@@ -321,7 +330,12 @@ impl TorrentCatalog for SqliteCatalog {
         Ok(torrent)
     }
 
-    fn store_files(&self, info_hash: &str, title: &str, files: &[TorrentFile]) -> Result<(), CatalogError> {
+    fn store_files(
+        &self,
+        info_hash: &str,
+        title: &str,
+        files: &[TorrentFile],
+    ) -> Result<(), CatalogError> {
         let conn = self.conn.lock().unwrap();
         let info_hash = info_hash.to_lowercase();
         let now = Utc::now();
@@ -394,7 +408,9 @@ impl TorrentCatalog for SqliteCatalog {
             .map_err(|e| CatalogError::Database(e.to_string()))?;
 
         let total_files: u64 = conn
-            .query_row("SELECT COUNT(*) FROM torrent_cache_files", [], |row| row.get(0))
+            .query_row("SELECT COUNT(*) FROM torrent_cache_files", [], |row| {
+                row.get(0)
+            })
             .map_err(|e| CatalogError::Database(e.to_string()))?;
 
         let total_size_bytes: i64 = conn
@@ -414,27 +430,19 @@ impl TorrentCatalog for SqliteCatalog {
             .map_err(|e| CatalogError::Database(e.to_string()))?;
 
         let oldest_entry: Option<DateTime<Utc>> = conn
-            .query_row(
-                "SELECT MIN(first_seen_at) FROM torrent_cache",
-                [],
-                |row| {
-                    let s: Option<String> = row.get(0)?;
-                    Ok(s)
-                },
-            )
+            .query_row("SELECT MIN(first_seen_at) FROM torrent_cache", [], |row| {
+                let s: Option<String> = row.get(0)?;
+                Ok(s)
+            })
             .map_err(|e| CatalogError::Database(e.to_string()))?
             .and_then(|s| DateTime::parse_from_rfc3339(&s).ok())
             .map(|dt| dt.with_timezone(&Utc));
 
         let newest_entry: Option<DateTime<Utc>> = conn
-            .query_row(
-                "SELECT MAX(last_seen_at) FROM torrent_cache",
-                [],
-                |row| {
-                    let s: Option<String> = row.get(0)?;
-                    Ok(s)
-                },
-            )
+            .query_row("SELECT MAX(last_seen_at) FROM torrent_cache", [], |row| {
+                let s: Option<String> = row.get(0)?;
+                Ok(s)
+            })
             .map_err(|e| CatalogError::Database(e.to_string()))?
             .and_then(|s| DateTime::parse_from_rfc3339(&s).ok())
             .map(|dt| dt.with_timezone(&Utc));
@@ -470,7 +478,10 @@ impl TorrentCatalog for SqliteCatalog {
 
         // Delete from main table (cascades to sources and files)
         let rows_affected = conn
-            .execute("DELETE FROM torrent_cache WHERE info_hash = ?", params![&info_hash])
+            .execute(
+                "DELETE FROM torrent_cache WHERE info_hash = ?",
+                params![&info_hash],
+            )
             .map_err(|e| CatalogError::Database(e.to_string()))?;
 
         if rows_affected == 0 {
@@ -552,11 +563,11 @@ mod tests {
         let candidate = create_test_candidate("abc123", "Test Album");
 
         // Store once
-        let new_count = catalog.store(&[candidate.clone()]).unwrap();
+        let new_count = catalog.store(std::slice::from_ref(&candidate)).unwrap();
         assert_eq!(new_count, 1);
 
         // Store again - should update, not add
-        let new_count = catalog.store(&[candidate]).unwrap();
+        let new_count = catalog.store(std::slice::from_ref(&candidate)).unwrap();
         assert_eq!(new_count, 0);
 
         // Check seen_count increased
@@ -599,10 +610,12 @@ mod tests {
     #[test]
     fn test_search_by_title() {
         let catalog = create_test_catalog();
-        catalog.store(&[
-            create_test_candidate("abc123", "Radiohead - OK Computer"),
-            create_test_candidate("def456", "Pink Floyd - The Wall"),
-        ]).unwrap();
+        catalog
+            .store(&[
+                create_test_candidate("abc123", "Radiohead - OK Computer"),
+                create_test_candidate("def456", "Pink Floyd - The Wall"),
+            ])
+            .unwrap();
 
         let query = CatalogSearchQuery {
             query: "Radiohead".to_string(),
@@ -617,7 +630,9 @@ mod tests {
     #[test]
     fn test_search_by_file_path() {
         let catalog = create_test_catalog();
-        catalog.store(&[create_test_candidate("abc123", "Test Album")]).unwrap();
+        catalog
+            .store(&[create_test_candidate("abc123", "Test Album")])
+            .unwrap();
 
         let query = CatalogSearchQuery {
             query: "Track One".to_string(),
@@ -632,7 +647,9 @@ mod tests {
     #[test]
     fn test_search_case_insensitive() {
         let catalog = create_test_catalog();
-        catalog.store(&[create_test_candidate("abc123", "Radiohead - OK Computer")]).unwrap();
+        catalog
+            .store(&[create_test_candidate("abc123", "Radiohead - OK Computer")])
+            .unwrap();
 
         let query = CatalogSearchQuery {
             query: "radiohead".to_string(),
@@ -647,7 +664,12 @@ mod tests {
     fn test_search_respects_limit() {
         let catalog = create_test_catalog();
         for i in 0..10 {
-            catalog.store(&[create_test_candidate(&format!("hash{}", i), &format!("Album {}", i))]).unwrap();
+            catalog
+                .store(&[create_test_candidate(
+                    &format!("hash{}", i),
+                    &format!("Album {}", i),
+                )])
+                .unwrap();
         }
 
         let query = CatalogSearchQuery {
@@ -669,10 +691,12 @@ mod tests {
         assert_eq!(stats.total_files, 0);
 
         // Add some torrents
-        catalog.store(&[
-            create_test_candidate("abc123", "Album 1"),
-            create_test_candidate("def456", "Album 2"),
-        ]).unwrap();
+        catalog
+            .store(&[
+                create_test_candidate("abc123", "Album 1"),
+                create_test_candidate("def456", "Album 2"),
+            ])
+            .unwrap();
 
         let stats = catalog.stats().unwrap();
         assert_eq!(stats.total_torrents, 2);
@@ -685,7 +709,9 @@ mod tests {
     #[test]
     fn test_remove() {
         let catalog = create_test_catalog();
-        catalog.store(&[create_test_candidate("abc123", "Test Album")]).unwrap();
+        catalog
+            .store(&[create_test_candidate("abc123", "Test Album")])
+            .unwrap();
 
         assert!(catalog.exists("abc123").unwrap());
 
@@ -704,10 +730,12 @@ mod tests {
     #[test]
     fn test_clear() {
         let catalog = create_test_catalog();
-        catalog.store(&[
-            create_test_candidate("abc123", "Album 1"),
-            create_test_candidate("def456", "Album 2"),
-        ]).unwrap();
+        catalog
+            .store(&[
+                create_test_candidate("abc123", "Album 1"),
+                create_test_candidate("def456", "Album 2"),
+            ])
+            .unwrap();
 
         let stats = catalog.stats().unwrap();
         assert_eq!(stats.total_torrents, 2);
@@ -759,7 +787,9 @@ mod tests {
     #[test]
     fn test_info_hash_case_insensitive() {
         let catalog = create_test_catalog();
-        catalog.store(&[create_test_candidate("ABC123", "Test Album")]).unwrap();
+        catalog
+            .store(&[create_test_candidate("ABC123", "Test Album")])
+            .unwrap();
 
         // Should find with lowercase
         assert!(catalog.exists("abc123").unwrap());
@@ -778,11 +808,19 @@ mod tests {
 
         // Store files for a torrent that doesn't exist yet
         let files = vec![
-            TorrentFile { path: "folder/file1.flac".to_string(), size_bytes: 100 },
-            TorrentFile { path: "folder/file2.flac".to_string(), size_bytes: 200 },
+            TorrentFile {
+                path: "folder/file1.flac".to_string(),
+                size_bytes: 100,
+            },
+            TorrentFile {
+                path: "folder/file2.flac".to_string(),
+                size_bytes: 200,
+            },
         ];
 
-        catalog.store_files("newhash", "New Torrent", &files).unwrap();
+        catalog
+            .store_files("newhash", "New Torrent", &files)
+            .unwrap();
 
         // Should create the torrent entry
         assert!(catalog.exists("newhash").unwrap());
@@ -801,15 +839,22 @@ mod tests {
         let catalog = create_test_catalog();
 
         // Store initial files
-        let files1 = vec![
-            TorrentFile { path: "old/file.flac".to_string(), size_bytes: 100 },
-        ];
+        let files1 = vec![TorrentFile {
+            path: "old/file.flac".to_string(),
+            size_bytes: 100,
+        }];
         catalog.store_files("hash123", "Test", &files1).unwrap();
 
         // Store new files - should replace
         let files2 = vec![
-            TorrentFile { path: "new/file1.flac".to_string(), size_bytes: 200 },
-            TorrentFile { path: "new/file2.flac".to_string(), size_bytes: 300 },
+            TorrentFile {
+                path: "new/file1.flac".to_string(),
+                size_bytes: 200,
+            },
+            TorrentFile {
+                path: "new/file2.flac".to_string(),
+                size_bytes: 300,
+            },
         ];
         catalog.store_files("hash123", "Test", &files2).unwrap();
 

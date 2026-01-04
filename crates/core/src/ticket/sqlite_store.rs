@@ -59,10 +59,7 @@ impl SqliteTicketStore {
         .map_err(|e| TicketError::Database(e.to_string()))?;
 
         // Migration: add output_constraints column if it doesn't exist
-        let _ = conn.execute(
-            "ALTER TABLE tickets ADD COLUMN output_constraints TEXT",
-            [],
-        );
+        let _ = conn.execute("ALTER TABLE tickets ADD COLUMN output_constraints TEXT", []);
 
         // Migration: add retry_count column if it doesn't exist
         let _ = conn.execute(
@@ -120,14 +117,13 @@ impl SqliteTicketStore {
             .unwrap_or_else(|_| Utc::now());
 
         // Parse JSON fields - these should never fail with valid data
-        let state: TicketState =
-            serde_json::from_str(&state_json).unwrap_or(TicketState::Pending);
+        let state: TicketState = serde_json::from_str(&state_json).unwrap_or(TicketState::Pending);
 
         let query_context: QueryContext = serde_json::from_str(&query_context_json)
             .unwrap_or_else(|_| QueryContext::new(vec![], ""));
 
-        let output_constraints: Option<OutputConstraints> = output_constraints_json
-            .and_then(|json| serde_json::from_str(&json).ok());
+        let output_constraints: Option<OutputConstraints> =
+            output_constraints_json.and_then(|json| serde_json::from_str(&json).ok());
 
         Ok(Ticket {
             id,

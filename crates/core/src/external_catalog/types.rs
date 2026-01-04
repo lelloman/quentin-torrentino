@@ -35,11 +35,7 @@ pub struct MusicBrainzRelease {
 impl MusicBrainzRelease {
     /// Calculate total duration in milliseconds.
     pub fn total_duration_ms(&self) -> Option<u64> {
-        let durations: Vec<u64> = self
-            .tracks
-            .iter()
-            .filter_map(|t| t.duration_ms)
-            .collect();
+        let durations: Vec<u64> = self.tracks.iter().filter_map(|t| t.duration_ms).collect();
 
         if durations.len() == self.tracks.len() && !durations.is_empty() {
             Some(durations.iter().sum())

@@ -179,7 +179,9 @@ impl Placer for MockPlacer {
                 item_id: f.item_id.clone(),
                 destination: f.destination.clone(),
                 size_bytes: 50 * 1024 * 1024,
-                checksum: f.verify_checksum.map(|_| "mock-checksum-abc123".to_string()),
+                checksum: f
+                    .verify_checksum
+                    .map(|_| "mock-checksum-abc123".to_string()),
             })
             .collect();
 
@@ -388,7 +390,9 @@ mod tests {
     #[tokio::test]
     async fn test_progress_updates() {
         let placer = MockPlacer::new();
-        placer.set_placement_duration(Duration::from_millis(30)).await;
+        placer
+            .set_placement_duration(Duration::from_millis(30))
+            .await;
 
         let (tx, mut rx) = mpsc::channel(10);
 

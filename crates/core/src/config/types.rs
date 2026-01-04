@@ -332,38 +332,42 @@ impl From<&Config> for SanitizedConfig {
                     timeout_secs: j.timeout_secs,
                 }),
             }),
-            torrent_client: config.torrent_client.as_ref().map(|tc| {
-                SanitizedTorrentClientConfig {
+            torrent_client: config
+                .torrent_client
+                .as_ref()
+                .map(|tc| SanitizedTorrentClientConfig {
                     backend: match tc.backend {
                         TorrentClientBackend::QBittorrent => "qbittorrent".to_string(),
                         TorrentClientBackend::Librqbit => "librqbit".to_string(),
                     },
-                    qbittorrent: tc.qbittorrent.as_ref().map(|qb| {
-                        SanitizedQBittorrentConfig {
+                    qbittorrent: tc
+                        .qbittorrent
+                        .as_ref()
+                        .map(|qb| SanitizedQBittorrentConfig {
                             url: qb.url.clone(),
                             username: qb.username.clone(),
                             credentials_configured: !qb.password.is_empty(),
                             download_path: qb.download_path.clone(),
                             timeout_secs: qb.timeout_secs,
-                        }
+                        }),
+                    librqbit: tc.librqbit.as_ref().map(|lb| SanitizedLibrqbitConfig {
+                        download_path: lb.download_path.clone(),
+                        enable_dht: lb.enable_dht,
+                        listen_port: lb.listen_port,
+                        persistence_path: lb.persistence_path.clone(),
                     }),
-                    librqbit: tc.librqbit.as_ref().map(|lb| {
-                        SanitizedLibrqbitConfig {
-                            download_path: lb.download_path.clone(),
-                            enable_dht: lb.enable_dht,
-                            listen_port: lb.listen_port,
-                            persistence_path: lb.persistence_path.clone(),
-                        }
-                    }),
-                }
-            }),
+                }),
             textbrain: SanitizedTextBrainConfig {
                 mode: format!("{:?}", config.textbrain.mode).to_lowercase(),
                 auto_approve_threshold: config.textbrain.auto_approve_threshold,
                 confidence_threshold: config.textbrain.confidence_threshold,
                 max_queries: config.textbrain.max_queries,
                 llm_configured: config.textbrain.llm.is_some(),
-                llm_provider: config.textbrain.llm.as_ref().map(|l| format!("{:?}", l.provider).to_lowercase()),
+                llm_provider: config
+                    .textbrain
+                    .llm
+                    .as_ref()
+                    .map(|l| format!("{:?}", l.provider).to_lowercase()),
                 llm_model: config.textbrain.llm.as_ref().map(|l| l.model.clone()),
             },
             orchestrator: SanitizedOrchestratorConfig {
@@ -375,10 +379,13 @@ impl From<&Config> for SanitizedConfig {
             },
             external_catalogs: config.external_catalogs.as_ref().map(|ec| {
                 SanitizedExternalCatalogsConfig {
-                    musicbrainz: ec.musicbrainz.as_ref().map(|mb| SanitizedMusicBrainzConfig {
-                        user_agent: mb.user_agent.clone(),
-                        rate_limit_ms: mb.rate_limit_ms,
-                    }),
+                    musicbrainz: ec
+                        .musicbrainz
+                        .as_ref()
+                        .map(|mb| SanitizedMusicBrainzConfig {
+                            user_agent: mb.user_agent.clone(),
+                            rate_limit_ms: mb.rate_limit_ms,
+                        }),
                     tmdb: ec.tmdb.as_ref().map(|t| SanitizedTmdbConfig {
                         api_key_configured: !t.api_key.is_empty(),
                     }),
@@ -576,7 +583,13 @@ download_path = "/downloads"
 timeout_secs = 60
 "#;
         let config: Config = toml::from_str(toml).unwrap();
-        let qbit = config.torrent_client.as_ref().unwrap().qbittorrent.as_ref().unwrap();
+        let qbit = config
+            .torrent_client
+            .as_ref()
+            .unwrap()
+            .qbittorrent
+            .as_ref()
+            .unwrap();
         assert_eq!(qbit.download_path, Some("/downloads".to_string()));
         assert_eq!(qbit.timeout_secs, 60);
     }

@@ -66,17 +66,16 @@ pub enum PlacerError {
 
     /// Placement failed partially and rollback is needed.
     #[error("Placement failed after {files_placed} files, rollback required: {reason}")]
-    PartialFailure {
-        files_placed: usize,
-        reason: String,
-    },
+    PartialFailure { files_placed: usize, reason: String },
 
     /// Rollback failed.
     #[error("Rollback failed: {reason}")]
     RollbackFailed { reason: String },
 
     /// Insufficient disk space.
-    #[error("Insufficient disk space at {path}: need {required_bytes} bytes, have {available_bytes}")]
+    #[error(
+        "Insufficient disk space at {path}: need {required_bytes} bytes, have {available_bytes}"
+    )]
     InsufficientSpace {
         path: PathBuf,
         required_bytes: u64,

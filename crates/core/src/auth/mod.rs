@@ -17,12 +17,11 @@ pub fn create_authenticator(config: &AuthConfig) -> Result<Box<dyn Authenticator
     match config.method {
         AuthMethod::None => Ok(Box::new(NoneAuthenticator::new())),
         AuthMethod::ApiKey => {
-            let api_key = config
-                .api_key
-                .clone()
-                .ok_or_else(|| AuthError::ConfigurationError(
+            let api_key = config.api_key.clone().ok_or_else(|| {
+                AuthError::ConfigurationError(
                     "api_key must be set when using ApiKey auth method".to_string(),
-                ))?;
+                )
+            })?;
             Ok(Box::new(ApiKeyAuthenticator::new(api_key)))
         }
     }

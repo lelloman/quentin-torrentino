@@ -14,12 +14,12 @@ use tempfile::TempDir;
 use tokio::sync::mpsc;
 
 use torrentino_core::{
-    PipelineProcessor, ProcessorConfig, SqliteTicketStore, TicketStore,
     converter::{ConversionConstraints, ConverterError},
     placer::PlacerError,
     processor::{PipelineJob, PipelineProgress, SourceFile},
     testing::{MockConverter, MockPlacer},
     ticket::{CreateTicketRequest, QueryContext, TicketState},
+    PipelineProcessor, ProcessorConfig, SqliteTicketStore, TicketStore,
 };
 
 /// Test helper to create pipeline processor with mocks.
@@ -45,22 +45,21 @@ impl TestHarness {
         // Use temp directory for pipeline temp files
         config.temp_dir = temp_dir.path().to_path_buf();
 
-        let ticket_store = Arc::new(
-            SqliteTicketStore::new(&db_path).expect("Failed to create ticket store"),
-        );
+        let ticket_store =
+            Arc::new(SqliteTicketStore::new(&db_path).expect("Failed to create ticket store"));
         let converter = MockConverter::new();
         let placer = MockPlacer::new();
 
         // Set fast durations for testing
-        converter.set_conversion_duration(Duration::from_millis(10)).await;
-        placer.set_placement_duration(Duration::from_millis(10)).await;
+        converter
+            .set_conversion_duration(Duration::from_millis(10))
+            .await;
+        placer
+            .set_placement_duration(Duration::from_millis(10))
+            .await;
 
-        let processor = PipelineProcessor::new(
-            config,
-            converter.clone(),
-            placer.clone(),
-        )
-        .with_ticket_store(Arc::clone(&ticket_store) as Arc<dyn TicketStore>);
+        let processor = PipelineProcessor::new(config, converter.clone(), placer.clone())
+            .with_ticket_store(Arc::clone(&ticket_store) as Arc<dyn TicketStore>);
 
         Self {
             processor,
@@ -76,15 +75,20 @@ impl TestHarness {
         let request = CreateTicketRequest {
             created_by: "test".to_string(),
             priority: 100,
-            query_context: QueryContext::new(
-                vec!["test".to_string()],
-                description,
-            ),
-            dest_path: self.temp_dir.path().join("output").to_string_lossy().to_string(),
+            query_context: QueryContext::new(vec!["test".to_string()], description),
+            dest_path: self
+                .temp_dir
+                .path()
+                .join("output")
+                .to_string_lossy()
+                .to_string(),
             output_constraints: None,
         };
 
-        self.ticket_store.create(request).expect("Failed to create ticket").id
+        self.ticket_store
+            .create(request)
+            .expect("Failed to create ticket")
+            .id
     }
 
     fn create_source_file(&self, name: &str) -> PathBuf {
@@ -94,9 +98,11 @@ impl TestHarness {
     }
 
     fn get_ticket_state(&self, ticket_id: &str) -> Option<String> {
-        self.ticket_store.get(ticket_id).ok().flatten().map(|t| {
-            Self::state_name(&t.state).to_string()
-        })
+        self.ticket_store
+            .get(ticket_id)
+            .ok()
+            .flatten()
+            .map(|t| Self::state_name(&t.state).to_string())
     }
 
     fn state_name(state: &TicketState) -> &'static str {
@@ -128,7 +134,10 @@ async fn test_pipeline_starts_in_stopped_state() {
     let harness = TestHarness::new().await;
 
     let status = harness.processor.status().await;
-    assert!(!status.running, "Pipeline should not be running before start");
+    assert!(
+        !status.running,
+        "Pipeline should not be running before start"
+    );
 }
 
 #[tokio::test]
@@ -195,7 +204,11 @@ async fn test_pipeline_processes_job_successfully() {
         metadata: None,
     };
 
-    harness.processor.process(job, Some(progress_tx)).await.unwrap();
+    harness
+        .processor
+        .process(job, Some(progress_tx))
+        .await
+        .unwrap();
 
     // Wait for completion
     let mut completed = false;
@@ -227,7 +240,10 @@ async fn test_pipeline_updates_ticket_to_converting_state() {
     let source_path = harness.create_source_file("test.mp3");
 
     // Slow down conversion to catch the state
-    harness.converter.set_conversion_duration(Duration::from_millis(500)).await;
+    harness
+        .converter
+        .set_conversion_duration(Duration::from_millis(500))
+        .await;
 
     harness.processor.start().await;
 
@@ -248,13 +264,17 @@ async fn test_pipeline_updates_ticket_to_converting_state() {
                 sample_rate_hz: None,
                 channels: None,
                 compression_level: None,
-            }
+            },
         )),
         dest_dir: harness.temp_dir.path().join("output"),
         metadata: None,
     };
 
-    harness.processor.process(job, Some(progress_tx)).await.unwrap();
+    harness
+        .processor
+        .process(job, Some(progress_tx))
+        .await
+        .unwrap();
 
     // Check for converting state via progress
     let mut saw_converting = false;
@@ -280,7 +300,10 @@ async fn test_pipeline_handles_conversion_failure() {
     let source_path = harness.create_source_file("test.mp3");
 
     // Configure mock to fail
-    harness.converter.set_next_error(ConverterError::conversion_failed("test error", None)).await;
+    harness
+        .converter
+        .set_next_error(ConverterError::conversion_failed("test error", None))
+        .await;
 
     harness.processor.start().await;
 
@@ -301,13 +324,17 @@ async fn test_pipeline_handles_conversion_failure() {
                 sample_rate_hz: None,
                 channels: None,
                 compression_level: None,
-            }
+            },
         )),
         dest_dir: harness.temp_dir.path().join("output"),
         metadata: None,
     };
 
-    harness.processor.process(job, Some(progress_tx)).await.unwrap();
+    harness
+        .processor
+        .process(job, Some(progress_tx))
+        .await
+        .unwrap();
 
     // Wait for failure
     let mut failed = false;
@@ -333,7 +360,12 @@ async fn test_pipeline_handles_placement_failure() {
     let source_path = harness.create_source_file("test.mp3");
 
     // Configure placer to fail
-    harness.placer.set_next_error(PlacerError::DestinationExists { path: "/test".into() }).await;
+    harness
+        .placer
+        .set_next_error(PlacerError::DestinationExists {
+            path: "/test".into(),
+        })
+        .await;
 
     harness.processor.start().await;
 
@@ -352,7 +384,11 @@ async fn test_pipeline_handles_placement_failure() {
         metadata: None,
     };
 
-    harness.processor.process(job, Some(progress_tx)).await.unwrap();
+    harness
+        .processor
+        .process(job, Some(progress_tx))
+        .await
+        .unwrap();
 
     // Wait for failure
     let mut failed = false;
@@ -385,7 +421,10 @@ async fn test_pipeline_respects_max_parallel_conversions() {
     let harness = TestHarness::with_config(config).await;
 
     // Slow down conversion to test concurrency
-    harness.converter.set_conversion_duration(Duration::from_millis(200)).await;
+    harness
+        .converter
+        .set_conversion_duration(Duration::from_millis(200))
+        .await;
 
     harness.processor.start().await;
 
@@ -412,13 +451,17 @@ async fn test_pipeline_respects_max_parallel_conversions() {
                     sample_rate_hz: None,
                     channels: None,
                     compression_level: None,
-                }
+                },
             )),
             dest_dir: harness.temp_dir.path().join("output"),
             metadata: None,
         };
 
-        harness.processor.process(job, Some(progress_tx)).await.unwrap();
+        harness
+            .processor
+            .process(job, Some(progress_tx))
+            .await
+            .unwrap();
         receivers.push(progress_rx);
     }
 
@@ -453,7 +496,10 @@ async fn test_pipeline_prevents_duplicate_jobs() {
     let source_path = harness.create_source_file("test.mp3");
 
     // Slow down to keep job active
-    harness.converter.set_conversion_duration(Duration::from_millis(500)).await;
+    harness
+        .converter
+        .set_conversion_duration(Duration::from_millis(500))
+        .await;
 
     harness.processor.start().await;
 
@@ -472,7 +518,7 @@ async fn test_pipeline_prevents_duplicate_jobs() {
                 sample_rate_hz: None,
                 channels: None,
                 compression_level: None,
-            }
+            },
         )),
         dest_dir: harness.temp_dir.path().join("output"),
         metadata: None,
@@ -500,7 +546,10 @@ async fn test_pipeline_status_shows_active_jobs() {
     let source_path = harness.create_source_file("test.mp3");
 
     // Slow down to capture status
-    harness.converter.set_conversion_duration(Duration::from_millis(300)).await;
+    harness
+        .converter
+        .set_conversion_duration(Duration::from_millis(300))
+        .await;
 
     harness.processor.start().await;
 
@@ -519,21 +568,26 @@ async fn test_pipeline_status_shows_active_jobs() {
                 sample_rate_hz: None,
                 channels: None,
                 compression_level: None,
-            }
+            },
         )),
         dest_dir: harness.temp_dir.path().join("output"),
         metadata: None,
     };
 
     let (progress_tx, _) = mpsc::channel(100);
-    harness.processor.process(job, Some(progress_tx)).await.unwrap();
+    harness
+        .processor
+        .process(job, Some(progress_tx))
+        .await
+        .unwrap();
 
     // Small delay for job to start
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     let status = harness.processor.status().await;
     assert!(
-        status.converting_tickets.contains(&ticket_id) || status.placing_tickets.contains(&ticket_id),
+        status.converting_tickets.contains(&ticket_id)
+            || status.placing_tickets.contains(&ticket_id),
         "Active job should appear in status"
     );
 }

@@ -137,7 +137,6 @@ pub struct OrchestratorConfig {
     // ========================================================================
     // Stall detection and failover
     // ========================================================================
-
     /// Round 1 stall timeout in seconds (default: 300 = 5 minutes).
     /// If no progress for this duration, try next candidate.
     #[serde(default = "default_stall_timeout_round1")]
@@ -378,7 +377,10 @@ mod tests {
         // Base delay for attempt 1 is 10000ms, with ±20% jitter: 8000-12000ms
         let delay = config.delay_for_attempt(1).unwrap();
         let delay_ms = delay.as_millis() as u64;
-        assert!(delay_ms >= 8000 && delay_ms <= 12000,
-            "Delay {} should be between 8000 and 12000", delay_ms);
+        assert!(
+            delay_ms >= 8000 && delay_ms <= 12000,
+            "Delay {} should be between 8000 and 12000",
+            delay_ms
+        );
     }
 }

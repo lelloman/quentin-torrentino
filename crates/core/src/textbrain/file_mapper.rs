@@ -4,8 +4,8 @@
 //! Supports both heuristic-based ("dumb") and LLM-enhanced mapping.
 
 use crate::searcher::TorrentFile;
-use crate::ticket::{ExpectedContent, ExpectedTrack};
 use crate::textbrain::types::FileMapping;
+use crate::ticket::{ExpectedContent, ExpectedTrack};
 
 /// Configuration for the dumb file mapper.
 #[derive(Debug, Clone)]
@@ -208,10 +208,7 @@ impl DumbFileMapper {
         }
 
         // Sort by score descending
-        candidates.sort_by(|a, b| {
-            b.1.partial_cmp(&a.1)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
+        candidates.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
         candidates
             .first()
@@ -388,18 +385,12 @@ impl DumbFileMapper {
 
     /// Get file extension from path.
     fn get_extension(&self, path: &str) -> String {
-        path.rsplit('.')
-            .next()
-            .unwrap_or("")
-            .to_lowercase()
+        path.rsplit('.').next().unwrap_or("").to_lowercase()
     }
 
     /// Extract filename from path.
     fn extract_filename(&self, path: &str) -> String {
-        path.rsplit(['/', '\\'])
-            .next()
-            .unwrap_or(path)
-            .to_string()
+        path.rsplit(['/', '\\']).next().unwrap_or(path).to_string()
     }
 
     /// Extract track number and disc number from filename.
@@ -447,7 +438,7 @@ impl DumbFileMapper {
         let patterns = [
             (r"cd\s*(\d+)", 1),
             (r"disc\s*(\d+)", 1),
-            (r"\bd(\d)t", 1),   // D1T pattern
+            (r"\bd(\d)t", 1), // D1T pattern
             (r"\[disc\s*(\d+)\]", 1),
         ];
 
@@ -525,9 +516,33 @@ impl DumbFileMapper {
     /// Extract keywords from text.
     fn extract_keywords(&self, text: &str) -> Vec<String> {
         let stop_words: std::collections::HashSet<&str> = [
-            "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with",
-            "by", "from", "as", "is", "ft", "feat", "featuring", "vs", "remix", "remaster",
-            "remastered", "edition", "version", "mix",
+            "the",
+            "a",
+            "an",
+            "and",
+            "or",
+            "but",
+            "in",
+            "on",
+            "at",
+            "to",
+            "for",
+            "of",
+            "with",
+            "by",
+            "from",
+            "as",
+            "is",
+            "ft",
+            "feat",
+            "featuring",
+            "vs",
+            "remix",
+            "remaster",
+            "remastered",
+            "edition",
+            "version",
+            "mix",
         ]
         .into_iter()
         .collect();
@@ -562,10 +577,7 @@ impl Default for DumbFileMapper {
 /// Calculate overall file mapping quality for a set of mappings.
 ///
 /// Returns a score from 0.0 to 1.0 indicating how well files matched.
-pub fn calculate_mapping_quality(
-    mappings: &[FileMapping],
-    expected: &ExpectedContent,
-) -> f32 {
+pub fn calculate_mapping_quality(mappings: &[FileMapping], expected: &ExpectedContent) -> f32 {
     let expected_count = expected.expected_file_count();
 
     if expected_count == 0 {
@@ -580,7 +592,8 @@ pub fn calculate_mapping_quality(
     let coverage = mappings.len() as f32 / expected_count as f32;
 
     // Average confidence of mappings
-    let avg_confidence: f32 = mappings.iter().map(|m| m.confidence).sum::<f32>() / mappings.len() as f32;
+    let avg_confidence: f32 =
+        mappings.iter().map(|m| m.confidence).sum::<f32>() / mappings.len() as f32;
 
     // Combined score (weighted)
     (coverage * 0.6 + avg_confidence * 0.4).min(1.0)
@@ -639,8 +652,14 @@ mod tests {
     fn test_extract_disc_track_pattern() {
         let mapper = DumbFileMapper::new();
 
-        assert_eq!(mapper.extract_disc_track_pattern("d1t01 - track.flac"), Some(1));
-        assert_eq!(mapper.extract_disc_track_pattern("d2t05 track.flac"), Some(5));
+        assert_eq!(
+            mapper.extract_disc_track_pattern("d1t01 - track.flac"),
+            Some(1)
+        );
+        assert_eq!(
+            mapper.extract_disc_track_pattern("d2t05 track.flac"),
+            Some(5)
+        );
         assert_eq!(mapper.extract_disc_track_pattern("track.flac"), None);
     }
 
@@ -772,22 +791,28 @@ mod tests {
         ];
 
         let quality = calculate_mapping_quality(&mappings, &expected);
-        assert!(quality >= 0.8, "Expected high quality for full mapping, got {}", quality);
+        assert!(
+            quality >= 0.8,
+            "Expected high quality for full mapping, got {}",
+            quality
+        );
     }
 
     #[test]
     fn test_calculate_mapping_quality_partial() {
         let expected = ExpectedContent::album("Test", make_tracks());
-        let mappings = vec![
-            FileMapping {
-                torrent_file_path: "01.flac".to_string(),
-                ticket_item_id: "track-1".to_string(),
-                confidence: 0.8,
-            },
-        ];
+        let mappings = vec![FileMapping {
+            torrent_file_path: "01.flac".to_string(),
+            ticket_item_id: "track-1".to_string(),
+            confidence: 0.8,
+        }];
 
         let quality = calculate_mapping_quality(&mappings, &expected);
-        assert!(quality < 0.6, "Expected lower quality for partial mapping, got {}", quality);
+        assert!(
+            quality < 0.6,
+            "Expected lower quality for partial mapping, got {}",
+            quality
+        );
     }
 
     #[test]
@@ -802,12 +827,9 @@ mod tests {
     #[test]
     fn test_multi_disc_album() {
         let mapper = DumbFileMapper::new();
-        let _files = vec![
-            make_file("CD1/01 - Track One.flac", 30_000_000),
-            make_file("CD1/02 - Track Two.flac", 25_000_000),
-            make_file("CD2/01 - Track Three.flac", 28_000_000),
-            make_file("CD2/02 - Track Four.flac", 27_000_000),
-        ];
+        // Example multi-disc structure:
+        // CD1/01 - Track One.flac, CD1/02 - Track Two.flac
+        // CD2/01 - Track Three.flac, CD2/02 - Track Four.flac
 
         // extract_track_info works on filenames, not paths
         // For paths, disc info in directory is handled during map_files
@@ -839,6 +861,9 @@ mod tests {
         assert_eq!(mapper.extract_paren_number("Title (01).flac"), Some(1));
 
         // Format 5: "D1T01 - Title.flac"
-        assert_eq!(mapper.extract_disc_track_pattern("d1t01 - title.flac"), Some(1));
+        assert_eq!(
+            mapper.extract_disc_track_pattern("d1t01 - title.flac"),
+            Some(1)
+        );
     }
 }

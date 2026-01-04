@@ -112,8 +112,7 @@ impl MockTorrentClient {
         if let Some(torrent) = torrents.get_mut(hash) {
             let progress = progress.clamp(0.0, 1.0);
             torrent.info.progress = progress;
-            torrent.info.downloaded_bytes =
-                (torrent.info.size_bytes as f64 * progress) as u64;
+            torrent.info.downloaded_bytes = (torrent.info.size_bytes as f64 * progress) as u64;
 
             if progress >= 1.0 {
                 torrent.info.state = TorrentState::Seeding;
@@ -242,11 +241,7 @@ impl TorrentClient for MockTorrentClient {
         };
 
         // Extract name and other info from request
-        let hash_prefix = if hash.len() >= 8 {
-            &hash[..8]
-        } else {
-            &hash
-        };
+        let hash_prefix = if hash.len() >= 8 { &hash[..8] } else { &hash };
         let (name, save_path, category) = match &request {
             AddTorrentRequest::Magnet {
                 download_path,
@@ -551,20 +546,21 @@ mod tests {
 
         client
             .add_torrent(
-                AddTorrentRequest::magnet("magnet:?xt=urn:btih:movie1")
-                    .with_category("movies"),
+                AddTorrentRequest::magnet("magnet:?xt=urn:btih:movie1").with_category("movies"),
             )
             .await
             .unwrap();
         client
             .add_torrent(
-                AddTorrentRequest::magnet("magnet:?xt=urn:btih:music1")
-                    .with_category("music"),
+                AddTorrentRequest::magnet("magnet:?xt=urn:btih:music1").with_category("music"),
             )
             .await
             .unwrap();
 
-        let all = client.list_torrents(&TorrentFilters::default()).await.unwrap();
+        let all = client
+            .list_torrents(&TorrentFilters::default())
+            .await
+            .unwrap();
         assert_eq!(all.len(), 2);
 
         let movies = client

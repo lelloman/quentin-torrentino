@@ -98,17 +98,23 @@ pub async fn auth_middleware(
         }
         Err(torrentino_core::AuthError::NotAuthenticated) => {
             // No credentials provided
-            AUTH_FAILURES_TOTAL.with_label_values(&["not_authenticated"]).inc();
+            AUTH_FAILURES_TOTAL
+                .with_label_values(&["not_authenticated"])
+                .inc();
             Err(StatusCode::UNAUTHORIZED)
         }
         Err(torrentino_core::AuthError::InvalidCredentials(_)) => {
             // Wrong credentials
-            AUTH_FAILURES_TOTAL.with_label_values(&["invalid_credentials"]).inc();
+            AUTH_FAILURES_TOTAL
+                .with_label_values(&["invalid_credentials"])
+                .inc();
             Err(StatusCode::UNAUTHORIZED)
         }
         Err(_) => {
             // Other auth errors (service unavailable, config error)
-            AUTH_FAILURES_TOTAL.with_label_values(&["internal_error"]).inc();
+            AUTH_FAILURES_TOTAL
+                .with_label_values(&["internal_error"])
+                .inc();
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
     }
@@ -144,6 +150,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::api::WsBroadcaster;
     use axum::{
         body::Body,
         http::{header, Request},
@@ -152,14 +159,13 @@ mod tests {
         Router,
     };
     use std::sync::Arc;
-    use torrentino_core::{
-        create_audit_system, ApiKeyAuthenticator, AuthConfig, AuthMethod, Config,
-        DatabaseConfig, SqliteAuditStore, SqliteCatalog, SqliteTicketStore,
-    };
-    use crate::api::WsBroadcaster;
     use torrentino_core::config::ServerConfig;
-    use torrentino_core::textbrain::TextBrainConfig;
     use torrentino_core::orchestrator::OrchestratorConfig;
+    use torrentino_core::textbrain::TextBrainConfig;
+    use torrentino_core::{
+        create_audit_system, ApiKeyAuthenticator, AuthConfig, AuthMethod, Config, DatabaseConfig,
+        SqliteAuditStore, SqliteCatalog, SqliteTicketStore,
+    };
     use tower::ServiceExt;
 
     async fn dummy_handler() -> &'static str {
@@ -185,17 +191,18 @@ mod tests {
 
         let authenticator: Arc<dyn torrentino_core::Authenticator> = match auth_config.method {
             AuthMethod::None => Arc::new(torrentino_core::NoneAuthenticator::new()),
-            AuthMethod::ApiKey => {
-                Arc::new(ApiKeyAuthenticator::new(auth_config.api_key.clone().unwrap()))
-            }
+            AuthMethod::ApiKey => Arc::new(ApiKeyAuthenticator::new(
+                auth_config.api_key.clone().unwrap(),
+            )),
         };
 
-        let audit_store =
-            Arc::new(SqliteAuditStore::new(&db_path).unwrap()) as Arc<dyn torrentino_core::AuditStore>;
+        let audit_store = Arc::new(SqliteAuditStore::new(&db_path).unwrap())
+            as Arc<dyn torrentino_core::AuditStore>;
         let (audit_handle, _writer) = create_audit_system(audit_store.clone(), 100);
-        let ticket_store =
-            Arc::new(SqliteTicketStore::new(&db_path).unwrap()) as Arc<dyn torrentino_core::TicketStore>;
-        let catalog = Arc::new(SqliteCatalog::new(&db_path).unwrap()) as Arc<dyn torrentino_core::TorrentCatalog>;
+        let ticket_store = Arc::new(SqliteTicketStore::new(&db_path).unwrap())
+            as Arc<dyn torrentino_core::TicketStore>;
+        let catalog = Arc::new(SqliteCatalog::new(&db_path).unwrap())
+            as Arc<dyn torrentino_core::TorrentCatalog>;
 
         // Leak the temp_dir to keep the database around
         std::mem::forget(temp_dir);
@@ -227,13 +234,13 @@ mod tests {
 
         let app = Router::new()
             .route("/test", get(dummy_handler))
-            .layer(middleware::from_fn_with_state(state.clone(), auth_middleware))
+            .layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth_middleware,
+            ))
             .with_state(state);
 
-        let request = Request::builder()
-            .uri("/test")
-            .body(Body::empty())
-            .unwrap();
+        let request = Request::builder().uri("/test").body(Body::empty()).unwrap();
 
         let response = app.oneshot(request).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
@@ -249,7 +256,10 @@ mod tests {
 
         let app = Router::new()
             .route("/test", get(dummy_handler))
-            .layer(middleware::from_fn_with_state(state.clone(), auth_middleware))
+            .layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth_middleware,
+            ))
             .with_state(state);
 
         let request = Request::builder()
@@ -272,7 +282,10 @@ mod tests {
 
         let app = Router::new()
             .route("/test", get(dummy_handler))
-            .layer(middleware::from_fn_with_state(state.clone(), auth_middleware))
+            .layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth_middleware,
+            ))
             .with_state(state);
 
         let request = Request::builder()
@@ -295,13 +308,13 @@ mod tests {
 
         let app = Router::new()
             .route("/test", get(dummy_handler))
-            .layer(middleware::from_fn_with_state(state.clone(), auth_middleware))
+            .layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth_middleware,
+            ))
             .with_state(state);
 
-        let request = Request::builder()
-            .uri("/test")
-            .body(Body::empty())
-            .unwrap();
+        let request = Request::builder().uri("/test").body(Body::empty()).unwrap();
 
         let response = app.oneshot(request).await.unwrap();
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
@@ -317,7 +330,10 @@ mod tests {
 
         let app = Router::new()
             .route("/test", get(dummy_handler))
-            .layer(middleware::from_fn_with_state(state.clone(), auth_middleware))
+            .layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth_middleware,
+            ))
             .with_state(state);
 
         let request = Request::builder()
@@ -346,7 +362,10 @@ mod tests {
 
         let app = Router::new()
             .route("/test", get(user_handler))
-            .layer(middleware::from_fn_with_state(state.clone(), auth_middleware))
+            .layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth_middleware,
+            ))
             .with_state(state);
 
         let request = Request::builder()
@@ -381,13 +400,13 @@ mod tests {
 
         let app = Router::new()
             .route("/test", get(user_handler))
-            .layer(middleware::from_fn_with_state(state.clone(), auth_middleware))
+            .layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth_middleware,
+            ))
             .with_state(state);
 
-        let request = Request::builder()
-            .uri("/test")
-            .body(Body::empty())
-            .unwrap();
+        let request = Request::builder().uri("/test").body(Body::empty()).unwrap();
 
         let response = app.oneshot(request).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);

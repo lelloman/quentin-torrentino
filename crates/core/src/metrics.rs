@@ -6,9 +6,7 @@
 //! - External services (Jackett, torrent client, LLM)
 
 use once_cell::sync::Lazy;
-use prometheus::{
-    HistogramOpts, HistogramVec, IntCounter, IntCounterVec, Opts,
-};
+use prometheus::{HistogramOpts, HistogramVec, IntCounter, IntCounterVec, Opts};
 
 // =============================================================================
 // Orchestrator - Acquisition Metrics
@@ -84,11 +82,7 @@ pub static MATCH_CONFIDENCE: Lazy<HistogramVec> = Lazy::new(|| {
 
 /// Downloads started total.
 pub static DOWNLOADS_STARTED: Lazy<IntCounter> = Lazy::new(|| {
-    IntCounter::new(
-        "quentin_downloads_started_total",
-        "Total downloads started",
-    )
-    .unwrap()
+    IntCounter::new("quentin_downloads_started_total", "Total downloads started").unwrap()
 });
 
 /// Downloads completed total.
@@ -112,11 +106,11 @@ pub static DOWNLOADS_FAILED: Lazy<IntCounter> = Lazy::new(|| {
 /// Download duration in seconds.
 pub static DOWNLOAD_DURATION: Lazy<HistogramVec> = Lazy::new(|| {
     HistogramVec::new(
-        HistogramOpts::new(
-            "quentin_download_duration_seconds",
-            "Duration of downloads",
-        )
-        .buckets(vec![30.0, 60.0, 120.0, 300.0, 600.0, 1800.0, 3600.0, 7200.0, 14400.0]),
+        HistogramOpts::new("quentin_download_duration_seconds", "Duration of downloads").buckets(
+            vec![
+                30.0, 60.0, 120.0, 300.0, 600.0, 1800.0, 3600.0, 7200.0, 14400.0,
+            ],
+        ),
         &["result"], // "success", "failed"
     )
     .unwrap()
@@ -169,7 +163,9 @@ pub static CONVERSION_DURATION: Lazy<HistogramVec> = Lazy::new(|| {
             "quentin_conversion_duration_seconds",
             "Duration of file conversions",
         )
-        .buckets(vec![1.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0, 1800.0]),
+        .buckets(vec![
+            1.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0, 1800.0,
+        ]),
         &[],
     )
     .unwrap()

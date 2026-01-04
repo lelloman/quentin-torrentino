@@ -126,9 +126,12 @@ impl QBittorrentClient {
             self.login().await?;
 
             // Retry the request
-            let response = self.client.get(&url).send().await.map_err(|e| {
-                TorrentClientError::ApiError(e.to_string())
-            })?;
+            let response = self
+                .client
+                .get(&url)
+                .send()
+                .await
+                .map_err(|e| TorrentClientError::ApiError(e.to_string()))?;
 
             if !response.status().is_success() {
                 return Err(TorrentClientError::ApiError(format!(
@@ -361,7 +364,10 @@ impl TorrentClient for QBittorrentClient {
             } => {
                 let mut form = multipart::Form::new().text("urls", uri.clone());
 
-                if let Some(path) = download_path.as_ref().or(self.config.download_path.as_ref()) {
+                if let Some(path) = download_path
+                    .as_ref()
+                    .or(self.config.download_path.as_ref())
+                {
                     form = form.text("savepath", path.clone());
                 }
                 if let Some(cat) = category {
@@ -395,7 +401,10 @@ impl TorrentClient for QBittorrentClient {
 
                 let mut form = multipart::Form::new().part("torrents", file_part);
 
-                if let Some(path) = download_path.as_ref().or(self.config.download_path.as_ref()) {
+                if let Some(path) = download_path
+                    .as_ref()
+                    .or(self.config.download_path.as_ref())
+                {
                     form = form.text("savepath", path.clone());
                 }
                 if let Some(cat) = category {
@@ -440,10 +449,7 @@ impl TorrentClient for QBittorrentClient {
         }
 
         if let Some(category) = &filters.category {
-            query_parts.push(format!(
-                "category={}",
-                urlencoding::encode(category)
-            ));
+            query_parts.push(format!("category={}", urlencoding::encode(category)));
         }
 
         if !query_parts.is_empty() {
@@ -452,11 +458,14 @@ impl TorrentClient for QBittorrentClient {
         }
 
         let response = self.get(&endpoint).await?;
-        let torrents: Vec<QBTorrentInfo> = serde_json::from_str(&response)
-            .map_err(|e| TorrentClientError::ApiError(format!("Failed to parse response: {}", e)))?;
+        let torrents: Vec<QBTorrentInfo> = serde_json::from_str(&response).map_err(|e| {
+            TorrentClientError::ApiError(format!("Failed to parse response: {}", e))
+        })?;
 
-        let mut results: Vec<TorrentInfo> =
-            torrents.into_iter().map(|t| t.into_torrent_info()).collect();
+        let mut results: Vec<TorrentInfo> = torrents
+            .into_iter()
+            .map(|t| t.into_torrent_info())
+            .collect();
 
         // Apply client-side search filter if specified
         if let Some(search) = &filters.search {
@@ -472,8 +481,9 @@ impl TorrentClient for QBittorrentClient {
         let endpoint = format!("/api/v2/torrents/info?hashes={}", hash_lower);
         let response = self.get(&endpoint).await?;
 
-        let torrents: Vec<QBTorrentInfo> = serde_json::from_str(&response)
-            .map_err(|e| TorrentClientError::ApiError(format!("Failed to parse response: {}", e)))?;
+        let torrents: Vec<QBTorrentInfo> = serde_json::from_str(&response).map_err(|e| {
+            TorrentClientError::ApiError(format!("Failed to parse response: {}", e))
+        })?;
 
         torrents
             .into_iter()
@@ -482,7 +492,11 @@ impl TorrentClient for QBittorrentClient {
             .ok_or_else(|| TorrentClientError::TorrentNotFound(hash.to_string()))
     }
 
-    async fn remove_torrent(&self, hash: &str, delete_files: bool) -> Result<(), TorrentClientError> {
+    async fn remove_torrent(
+        &self,
+        hash: &str,
+        delete_files: bool,
+    ) -> Result<(), TorrentClientError> {
         let hash_lower = hash.to_lowercase();
         let delete_str = if delete_files { "true" } else { "false" };
 
@@ -616,10 +630,16 @@ mod tests {
     #[test]
     fn test_extract_hash_from_magnet() {
         let magnet = "magnet:?xt=urn:btih:abc123def456&dn=Test";
-        assert_eq!(extract_hash_from_magnet(magnet), Some("abc123def456".to_string()));
+        assert_eq!(
+            extract_hash_from_magnet(magnet),
+            Some("abc123def456".to_string())
+        );
 
         let magnet_upper = "magnet:?xt=urn:btih:ABC123DEF456&dn=Test";
-        assert_eq!(extract_hash_from_magnet(magnet_upper), Some("abc123def456".to_string()));
+        assert_eq!(
+            extract_hash_from_magnet(magnet_upper),
+            Some("abc123def456".to_string())
+        );
 
         let invalid = "not a magnet";
         assert_eq!(extract_hash_from_magnet(invalid), None);

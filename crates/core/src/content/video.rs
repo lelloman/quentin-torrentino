@@ -152,10 +152,7 @@ fn get_quality_keywords(
 
     let resolution = c.preferred_resolution.as_ref().map(|r| r.as_keyword());
 
-    let source = c
-        .preferred_sources
-        .first()
-        .map(|s| s.as_keyword());
+    let source = c.preferred_sources.first().map(|s| s.as_keyword());
 
     (resolution, source)
 }
@@ -511,7 +508,11 @@ impl<'a> VideoScorer<'a> {
                     return ConstraintCheckResult {
                         rejected: true,
                         bonus: 0.0,
-                        reason: format!("detected {} < min {}", detected.as_keyword(), min_res.as_keyword()),
+                        reason: format!(
+                            "detected {} < min {}",
+                            detected.as_keyword(),
+                            min_res.as_keyword()
+                        ),
                     };
                 }
             }
@@ -533,13 +534,16 @@ impl<'a> VideoScorer<'a> {
         if !constraints.preferred_sources.is_empty() {
             let source_match = constraints.preferred_sources.iter().any(|s| {
                 let kw = s.as_keyword().to_lowercase();
-                title.contains(&kw) || match s {
-                    VideoSource::Remux => title.contains("remux"),
-                    VideoSource::BluRay => title.contains("bluray") || title.contains("blu-ray"),
-                    VideoSource::WebDl => title.contains("web-dl") || title.contains("webdl"),
-                    VideoSource::Hdtv => title.contains("hdtv"),
-                    VideoSource::Cam => title.contains("cam") || title.contains("hdcam"),
-                }
+                title.contains(&kw)
+                    || match s {
+                        VideoSource::Remux => title.contains("remux"),
+                        VideoSource::BluRay => {
+                            title.contains("bluray") || title.contains("blu-ray")
+                        }
+                        VideoSource::WebDl => title.contains("web-dl") || title.contains("webdl"),
+                        VideoSource::Hdtv => title.contains("hdtv"),
+                        VideoSource::Cam => title.contains("cam") || title.contains("hdcam"),
+                    }
             });
             if source_match {
                 bonus += 0.08;
@@ -550,7 +554,9 @@ impl<'a> VideoScorer<'a> {
         if !constraints.preferred_codecs.is_empty() {
             let codec_match = constraints.preferred_codecs.iter().any(|c| match c {
                 VideoCodec::X264 => title.contains("x264") || title.contains("h264"),
-                VideoCodec::X265 => title.contains("x265") || title.contains("hevc") || title.contains("h265"),
+                VideoCodec::X265 => {
+                    title.contains("x265") || title.contains("hevc") || title.contains("h265")
+                }
                 VideoCodec::Av1 => title.contains("av1"),
             });
             if codec_match {
@@ -612,7 +618,11 @@ impl<'a> VideoScorer<'a> {
         };
 
         match catalog {
-            CatalogReference::Tmdb { media_type, episode_count, .. } => {
+            CatalogReference::Tmdb {
+                media_type,
+                episode_count,
+                ..
+            } => {
                 // For TV, validate episode count
                 if let Some(expected_eps) = episode_count {
                     if file_mappings.is_empty() {
@@ -1158,7 +1168,13 @@ const SUBTITLE_EXTENSIONS: &[&str] = &["srt", "ass", "ssa", "sub", "idx", "vtt"]
 
 /// Common subtitle filename patterns.
 const SUBTITLE_LANG_PATTERNS: &[&str] = &[
-    ".en.", ".eng.", ".english.", ".en-", ".eng-", ".en_", ".eng_",
+    ".en.",
+    ".eng.",
+    ".english.",
+    ".en-",
+    ".eng-",
+    ".en_",
+    ".eng_",
 ];
 
 /// Post-process video content.
@@ -1221,9 +1237,7 @@ async fn find_existing_subtitles(download_path: &Path) -> Vec<std::path::PathBuf
 }
 
 /// Simple async directory walker.
-async fn async_walkdir(
-    path: &Path,
-) -> Result<AsyncWalker, std::io::Error> {
+async fn async_walkdir(path: &Path) -> Result<AsyncWalker, std::io::Error> {
     Ok(AsyncWalker {
         stack: vec![path.to_path_buf()],
         current_entries: None,
@@ -1312,7 +1326,11 @@ mod tests {
     fn make_movie_context(title: &str, year: Option<u32>) -> QueryContext {
         QueryContext {
             tags: vec!["movie".to_string()],
-            description: format!("{} {}", title, year.map_or(String::new(), |y| y.to_string())),
+            description: format!(
+                "{} {}",
+                title,
+                year.map_or(String::new(), |y| y.to_string())
+            ),
             expected: Some(ExpectedContent::Movie {
                 title: title.to_string(),
                 year,
@@ -1372,7 +1390,10 @@ mod tests {
         assert!(!result.queries.is_empty());
 
         // Should contain title + year
-        assert!(result.queries.iter().any(|q| q.contains("Matrix") && q.contains("1999")));
+        assert!(result
+            .queries
+            .iter()
+            .any(|q| q.contains("Matrix") && q.contains("1999")));
 
         // Should contain quality queries
         assert!(result.queries.iter().any(|q| q.contains("1080p")));
@@ -1398,7 +1419,10 @@ mod tests {
         let result = build_queries(&context, &make_config()).await.unwrap();
 
         // Should contain season pack query
-        assert!(result.queries.iter().any(|q| q.contains("S01") && q.contains("complete")));
+        assert!(result
+            .queries
+            .iter()
+            .any(|q| q.contains("S01") && q.contains("complete")));
     }
 
     #[tokio::test]

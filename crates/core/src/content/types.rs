@@ -92,10 +92,7 @@ mod tests {
     #[test]
     fn test_post_process_result_with_cover_art() {
         let result = PostProcessResult::with_cover_art(PathBuf::from("/tmp/cover.jpg"));
-        assert_eq!(
-            result.cover_art_path,
-            Some(PathBuf::from("/tmp/cover.jpg"))
-        );
+        assert_eq!(result.cover_art_path, Some(PathBuf::from("/tmp/cover.jpg")));
     }
 
     #[test]

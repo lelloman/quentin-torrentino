@@ -30,7 +30,9 @@ pub static HTTP_REQUEST_DURATION: Lazy<HistogramVec> = Lazy::new(|| {
             "quentin_http_request_duration_seconds",
             "HTTP request duration in seconds",
         )
-        .buckets(vec![0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]),
+        .buckets(vec![
+            0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
+        ]),
         &["method", "path", "status"],
     )
     .unwrap()
@@ -57,7 +59,10 @@ pub static HTTP_REQUESTS_IN_FLIGHT: Lazy<IntGauge> = Lazy::new(|| {
 /// Authentication failures.
 pub static AUTH_FAILURES_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
     IntCounterVec::new(
-        Opts::new("quentin_auth_failures_total", "Total authentication failures"),
+        Opts::new(
+            "quentin_auth_failures_total",
+            "Total authentication failures",
+        ),
         &["reason"],
     )
     .unwrap()
@@ -227,35 +232,71 @@ pub static CATALOG_ENTRIES: Lazy<IntGauge> = Lazy::new(|| {
 
 fn register_metrics(registry: &Registry) {
     // HTTP
-    registry.register(Box::new(HTTP_REQUEST_DURATION.clone())).unwrap();
-    registry.register(Box::new(HTTP_REQUESTS_TOTAL.clone())).unwrap();
-    registry.register(Box::new(HTTP_REQUESTS_IN_FLIGHT.clone())).unwrap();
-    registry.register(Box::new(AUTH_FAILURES_TOTAL.clone())).unwrap();
+    registry
+        .register(Box::new(HTTP_REQUEST_DURATION.clone()))
+        .unwrap();
+    registry
+        .register(Box::new(HTTP_REQUESTS_TOTAL.clone()))
+        .unwrap();
+    registry
+        .register(Box::new(HTTP_REQUESTS_IN_FLIGHT.clone()))
+        .unwrap();
+    registry
+        .register(Box::new(AUTH_FAILURES_TOTAL.clone()))
+        .unwrap();
 
     // WebSocket
-    registry.register(Box::new(WS_CONNECTIONS_ACTIVE.clone())).unwrap();
-    registry.register(Box::new(WS_CONNECTIONS_TOTAL.clone())).unwrap();
-    registry.register(Box::new(WS_MESSAGES_SENT.clone())).unwrap();
+    registry
+        .register(Box::new(WS_CONNECTIONS_ACTIVE.clone()))
+        .unwrap();
+    registry
+        .register(Box::new(WS_CONNECTIONS_TOTAL.clone()))
+        .unwrap();
+    registry
+        .register(Box::new(WS_MESSAGES_SENT.clone()))
+        .unwrap();
     registry.register(Box::new(WS_LAG_EVENTS.clone())).unwrap();
 
     // Tickets
-    registry.register(Box::new(TICKETS_BY_STATE.clone())).unwrap();
-    registry.register(Box::new(TICKET_STATE_TRANSITIONS.clone())).unwrap();
-    registry.register(Box::new(TICKETS_CREATED_TOTAL.clone())).unwrap();
-    registry.register(Box::new(TICKETS_FAILED_TOTAL.clone())).unwrap();
+    registry
+        .register(Box::new(TICKETS_BY_STATE.clone()))
+        .unwrap();
+    registry
+        .register(Box::new(TICKET_STATE_TRANSITIONS.clone()))
+        .unwrap();
+    registry
+        .register(Box::new(TICKETS_CREATED_TOTAL.clone()))
+        .unwrap();
+    registry
+        .register(Box::new(TICKETS_FAILED_TOTAL.clone()))
+        .unwrap();
 
     // Orchestrator
-    registry.register(Box::new(ORCHESTRATOR_RUNNING.clone())).unwrap();
-    registry.register(Box::new(DOWNLOADS_ACTIVE.clone())).unwrap();
+    registry
+        .register(Box::new(ORCHESTRATOR_RUNNING.clone()))
+        .unwrap();
+    registry
+        .register(Box::new(DOWNLOADS_ACTIVE.clone()))
+        .unwrap();
 
     // Pipeline
-    registry.register(Box::new(CONVERSION_POOL_ACTIVE.clone())).unwrap();
-    registry.register(Box::new(CONVERSION_POOL_QUEUED.clone())).unwrap();
-    registry.register(Box::new(PLACEMENT_POOL_ACTIVE.clone())).unwrap();
-    registry.register(Box::new(PLACEMENT_POOL_QUEUED.clone())).unwrap();
+    registry
+        .register(Box::new(CONVERSION_POOL_ACTIVE.clone()))
+        .unwrap();
+    registry
+        .register(Box::new(CONVERSION_POOL_QUEUED.clone()))
+        .unwrap();
+    registry
+        .register(Box::new(PLACEMENT_POOL_ACTIVE.clone()))
+        .unwrap();
+    registry
+        .register(Box::new(PLACEMENT_POOL_QUEUED.clone()))
+        .unwrap();
 
     // Catalog
-    registry.register(Box::new(CATALOG_ENTRIES.clone())).unwrap();
+    registry
+        .register(Box::new(CATALOG_ENTRIES.clone()))
+        .unwrap();
 
     // Core metrics (orchestrator, pipeline, external services)
     for metric in torrentino_core::metrics::all_metrics() {
@@ -318,9 +359,7 @@ pub async fn collect_dynamic_metrics(state: &crate::state::AppState) {
     ] {
         let filter = torrentino_core::TicketFilter::new().with_state(state_type);
         if let Ok(count) = ticket_store.count(&filter) {
-            TICKETS_BY_STATE
-                .with_label_values(&[state_type])
-                .set(count);
+            TICKETS_BY_STATE.with_label_values(&[state_type]).set(count);
         }
     }
 }
@@ -329,8 +368,9 @@ pub async fn collect_dynamic_metrics(state: &crate::state::AppState) {
 pub fn normalize_path(path: &str) -> String {
     // Replace UUIDs and hashes with placeholders
     let uuid_regex = regex_lite::Regex::new(
-        r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
-    ).unwrap();
+        r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
+    )
+    .unwrap();
     let hash_regex = regex_lite::Regex::new(r"[0-9a-fA-F]{40}").unwrap();
     let numeric_regex = regex_lite::Regex::new(r"/\d+(/|$)").unwrap();
 
@@ -359,13 +399,19 @@ mod tests {
     #[test]
     fn test_normalize_path_numeric() {
         let path = "/api/v1/external-catalog/tmdb/movies/12345";
-        assert_eq!(normalize_path(path), "/api/v1/external-catalog/tmdb/movies/{id}");
+        assert_eq!(
+            normalize_path(path),
+            "/api/v1/external-catalog/tmdb/movies/{id}"
+        );
     }
 
     #[test]
     fn test_normalize_path_numeric_middle() {
         let path = "/api/v1/external-catalog/tmdb/tv/12345/season/2";
-        assert_eq!(normalize_path(path), "/api/v1/external-catalog/tmdb/tv/{id}/season/{id}");
+        assert_eq!(
+            normalize_path(path),
+            "/api/v1/external-catalog/tmdb/tv/{id}/season/{id}"
+        );
     }
 
     #[test]
@@ -377,7 +423,9 @@ mod tests {
     #[test]
     fn test_encode_metrics_returns_prometheus_format() {
         // Access metrics to ensure they're initialized
-        HTTP_REQUESTS_TOTAL.with_label_values(&["GET", "/test", "200"]).inc();
+        HTTP_REQUESTS_TOTAL
+            .with_label_values(&["GET", "/test", "200"])
+            .inc();
 
         let output = encode_metrics();
         assert!(output.contains("quentin_http_requests_total"));
@@ -389,7 +437,9 @@ mod tests {
     fn test_registry_contains_all_metrics() {
         // Touch all metrics to ensure they appear in output
         // (Prometheus only outputs metrics that have been accessed)
-        HTTP_REQUEST_DURATION.with_label_values(&["GET", "/test", "200"]).observe(0.1);
+        HTTP_REQUEST_DURATION
+            .with_label_values(&["GET", "/test", "200"])
+            .observe(0.1);
         HTTP_REQUESTS_IN_FLIGHT.set(0);
         WS_CONNECTIONS_ACTIVE.set(0);
         WS_CONNECTIONS_TOTAL.inc();

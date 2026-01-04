@@ -8,10 +8,10 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::searcher::TorrentCandidate;
-use crate::ticket::{ExpectedContent, QueryContext};
 use crate::textbrain::llm::{CompletionRequest, LlmClient, LlmUsage};
 use crate::textbrain::traits::{CandidateMatcher, TextBrainError};
 use crate::textbrain::types::{MatchResult, ScoredCandidate};
+use crate::ticket::{ExpectedContent, QueryContext};
 
 /// Configuration for the LLM matcher.
 #[derive(Debug, Clone)]
@@ -105,12 +105,19 @@ Respond with JSON only:
         prompt.push_str(&format!("Description: {}\n", context.description));
 
         if !context.tags.is_empty() {
-            prompt.push_str(&format!("Quality requirements: {}\n", context.tags.join(", ")));
+            prompt.push_str(&format!(
+                "Quality requirements: {}\n",
+                context.tags.join(", ")
+            ));
         }
 
         if let Some(expected) = &context.expected {
             match expected {
-                ExpectedContent::Album { artist, title, tracks } => {
+                ExpectedContent::Album {
+                    artist,
+                    title,
+                    tracks,
+                } => {
                     prompt.push_str("Type: Music Album\n");
                     if let Some(artist) = artist {
                         prompt.push_str(&format!("Artist: {}\n", artist));
@@ -134,7 +141,11 @@ Respond with JSON only:
                         prompt.push_str(&format!("Year: {}\n", year));
                     }
                 }
-                ExpectedContent::TvEpisode { series, season, episodes } => {
+                ExpectedContent::TvEpisode {
+                    series,
+                    season,
+                    episodes,
+                } => {
                     prompt.push_str("Type: TV Episode\n");
                     prompt.push_str(&format!("Series: {}\n", series));
                     prompt.push_str(&format!("Season: {}\n", season));
@@ -156,7 +167,8 @@ Respond with JSON only:
 
             // Include file list if available (very helpful for matching)
             if let Some(files) = &candidate.files {
-                let file_names: Vec<&str> = files.iter()
+                let file_names: Vec<&str> = files
+                    .iter()
                     .take(10) // Limit to 10 files
                     .map(|f| f.path.as_str())
                     .collect();
@@ -191,8 +203,12 @@ Respond with JSON only:
             text
         };
 
-        let parsed: LlmScoreResponse = serde_json::from_str(json_str)
-            .map_err(|e| TextBrainError::LlmError(format!("Failed to parse LLM response: {} - Response: {}", e, text)))?;
+        let parsed: LlmScoreResponse = serde_json::from_str(json_str).map_err(|e| {
+            TextBrainError::LlmError(format!(
+                "Failed to parse LLM response: {} - Response: {}",
+                e, text
+            ))
+        })?;
 
         // Build scored candidates
         let mut scored: Vec<ScoredCandidate> = Vec::new();
@@ -203,7 +219,9 @@ Respond with JSON only:
                 scored.push(ScoredCandidate {
                     candidate: candidate.clone(),
                     score: score_item.score.clamp(0.0, 1.0),
-                    reasoning: score_item.reasoning.unwrap_or_else(|| "LLM scored".to_string()),
+                    reasoning: score_item
+                        .reasoning
+                        .unwrap_or_else(|| "LLM scored".to_string()),
                     file_mappings: Vec::new(), // LLM doesn't do file mapping yet
                 });
             }
@@ -211,7 +229,10 @@ Respond with JSON only:
 
         // Add any candidates not scored by LLM with default low score
         for (i, candidate) in candidates.iter().enumerate() {
-            if !scored.iter().any(|s| s.candidate.info_hash == candidate.info_hash) {
+            if !scored
+                .iter()
+                .any(|s| s.candidate.info_hash == candidate.info_hash)
+            {
                 scored.push(ScoredCandidate {
                     candidate: candidate.clone(),
                     score: 0.3, // Default uncertain score
@@ -222,7 +243,11 @@ Respond with JSON only:
         }
 
         // Sort by score descending
-        scored.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        scored.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         Ok(MatchResult {
             candidates: scored,
@@ -266,16 +291,12 @@ impl<C: LlmClient + 'static> CandidateMatcher for LlmMatcher<C> {
         }
 
         // Limit candidates to reduce token usage
-        let candidates_to_score: Vec<&TorrentCandidate> = candidates
-            .iter()
-            .take(self.config.max_candidates)
-            .collect();
+        let candidates_to_score: Vec<&TorrentCandidate> =
+            candidates.iter().take(self.config.max_candidates).collect();
 
         // Build a slice of references for the prompt builder
-        let candidates_slice: Vec<TorrentCandidate> = candidates_to_score
-            .iter()
-            .map(|c| (*c).clone())
-            .collect();
+        let candidates_slice: Vec<TorrentCandidate> =
+            candidates_to_score.iter().map(|c| (*c).clone()).collect();
 
         let system_prompt = self.build_system_prompt();
         let user_prompt = self.build_user_prompt(context, &candidates_slice);
@@ -285,7 +306,10 @@ impl<C: LlmClient + 'static> CandidateMatcher for LlmMatcher<C> {
             .with_max_tokens(self.config.max_tokens)
             .with_temperature(self.config.temperature);
 
-        let response = self.client.complete(request).await
+        let response = self
+            .client
+            .complete(request)
+            .await
             .map_err(|e| TextBrainError::LlmError(e.to_string()))?;
 
         // Parse scores for the candidates we sent
@@ -338,7 +362,10 @@ mod tests {
             "mock-model"
         }
 
-        async fn complete(&self, _request: CompletionRequest) -> Result<CompletionResponse, LlmError> {
+        async fn complete(
+            &self,
+            _request: CompletionRequest,
+        ) -> Result<CompletionResponse, LlmError> {
             let text = self.response.lock().unwrap().clone();
             Ok(CompletionResponse {
                 text,
@@ -374,10 +401,7 @@ mod tests {
     }
 
     fn make_context(description: &str, tags: &[&str]) -> QueryContext {
-        QueryContext::new(
-            tags.iter().map(|s| s.to_string()).collect(),
-            description,
-        )
+        QueryContext::new(tags.iter().map(|s| s.to_string()).collect(), description)
     }
 
     #[tokio::test]
@@ -398,7 +422,10 @@ mod tests {
             make_candidate("Beatles Greatest Hits MP3", 30, 100),
         ];
 
-        let result = matcher.score_candidates(&context, &candidates).await.unwrap();
+        let result = matcher
+            .score_candidates(&context, &candidates)
+            .await
+            .unwrap();
 
         assert_eq!(result.candidates.len(), 2);
         assert_eq!(result.method, "llm");
@@ -441,7 +468,10 @@ mod tests {
             make_candidate("Candidate 2", 20, 200),
         ];
 
-        let result = matcher.score_candidates(&context, &candidates).await.unwrap();
+        let result = matcher
+            .score_candidates(&context, &candidates)
+            .await
+            .unwrap();
 
         assert_eq!(result.candidates.len(), 2);
         // First should be the high-scored one
@@ -468,7 +498,10 @@ mod tests {
             make_candidate("Candidate 2", 20, 200),
         ];
 
-        let result = matcher.score_candidates(&context, &candidates).await.unwrap();
+        let result = matcher
+            .score_candidates(&context, &candidates)
+            .await
+            .unwrap();
 
         // Scores should be clamped to 0.0-1.0
         assert_eq!(result.candidates[0].score, 1.0);
@@ -484,9 +517,13 @@ mod tests {
         context.expected = Some(ExpectedContent::Album {
             artist: Some("Pink Floyd".to_string()),
             title: "The Dark Side of the Moon".to_string(),
-            tracks: vec![
-                ExpectedTrack { number: 1, title: "Speak to Me".to_string(), duration_secs: None, duration_ms: None, disc_number: None },
-            ],
+            tracks: vec![ExpectedTrack {
+                number: 1,
+                title: "Speak to Me".to_string(),
+                duration_secs: None,
+                duration_ms: None,
+                disc_number: None,
+            }],
         });
 
         let candidates = vec![make_candidate("Pink Floyd - Dark Side FLAC", 50, 500)];
@@ -524,8 +561,14 @@ mod tests {
         let context = make_context("Test", &[]);
         let mut candidate = make_candidate("Test Album", 50, 500);
         candidate.files = Some(vec![
-            crate::searcher::TorrentFile { path: "01 - Track One.flac".to_string(), size_bytes: 50_000_000 },
-            crate::searcher::TorrentFile { path: "02 - Track Two.flac".to_string(), size_bytes: 50_000_000 },
+            crate::searcher::TorrentFile {
+                path: "01 - Track One.flac".to_string(),
+                size_bytes: 50_000_000,
+            },
+            crate::searcher::TorrentFile {
+                path: "02 - Track Two.flac".to_string(),
+                size_bytes: 50_000_000,
+            },
         ]);
 
         let prompt = matcher.build_user_prompt(&context, &[candidate]);
@@ -556,13 +599,18 @@ mod tests {
             make_candidate("C3", 30, 300), // This one exceeds max
         ];
 
-        let result = matcher.score_candidates(&context, &candidates).await.unwrap();
+        let result = matcher
+            .score_candidates(&context, &candidates)
+            .await
+            .unwrap();
 
         // All candidates should be in result
         assert_eq!(result.candidates.len(), 3);
 
         // The overflow candidate should have low score
-        let overflow_candidate = result.candidates.iter()
+        let overflow_candidate = result
+            .candidates
+            .iter()
             .find(|c| c.candidate.title == "C3")
             .unwrap();
         assert_eq!(overflow_candidate.score, 0.2);

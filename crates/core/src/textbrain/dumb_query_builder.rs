@@ -5,9 +5,9 @@
 
 use async_trait::async_trait;
 
-use crate::ticket::QueryContext;
 use crate::textbrain::traits::{QueryBuilder, TextBrainError};
 use crate::textbrain::types::QueryBuildResult;
+use crate::ticket::QueryContext;
 
 /// Configuration for the dumb query builder.
 #[derive(Debug, Clone)]
@@ -27,16 +27,67 @@ impl Default for DumbQueryBuilderConfig {
             include_tags: true,
             stop_words: vec![
                 // Articles and conjunctions
-                "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with",
-                "by", "from", "as", "is", "was", "are", "were", "been", "be", "have", "has", "had",
+                "the",
+                "a",
+                "an",
+                "and",
+                "or",
+                "but",
+                "in",
+                "on",
+                "at",
+                "to",
+                "for",
+                "of",
+                "with",
+                "by",
+                "from",
+                "as",
+                "is",
+                "was",
+                "are",
+                "were",
+                "been",
+                "be",
+                "have",
+                "has",
+                "had",
                 // Modal verbs
-                "do", "does", "did", "will", "would", "could", "should", "may", "might", "must",
+                "do",
+                "does",
+                "did",
+                "will",
+                "would",
+                "could",
+                "should",
+                "may",
+                "might",
+                "must",
                 // Request phrases
-                "prefer", "preferably", "preferred", "please", "want", "wanted", "looking",
+                "prefer",
+                "preferably",
+                "preferred",
+                "please",
+                "want",
+                "wanted",
+                "looking",
                 // Common action verbs that don't appear in torrent titles
-                "plays", "playing", "performed", "performs", "performing", "sings", "singing",
-                "featuring", "features", "recorded", "records", "recording", "live",
-                "conducted", "conducts", "conducting",
+                "plays",
+                "playing",
+                "performed",
+                "performs",
+                "performing",
+                "sings",
+                "singing",
+                "featuring",
+                "features",
+                "recorded",
+                "records",
+                "recording",
+                "live",
+                "conducted",
+                "conducts",
+                "conducting",
             ]
             .into_iter()
             .map(String::from)
@@ -237,9 +288,16 @@ impl DumbQueryBuilder {
     /// Clean a description by removing common request phrases.
     fn clean_description(&self, description: &str) -> String {
         let patterns_to_remove = [
-            "prefer ", "preferably ", "preferred ",
-            "please ", "looking for ", "want ", "wanted ",
-            "need ", "searching for ", "find ",
+            "prefer ",
+            "preferably ",
+            "preferred ",
+            "please ",
+            "looking for ",
+            "want ",
+            "wanted ",
+            "need ",
+            "searching for ",
+            "find ",
         ];
 
         let mut result = description.to_string();
@@ -332,13 +390,10 @@ impl DumbQueryBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ticket::{SearchConstraints, VideoSearchConstraints, LanguagePreference, LanguagePriority};
+    use crate::ticket::{LanguagePreference, SearchConstraints, VideoSearchConstraints};
 
     fn make_context(tags: &[&str], description: &str) -> QueryContext {
-        QueryContext::new(
-            tags.iter().map(|s| s.to_string()).collect(),
-            description,
-        )
+        QueryContext::new(tags.iter().map(|s| s.to_string()).collect(), description)
     }
 
     fn make_context_with_languages(
@@ -346,16 +401,14 @@ mod tests {
         description: &str,
         audio_languages: Vec<LanguagePreference>,
     ) -> QueryContext {
-        QueryContext::new(
-            tags.iter().map(|s| s.to_string()).collect(),
-            description,
-        ).with_search_constraints(SearchConstraints {
-            audio: None,
-            video: Some(VideoSearchConstraints {
-                audio_languages,
-                ..Default::default()
-            }),
-        })
+        QueryContext::new(tags.iter().map(|s| s.to_string()).collect(), description)
+            .with_search_constraints(SearchConstraints {
+                audio: None,
+                video: Some(VideoSearchConstraints {
+                    audio_languages,
+                    ..Default::default()
+                }),
+            })
     }
 
     #[test]
@@ -387,11 +440,7 @@ mod tests {
     fn test_extract_quality_tags() {
         let builder = DumbQueryBuilder::new();
 
-        let tags = vec![
-            "music".to_string(),
-            "flac".to_string(),
-            "album".to_string(),
-        ];
+        let tags = vec!["music".to_string(), "flac".to_string(), "album".to_string()];
         let quality = builder.extract_quality_tags(&tags);
         assert_eq!(quality, vec!["flac"]);
 
@@ -429,7 +478,9 @@ mod tests {
         assert!(!queries.is_empty());
 
         // Should have query with quality tags
-        assert!(queries.iter().any(|q| q.contains("1080p") || q.contains("x265")));
+        assert!(queries
+            .iter()
+            .any(|q| q.contains("1080p") || q.contains("x265")));
         // Should have Matrix
         assert!(queries.iter().any(|q| q.contains("Matrix")));
     }
@@ -591,7 +642,9 @@ mod tests {
 
         // First query should include both language keywords
         assert!(
-            queries.iter().any(|q| q.contains("ita") && q.contains("eng")),
+            queries
+                .iter()
+                .any(|q| q.contains("ita") && q.contains("eng")),
             "Expected at least one query to contain both 'ita' and 'eng', got: {:?}",
             queries
         );
@@ -599,11 +652,26 @@ mod tests {
 
     #[test]
     fn test_language_code_to_keyword() {
-        assert_eq!(DumbQueryBuilder::language_code_to_keyword("it"), Some("ita"));
-        assert_eq!(DumbQueryBuilder::language_code_to_keyword("en"), Some("eng"));
-        assert_eq!(DumbQueryBuilder::language_code_to_keyword("de"), Some("ger"));
-        assert_eq!(DumbQueryBuilder::language_code_to_keyword("fr"), Some("fre"));
-        assert_eq!(DumbQueryBuilder::language_code_to_keyword("IT"), Some("ita")); // Case insensitive
+        assert_eq!(
+            DumbQueryBuilder::language_code_to_keyword("it"),
+            Some("ita")
+        );
+        assert_eq!(
+            DumbQueryBuilder::language_code_to_keyword("en"),
+            Some("eng")
+        );
+        assert_eq!(
+            DumbQueryBuilder::language_code_to_keyword("de"),
+            Some("ger")
+        );
+        assert_eq!(
+            DumbQueryBuilder::language_code_to_keyword("fr"),
+            Some("fre")
+        );
+        assert_eq!(
+            DumbQueryBuilder::language_code_to_keyword("IT"),
+            Some("ita")
+        ); // Case insensitive
         assert_eq!(DumbQueryBuilder::language_code_to_keyword("xx"), None); // Unknown
     }
 }

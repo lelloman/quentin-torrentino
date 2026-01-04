@@ -7,10 +7,10 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-use crate::ticket::{ExpectedContent, QueryContext};
 use crate::textbrain::llm::{CompletionRequest, LlmClient, LlmUsage};
 use crate::textbrain::traits::{QueryBuilder, TextBrainError};
 use crate::textbrain::types::QueryBuildResult;
+use crate::ticket::{ExpectedContent, QueryContext};
 
 /// Configuration for the LLM query builder.
 #[derive(Debug, Clone)]
@@ -86,7 +86,10 @@ Respond with JSON only, no other text:
     fn build_user_prompt(&self, context: &QueryContext) -> String {
         use crate::ticket::LanguagePriority;
 
-        let mut prompt = format!("Generate search queries for:\n\nDescription: {}", context.description);
+        let mut prompt = format!(
+            "Generate search queries for:\n\nDescription: {}",
+            context.description
+        );
 
         if !context.tags.is_empty() {
             prompt.push_str(&format!("\nTags: {}", context.tags.join(", ")));
@@ -95,7 +98,11 @@ Respond with JSON only, no other text:
         if let Some(expected) = &context.expected {
             prompt.push_str("\n\nExpected content:\n");
             match expected {
-                ExpectedContent::Album { artist, title, tracks } => {
+                ExpectedContent::Album {
+                    artist,
+                    title,
+                    tracks,
+                } => {
                     if let Some(artist) = artist {
                         prompt.push_str(&format!("Album: {} - {}\n", artist, title));
                     } else {
@@ -119,13 +126,20 @@ Respond with JSON only, no other text:
                         prompt.push_str(&format!("Movie: {}\n", title));
                     }
                 }
-                ExpectedContent::TvEpisode { series, season, episodes } => {
+                ExpectedContent::TvEpisode {
+                    series,
+                    season,
+                    episodes,
+                } => {
                     let ep_str = if episodes.len() == 1 {
                         format!("E{:02}", episodes[0])
                     } else {
                         format!("E{:02}-E{:02}", episodes[0], episodes[episodes.len() - 1])
                     };
-                    prompt.push_str(&format!("TV Episode: {} S{:02}{}\n", series, season, ep_str));
+                    prompt.push_str(&format!(
+                        "TV Episode: {} S{:02}{}\n",
+                        series, season, ep_str
+                    ));
                 }
             }
         }
@@ -133,7 +147,9 @@ Respond with JSON only, no other text:
         // Add required language constraints
         if let Some(ref constraints) = context.search_constraints {
             if let Some(ref video) = constraints.video {
-                let required_audio: Vec<_> = video.audio_languages.iter()
+                let required_audio: Vec<_> = video
+                    .audio_languages
+                    .iter()
                     .filter(|l| l.priority == LanguagePriority::Required)
                     .map(|l| Self::language_code_to_name(&l.code))
                     .collect();
@@ -147,7 +163,10 @@ Respond with JSON only, no other text:
             }
         }
 
-        prompt.push_str(&format!("\n\nGenerate up to {} search queries.", self.config.max_queries));
+        prompt.push_str(&format!(
+            "\n\nGenerate up to {} search queries.",
+            self.config.max_queries
+        ));
         prompt
     }
 
@@ -179,7 +198,11 @@ Respond with JSON only, no other text:
     }
 
     /// Parse the LLM response into a QueryBuildResult.
-    fn parse_response(&self, text: &str, usage: LlmUsage) -> Result<QueryBuildResult, TextBrainError> {
+    fn parse_response(
+        &self,
+        text: &str,
+        usage: LlmUsage,
+    ) -> Result<QueryBuildResult, TextBrainError> {
         // Try to extract JSON from the response (handle markdown code blocks)
         let json_str = if let Some(start) = text.find('{') {
             if let Some(end) = text.rfind('}') {
@@ -191,15 +214,20 @@ Respond with JSON only, no other text:
             text
         };
 
-        let parsed: LlmQueryResponse = serde_json::from_str(json_str)
-            .map_err(|e| TextBrainError::LlmError(format!("Failed to parse LLM response: {} - Response: {}", e, text)))?;
+        let parsed: LlmQueryResponse = serde_json::from_str(json_str).map_err(|e| {
+            TextBrainError::LlmError(format!(
+                "Failed to parse LLM response: {} - Response: {}",
+                e, text
+            ))
+        })?;
 
         if parsed.queries.is_empty() {
             return Err(TextBrainError::NoQueriesGenerated);
         }
 
         // Limit to max queries
-        let queries: Vec<String> = parsed.queries
+        let queries: Vec<String> = parsed
+            .queries
             .into_iter()
             .take(self.config.max_queries)
             .collect();
@@ -228,7 +256,10 @@ impl<C: LlmClient + 'static> QueryBuilder for LlmQueryBuilder<C> {
         "llm"
     }
 
-    async fn build_queries(&self, context: &QueryContext) -> Result<QueryBuildResult, TextBrainError> {
+    async fn build_queries(
+        &self,
+        context: &QueryContext,
+    ) -> Result<QueryBuildResult, TextBrainError> {
         let system_prompt = self.build_system_prompt();
         let user_prompt = self.build_user_prompt(context);
 
@@ -237,7 +268,10 @@ impl<C: LlmClient + 'static> QueryBuilder for LlmQueryBuilder<C> {
             .with_max_tokens(self.config.max_tokens)
             .with_temperature(self.config.temperature);
 
-        let response = self.client.complete(request).await
+        let response = self
+            .client
+            .complete(request)
+            .await
             .map_err(|e| TextBrainError::LlmError(e.to_string()))?;
 
         self.parse_response(&response.text, response.usage)
@@ -274,7 +308,10 @@ mod tests {
             "mock-model"
         }
 
-        async fn complete(&self, _request: CompletionRequest) -> Result<CompletionResponse, LlmError> {
+        async fn complete(
+            &self,
+            _request: CompletionRequest,
+        ) -> Result<CompletionResponse, LlmError> {
             let text = self.response.lock().unwrap().clone();
             Ok(CompletionResponse {
                 text,
@@ -288,10 +325,7 @@ mod tests {
     }
 
     fn make_context(description: &str, tags: &[&str]) -> QueryContext {
-        QueryContext::new(
-            tags.iter().map(|s| s.to_string()).collect(),
-            description,
-        )
+        QueryContext::new(tags.iter().map(|s| s.to_string()).collect(), description)
     }
 
     #[tokio::test]
@@ -369,9 +403,13 @@ mod tests {
         context.expected = Some(ExpectedContent::Album {
             artist: Some("Pink Floyd".to_string()),
             title: "The Dark Side of the Moon".to_string(),
-            tracks: vec![
-                ExpectedTrack { number: 1, title: "Speak to Me".to_string(), duration_secs: None, duration_ms: None, disc_number: None },
-            ],
+            tracks: vec![ExpectedTrack {
+                number: 1,
+                title: "Speak to Me".to_string(),
+                duration_secs: None,
+                duration_ms: None,
+                disc_number: None,
+            }],
         });
 
         let prompt = builder.build_user_prompt(&context);
@@ -421,7 +459,10 @@ mod tests {
         let builder = LlmQueryBuilder::new(client);
 
         let text = r#"{"queries": ["query1"]}"#;
-        let usage = LlmUsage { input_tokens: 10, output_tokens: 5 };
+        let usage = LlmUsage {
+            input_tokens: 10,
+            output_tokens: 5,
+        };
 
         let result = builder.parse_response(text, usage).unwrap();
         assert_eq!(result.queries.len(), 1);
@@ -438,7 +479,10 @@ mod tests {
         let builder = LlmQueryBuilder::with_config(client, config);
 
         let text = r#"{"queries": ["q1", "q2", "q3", "q4", "q5"]}"#;
-        let usage = LlmUsage { input_tokens: 10, output_tokens: 5 };
+        let usage = LlmUsage {
+            input_tokens: 10,
+            output_tokens: 5,
+        };
 
         let result = builder.parse_response(text, usage).unwrap();
         assert_eq!(result.queries.len(), 2);

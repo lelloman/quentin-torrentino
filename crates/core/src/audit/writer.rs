@@ -310,13 +310,12 @@ mod tests {
         drop(pipeline_handle);
 
         // Writer should now exit
-        let result = tokio::time::timeout(
-            tokio::time::Duration::from_secs(1),
-            writer_handle,
-        )
-        .await;
+        let result = tokio::time::timeout(tokio::time::Duration::from_secs(1), writer_handle).await;
 
-        assert!(result.is_ok(), "Writer should have exited after all handles dropped");
+        assert!(
+            result.is_ok(),
+            "Writer should have exited after all handles dropped"
+        );
 
         // Verify all events were captured
         let records = store.get_records();
@@ -396,13 +395,12 @@ mod tests {
         drop(audit_handle);
 
         // 4. Wait for writer to finish
-        let result = tokio::time::timeout(
-            tokio::time::Duration::from_secs(2),
-            writer_handle,
-        )
-        .await;
+        let result = tokio::time::timeout(tokio::time::Duration::from_secs(2), writer_handle).await;
 
-        assert!(result.is_ok(), "Writer should exit after all handles dropped");
+        assert!(
+            result.is_ok(),
+            "Writer should exit after all handles dropped"
+        );
 
         // Verify all events were captured in order
         let records = store.get_records();

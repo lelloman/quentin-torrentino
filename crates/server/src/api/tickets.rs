@@ -152,8 +152,10 @@ pub async fn create_ticket(
     Json(body): Json<CreateTicketBody>,
 ) -> Result<(StatusCode, Json<TicketResponse>), impl IntoResponse> {
     // Build query context with optional catalog fields
-    let mut query_context =
-        QueryContext::new(body.query_context.tags.clone(), &body.query_context.description);
+    let mut query_context = QueryContext::new(
+        body.query_context.tags.clone(),
+        &body.query_context.description,
+    );
     if let Some(expected) = body.query_context.expected {
         query_context = query_context.with_expected(expected);
     }
@@ -178,16 +180,14 @@ pub async fn create_ticket(
             TICKETS_CREATED_TOTAL.inc();
 
             // Emit audit event
-            state
-                .audit()
-                .try_emit(AuditEvent::TicketCreated {
-                    ticket_id: ticket.id.clone(),
-                    requested_by: ticket.created_by.clone(),
-                    priority: ticket.priority,
-                    tags: ticket.query_context.tags.clone(),
-                    description: ticket.query_context.description.clone(),
-                    dest_path: ticket.dest_path.clone(),
-                });
+            state.audit().try_emit(AuditEvent::TicketCreated {
+                ticket_id: ticket.id.clone(),
+                requested_by: ticket.created_by.clone(),
+                priority: ticket.priority,
+                tags: ticket.query_context.tags.clone(),
+                description: ticket.query_context.description.clone(),
+                dest_path: ticket.dest_path.clone(),
+            });
 
             // Broadcast WebSocket update
             state
@@ -331,14 +331,12 @@ pub async fn cancel_ticket(
                 .inc();
 
             // Emit audit event
-            state
-                .audit()
-                .try_emit(AuditEvent::TicketCancelled {
-                    ticket_id: ticket.id.clone(),
-                    cancelled_by,
-                    reason,
-                    previous_state,
-                });
+            state.audit().try_emit(AuditEvent::TicketCancelled {
+                ticket_id: ticket.id.clone(),
+                cancelled_by,
+                reason,
+                previous_state,
+            });
 
             // Broadcast WebSocket update
             state
@@ -404,13 +402,11 @@ pub async fn delete_ticket(
     match state.ticket_store().delete(&id) {
         Ok(ticket) => {
             // Emit audit event
-            state
-                .audit()
-                .try_emit(AuditEvent::TicketDeleted {
-                    ticket_id: ticket.id.clone(),
-                    deleted_by,
-                    previous_state: ticket.state.state_type().to_string(),
-                });
+            state.audit().try_emit(AuditEvent::TicketDeleted {
+                ticket_id: ticket.id.clone(),
+                deleted_by,
+                previous_state: ticket.state.state_type().to_string(),
+            });
 
             // Broadcast WebSocket delete notification
             state.ws_broadcaster().ticket_deleted(&ticket.id);
@@ -578,7 +574,10 @@ pub async fn approve_ticket(
                 ticket_id: ticket.id.clone(),
                 from_state: previous_state,
                 to_state: "approved".to_string(),
-                reason: Some(format!("Approved candidate {} by {}", candidate_idx, approved_by)),
+                reason: Some(format!(
+                    "Approved candidate {} by {}",
+                    candidate_idx, approved_by
+                )),
             });
 
             // Broadcast WebSocket update

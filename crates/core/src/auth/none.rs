@@ -57,7 +57,7 @@ mod tests {
 
     #[test]
     fn test_none_authenticator_default() {
-        let auth = NoneAuthenticator::default();
+        let auth: NoneAuthenticator = Default::default();
         assert_eq!(auth.method_name(), "none");
     }
 }

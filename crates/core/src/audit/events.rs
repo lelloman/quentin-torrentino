@@ -179,7 +179,6 @@ pub enum AuditEvent {
     },
 
     // TextBrain events
-
     /// Acquisition process started for a ticket.
     AcquisitionStarted {
         /// Associated ticket
@@ -418,7 +417,6 @@ pub enum AuditEvent {
     // ==========================================================================
     // Training data events (for LLM fine-tuning)
     // ==========================================================================
-
     /// Full context for query building - used for training query generation models.
     TrainingQueryContext {
         /// Unique training sample ID
@@ -503,7 +501,6 @@ pub enum AuditEvent {
     // ==========================================================================
     // Phase 4: Conversion events
     // ==========================================================================
-
     /// Conversion job started.
     ConversionStarted {
         /// Associated ticket
@@ -574,7 +571,6 @@ pub enum AuditEvent {
     // ==========================================================================
     // Phase 4: Placement events
     // ==========================================================================
-
     /// Placement job started.
     PlacementStarted {
         /// Associated ticket

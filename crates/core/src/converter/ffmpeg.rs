@@ -72,7 +72,10 @@ impl FfmpegConverter {
         }
 
         // Audio codec
-        args.extend(["-c:a".to_string(), constraints.format.ffmpeg_codec().to_string()]);
+        args.extend([
+            "-c:a".to_string(),
+            constraints.format.ffmpeg_codec().to_string(),
+        ]);
 
         // Bitrate (for lossy formats)
         if !constraints.format.is_lossless() {
@@ -102,7 +105,10 @@ impl FfmpegConverter {
         args.extend(metadata_args.iter().cloned());
 
         // Log level
-        args.extend(["-loglevel".to_string(), self.config.ffmpeg_log_level.clone()]);
+        args.extend([
+            "-loglevel".to_string(),
+            self.config.ffmpeg_log_level.clone(),
+        ]);
 
         // Progress output for parsing
         args.extend(["-progress".to_string(), "pipe:2".to_string()]);
@@ -131,7 +137,10 @@ impl FfmpegConverter {
         ];
 
         // Video codec
-        args.extend(["-c:v".to_string(), constraints.format.ffmpeg_codec().to_string()]);
+        args.extend([
+            "-c:v".to_string(),
+            constraints.format.ffmpeg_codec().to_string(),
+        ]);
 
         // Quality settings
         if constraints.format != super::types::VideoFormat::Copy {
@@ -221,11 +230,10 @@ impl FfmpegConverter {
             r_frame_rate: Option<String>,
         }
 
-        let probe: ProbeOutput = serde_json::from_str(output).map_err(|e| {
-            ConverterError::ParseError {
+        let probe: ProbeOutput =
+            serde_json::from_str(output).map_err(|e| ConverterError::ParseError {
                 reason: format!("Failed to parse ffprobe output: {}", e),
-            }
-        })?;
+            })?;
 
         let duration_secs = probe
             .format
@@ -247,7 +255,12 @@ impl FfmpegConverter {
         // Find video stream
         let video_stream = probe.streams.iter().find(|s| s.codec_type == "video");
 
-        let format_name = probe.format.format_name.split(',').next().unwrap_or("unknown");
+        let format_name = probe
+            .format
+            .format_name
+            .split(',')
+            .next()
+            .unwrap_or("unknown");
 
         Ok(MediaInfo {
             path: path.to_path_buf(),
@@ -266,21 +279,23 @@ impl FfmpegConverter {
             video_codec: video_stream.and_then(|s| s.codec_name.clone()),
             video_width: video_stream.and_then(|s| s.width),
             video_height: video_stream.and_then(|s| s.height),
-            video_fps: video_stream.and_then(|s| s.r_frame_rate.as_ref()).and_then(|r| {
-                // Parse frame rate like "24000/1001" or "30/1"
-                let parts: Vec<&str> = r.split('/').collect();
-                if parts.len() == 2 {
-                    let num = parts[0].parse::<f32>().ok()?;
-                    let den = parts[1].parse::<f32>().ok()?;
-                    if den > 0.0 {
-                        Some(num / den)
+            video_fps: video_stream
+                .and_then(|s| s.r_frame_rate.as_ref())
+                .and_then(|r| {
+                    // Parse frame rate like "24000/1001" or "30/1"
+                    let parts: Vec<&str> = r.split('/').collect();
+                    if parts.len() == 2 {
+                        let num = parts[0].parse::<f32>().ok()?;
+                        let den = parts[1].parse::<f32>().ok()?;
+                        if den > 0.0 {
+                            Some(num / den)
+                        } else {
+                            None
+                        }
                     } else {
-                        None
+                        r.parse::<f32>().ok()
                     }
-                } else {
-                    r.parse::<f32>().ok()
-                }
-            }),
+                }),
         })
     }
 
@@ -306,7 +321,11 @@ impl FfmpegConverter {
         let duration_secs = input_info.as_ref().map(|i| i.duration_secs);
 
         // Build arguments
-        let metadata_args = job.metadata.as_ref().map(|m| m.to_ffmpeg_args()).unwrap_or_default();
+        let metadata_args = job
+            .metadata
+            .as_ref()
+            .map(|m| m.to_ffmpeg_args())
+            .unwrap_or_default();
 
         let args = match &job.constraints {
             ConversionConstraints::Audio(audio) => self.build_audio_args(
@@ -438,15 +457,16 @@ impl FfmpegConverter {
         }
 
         // Verify output exists and get size
-        let output_meta = tokio::fs::metadata(&job.output_path).await.map_err(|_| {
-            ConverterError::conversion_failed("Output file not created", None)
-        })?;
+        let output_meta = tokio::fs::metadata(&job.output_path)
+            .await
+            .map_err(|_| ConverterError::conversion_failed("Output file not created", None))?;
 
         let output_format = match &job.constraints {
             ConversionConstraints::Audio(a) => a.format.extension().to_string(),
-            ConversionConstraints::Video(v) => {
-                v.container.extension(v.audio.as_ref().map(|a| &a.format)).to_string()
-            }
+            ConversionConstraints::Video(v) => v
+                .container
+                .extension(v.audio.as_ref().map(|a| &a.format))
+                .to_string(),
         };
 
         let input_format = input_info

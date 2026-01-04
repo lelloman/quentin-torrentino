@@ -278,5 +278,4 @@ mod tests {
         let parsed: SearchResult = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.duration_ms, 100);
     }
-
 }

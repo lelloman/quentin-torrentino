@@ -120,7 +120,12 @@ impl RollbackPlan {
     }
 
     /// Records a placed file for potential rollback.
-    pub fn record_placement(&mut self, destination: PathBuf, source: Option<PathBuf>, size_bytes: u64) {
+    pub fn record_placement(
+        &mut self,
+        destination: PathBuf,
+        source: Option<PathBuf>,
+        size_bytes: u64,
+    ) {
         self.placed_files.push(RollbackFile {
             destination,
             source,
@@ -187,15 +192,13 @@ mod tests {
     fn test_placement_job() {
         let job = PlacementJob {
             job_id: "job-1".to_string(),
-            files: vec![
-                FilePlacement {
-                    item_id: "track-1".to_string(),
-                    source: PathBuf::from("/tmp/converted.mp3"),
-                    destination: PathBuf::from("/music/album/01-song.mp3"),
-                    overwrite: false,
-                    verify_checksum: Some(ChecksumType::Sha256),
-                },
-            ],
+            files: vec![FilePlacement {
+                item_id: "track-1".to_string(),
+                source: PathBuf::from("/tmp/converted.mp3"),
+                destination: PathBuf::from("/music/album/01-song.mp3"),
+                overwrite: false,
+                verify_checksum: Some(ChecksumType::Sha256),
+            }],
             atomic: true,
             cleanup_sources: true,
             enable_rollback: true,

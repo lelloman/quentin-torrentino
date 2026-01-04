@@ -47,8 +47,7 @@ pub trait Converter: Send + Sync {
     fn supported_output_formats(&self) -> &[&str] {
         &[
             // Audio
-            "flac", "mp3", "m4a", "ogg", "opus", "wav",
-            // Video
+            "flac", "mp3", "m4a", "ogg", "opus", "wav", // Video
             "mkv", "mp4", "webm",
         ]
     }

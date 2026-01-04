@@ -69,8 +69,8 @@ mod file_mapper;
 mod llm;
 mod llm_matcher;
 mod llm_query_builder;
-mod traits;
 pub mod training;
+mod traits;
 mod types;
 
 // LLM client types
@@ -88,7 +88,7 @@ pub use traits::{CandidateMatcher, QueryBuilder, TextBrainError};
 // Dumb implementations
 pub use dumb_matcher::{DumbMatcher, DumbMatcherConfig};
 pub use dumb_query_builder::{DumbQueryBuilder, DumbQueryBuilderConfig};
-pub use file_mapper::{DumbFileMapper, DumbFileMapperConfig, calculate_mapping_quality};
+pub use file_mapper::{calculate_mapping_quality, DumbFileMapper, DumbFileMapperConfig};
 
 // LLM implementations
 pub use llm_matcher::{LlmMatcher, LlmMatcherConfig};
@@ -101,4 +101,6 @@ pub use types::{
 };
 
 // The coordinator
-pub use coordinator::{AcquisitionAuditContext, AcquisitionProgress, AcquisitionStateUpdater, TextBrain};
+pub use coordinator::{
+    AcquisitionAuditContext, AcquisitionProgress, AcquisitionStateUpdater, TextBrain,
+};

@@ -460,7 +460,8 @@ impl ExpectedTrack {
 
     /// Get duration in milliseconds (prefer precise value, fall back to seconds).
     pub fn duration_ms_or_secs(&self) -> Option<u64> {
-        self.duration_ms.or_else(|| self.duration_secs.map(|s| s as u64 * 1000))
+        self.duration_ms
+            .or_else(|| self.duration_secs.map(|s| s as u64 * 1000))
     }
 }
 
@@ -475,7 +476,11 @@ impl ExpectedContent {
     }
 
     /// Create an album expectation with artist.
-    pub fn album_by(artist: impl Into<String>, title: impl Into<String>, tracks: Vec<ExpectedTrack>) -> Self {
+    pub fn album_by(
+        artist: impl Into<String>,
+        title: impl Into<String>,
+        tracks: Vec<ExpectedTrack>,
+    ) -> Self {
         Self::Album {
             artist: Some(artist.into()),
             title: title.into(),
@@ -638,14 +643,12 @@ pub enum TicketState {
     // ========================================================================
     // Initial state
     // ========================================================================
-
     /// Ticket created, waiting to be processed.
     Pending,
 
     // ========================================================================
     // Acquisition phase (query building + search + scoring)
     // ========================================================================
-
     /// TextBrain is acquiring a torrent (building queries, searching, scoring).
     Acquiring {
         started_at: DateTime<Utc>,
@@ -672,7 +675,6 @@ pub enum TicketState {
     // ========================================================================
     // Approval phase
     // ========================================================================
-
     /// Candidates found but confidence is below threshold - needs manual approval.
     NeedsApproval {
         /// Top candidates for review.
@@ -714,7 +716,6 @@ pub enum TicketState {
     // ========================================================================
     // Processing phase
     // ========================================================================
-
     /// Torrent is being downloaded.
     Downloading {
         /// Info hash of the torrent being downloaded.
@@ -766,7 +767,6 @@ pub enum TicketState {
     // ========================================================================
     // Terminal states
     // ========================================================================
-
     /// Ticket completed successfully (terminal).
     Completed {
         completed_at: DateTime<Utc>,
@@ -1103,7 +1103,9 @@ mod tests {
             started_at: Utc::now(),
             queries_tried: vec!["test".to_string()],
             candidates_found: 3,
-            phase: AcquisitionPhase::Scoring { candidates_count: 3 },
+            phase: AcquisitionPhase::Scoring {
+                candidates_count: 3,
+            },
         };
         let json = serde_json::to_string(&state).unwrap();
         let deserialized: TicketState = serde_json::from_str(&json).unwrap();
@@ -1159,7 +1161,12 @@ mod tests {
         ];
         let album = ExpectedContent::album("Abbey Road", tracks);
 
-        if let ExpectedContent::Album { artist, title, tracks } = album {
+        if let ExpectedContent::Album {
+            artist,
+            title,
+            tracks,
+        } = album
+        {
             assert!(artist.is_none());
             assert_eq!(title, "Abbey Road");
             assert_eq!(tracks.len(), 2);
@@ -1206,7 +1213,12 @@ mod tests {
     #[test]
     fn test_expected_content_tv_episode() {
         let ep = ExpectedContent::tv_episode("Breaking Bad", 1, 1);
-        if let ExpectedContent::TvEpisode { series, season, episodes } = ep {
+        if let ExpectedContent::TvEpisode {
+            series,
+            season,
+            episodes,
+        } = ep
+        {
             assert_eq!(series, "Breaking Bad");
             assert_eq!(season, 1);
             assert_eq!(episodes, vec![1]);
@@ -1227,11 +1239,14 @@ mod tests {
 
     #[test]
     fn test_expected_file_count() {
-        let album = ExpectedContent::album("Test", vec![
-            ExpectedTrack::new(1, "T1"),
-            ExpectedTrack::new(2, "T2"),
-            ExpectedTrack::new(3, "T3"),
-        ]);
+        let album = ExpectedContent::album(
+            "Test",
+            vec![
+                ExpectedTrack::new(1, "T1"),
+                ExpectedTrack::new(2, "T2"),
+                ExpectedTrack::new(3, "T3"),
+            ],
+        );
         assert_eq!(album.expected_file_count(), 3);
 
         let track = ExpectedContent::track("Single");
@@ -1246,10 +1261,14 @@ mod tests {
 
     #[test]
     fn test_expected_content_serialization() {
-        let album = ExpectedContent::album_by("The Beatles", "Abbey Road", vec![
-            ExpectedTrack::new(1, "Come Together"),
-            ExpectedTrack::new(2, "Something"),
-        ]);
+        let album = ExpectedContent::album_by(
+            "The Beatles",
+            "Abbey Road",
+            vec![
+                ExpectedTrack::new(1, "Come Together"),
+                ExpectedTrack::new(2, "Something"),
+            ],
+        );
 
         let json = serde_json::to_string(&album).unwrap();
         assert!(json.contains("\"type\":\"album\""));
@@ -1265,9 +1284,11 @@ mod tests {
         let ctx = QueryContext::new(
             vec!["music".to_string(), "album".to_string(), "flac".to_string()],
             "Abbey Road by The Beatles",
-        ).with_expected(ExpectedContent::album("Abbey Road", vec![
-            ExpectedTrack::new(1, "Come Together"),
-        ]));
+        )
+        .with_expected(ExpectedContent::album(
+            "Abbey Road",
+            vec![ExpectedTrack::new(1, "Come Together")],
+        ));
 
         assert!(ctx.expected.is_some());
         assert_eq!(ctx.expected.as_ref().unwrap().expected_file_count(), 1);

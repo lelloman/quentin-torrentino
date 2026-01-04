@@ -7,10 +7,10 @@ use async_trait::async_trait;
 use std::collections::HashSet;
 
 use crate::searcher::TorrentCandidate;
-use crate::ticket::QueryContext;
-use crate::textbrain::file_mapper::{DumbFileMapper, calculate_mapping_quality};
+use crate::textbrain::file_mapper::{calculate_mapping_quality, DumbFileMapper};
 use crate::textbrain::traits::{CandidateMatcher, TextBrainError};
 use crate::textbrain::types::{FileMapping, MatchResult, ScoredCandidate};
+use crate::ticket::QueryContext;
 
 /// Configuration for the dumb matcher.
 #[derive(Debug, Clone)]
@@ -46,7 +46,7 @@ impl Default for DumbMatcherConfig {
             size_weight: 0.0,
             min_seeders: 1,
             ideal_seeders: 20,
-            min_size_bytes: 1024 * 1024,        // 1 MB (unused when weight is 0)
+            min_size_bytes: 1024 * 1024, // 1 MB (unused when weight is 0)
             max_size_bytes: 50 * 1024 * 1024 * 1024, // 50 GB (unused when weight is 0)
         }
     }
@@ -119,7 +119,9 @@ impl DumbMatcher {
             .iter()
             .filter(|kw| {
                 !title_keywords.contains(*kw)
-                    && title_keywords.iter().any(|tk| tk.contains(kw.as_str()) || kw.contains(tk.as_str()))
+                    && title_keywords
+                        .iter()
+                        .any(|tk| tk.contains(kw.as_str()) || kw.contains(tk.as_str()))
             })
             .count();
 
@@ -128,12 +130,15 @@ impl DumbMatcher {
             .iter()
             .filter(|kw| {
                 !title_keywords.contains(*kw)
-                    && !title_keywords.iter().any(|tk| tk.contains(kw.as_str()) || kw.contains(tk.as_str()))
+                    && !title_keywords
+                        .iter()
+                        .any(|tk| tk.contains(kw.as_str()) || kw.contains(tk.as_str()))
                     && title_keywords.iter().any(|tk| Self::is_fuzzy_match(kw, tk))
             })
             .count();
 
-        let total_score = matches as f32 + (partial_matches as f32 * 0.5) + (fuzzy_matches as f32 * 0.8);
+        let total_score =
+            matches as f32 + (partial_matches as f32 * 0.5) + (fuzzy_matches as f32 * 0.8);
         let max_score = desc_keywords.len() as f32;
 
         (total_score / max_score).min(1.0)
@@ -280,10 +285,14 @@ impl DumbMatcher {
 
         // Resolution conflicts
         let resolutions = &[
-            ("2160p", 2160), ("4k", 2160), ("uhd", 2160),
-            ("1080p", 1080), ("1080i", 1080),
+            ("2160p", 2160),
+            ("4k", 2160),
+            ("uhd", 2160),
+            ("1080p", 1080),
+            ("1080i", 1080),
             ("720p", 720),
-            ("480p", 480), ("sd", 480),
+            ("480p", 480),
+            ("sd", 480),
         ];
 
         if let Some((_, wanted_res)) = resolutions.iter().find(|(r, _)| *r == wanted_tag) {
@@ -302,16 +311,14 @@ impl DumbMatcher {
     fn is_quality_tag(&self, tag: &str) -> bool {
         let quality_patterns = [
             // Audio formats
-            "flac", "mp3", "aac", "opus", "wav", "alac", "dsd", "ape", "ogg",
-            "320", "v0", "v2", "lossless", "24bit", "24-bit", "hi-res",
-            // Video resolution
+            "flac", "mp3", "aac", "opus", "wav", "alac", "dsd", "ape", "ogg", "320", "v0", "v2",
+            "lossless", "24bit", "24-bit", "hi-res", // Video resolution
             "1080p", "1080i", "720p", "2160p", "4k", "uhd", "hdr", "hdr10", "dolby",
             // Video codec
             "x264", "x265", "hevc", "h264", "h265", "h.264", "h.265", "av1", "xvid", "avc",
             // Source
-            "bluray", "blu-ray", "bdrip", "brrip", "remux", "web-dl", "webdl",
-            "webrip", "web-rip", "hdtv", "dvdrip", "dvd",
-            // Audio for video
+            "bluray", "blu-ray", "bdrip", "brrip", "remux", "web-dl", "webdl", "webrip", "web-rip",
+            "hdtv", "dvdrip", "dvd", // Audio for video
             "dts", "atmos", "truehd", "dd5.1", "aac5.1", "5.1", "7.1",
         ];
 
@@ -406,11 +413,16 @@ impl DumbMatcher {
                     .filter(|t| !matched.contains(t))
                     .copied()
                     .collect();
-                parts.push(format!("has {} (missing {})", matched.join("+"), missing.join("+")));
+                parts.push(format!(
+                    "has {} (missing {})",
+                    matched.join("+"),
+                    missing.join("+")
+                ));
             } else if quality_score < 0.3 {
                 // Check for conflicts
                 let has_conflict = quality_tags.iter().any(|t| {
-                    self.quality_conflict_penalty(&t.to_lowercase(), &title_lower).is_some()
+                    self.quality_conflict_penalty(&t.to_lowercase(), &title_lower)
+                        .is_some()
                 });
                 if has_conflict {
                     parts.push("wrong format/quality".to_string());
@@ -437,7 +449,11 @@ impl DumbMatcher {
     }
 
     /// Score a single candidate.
-    fn score_candidate(&self, candidate: &TorrentCandidate, context: &QueryContext) -> ScoredCandidate {
+    fn score_candidate(
+        &self,
+        candidate: &TorrentCandidate,
+        context: &QueryContext,
+    ) -> ScoredCandidate {
         let title_score = self.title_similarity(&candidate.title, context);
         let quality_score = self.quality_match(&candidate.title, context);
         let health_score = self.health_score(candidate);
@@ -537,7 +553,11 @@ impl CandidateMatcher for DumbMatcher {
             .collect();
 
         // Sort by score descending
-        scored.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        scored.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         Ok(MatchResult {
             candidates: scored,
@@ -575,10 +595,7 @@ mod tests {
     }
 
     fn make_context(tags: &[&str], description: &str) -> QueryContext {
-        QueryContext::new(
-            tags.iter().map(|s| s.to_string()).collect(),
-            description,
-        )
+        QueryContext::new(tags.iter().map(|s| s.to_string()).collect(), description)
     }
 
     #[test]
@@ -596,8 +613,13 @@ mod tests {
         let matcher = DumbMatcher::new();
         let context = make_context(&[], "Abbey Road Beatles");
 
-        let score = matcher.title_similarity("Abbey Road - The Beatles (2019 Remaster) [FLAC]", &context);
-        assert!(score >= 0.9, "Expected high score for exact match, got {}", score);
+        let score =
+            matcher.title_similarity("Abbey Road - The Beatles (2019 Remaster) [FLAC]", &context);
+        assert!(
+            score >= 0.9,
+            "Expected high score for exact match, got {}",
+            score
+        );
     }
 
     #[test]
@@ -606,7 +628,11 @@ mod tests {
         let context = make_context(&[], "Abbey Road Beatles");
 
         let score = matcher.title_similarity("Beatles Greatest Hits", &context);
-        assert!(score > 0.0 && score < 0.8, "Expected partial score, got {}", score);
+        assert!(
+            score > 0.0 && score < 0.8,
+            "Expected partial score, got {}",
+            score
+        );
     }
 
     #[test]
@@ -615,7 +641,11 @@ mod tests {
         let context = make_context(&[], "Abbey Road Beatles");
 
         let score = matcher.title_similarity("Pink Floyd Dark Side of the Moon", &context);
-        assert!(score < 0.3, "Expected low score for no match, got {}", score);
+        assert!(
+            score < 0.3,
+            "Expected low score for no match, got {}",
+            score
+        );
     }
 
     #[test]
@@ -624,7 +654,11 @@ mod tests {
         let context = make_context(&["music", "flac", "1080p"], "test");
 
         let score = matcher.quality_match("Concert Video [FLAC Audio] [1080p]", &context);
-        assert!(score >= 0.9, "Expected high score when all quality tags present, got {}", score);
+        assert!(
+            score >= 0.9,
+            "Expected high score when all quality tags present, got {}",
+            score
+        );
     }
 
     #[test]
@@ -642,7 +676,10 @@ mod tests {
         let context = make_context(&["music", "album"], "test"); // non-quality tags
 
         let score = matcher.quality_match("Some Album", &context);
-        assert_eq!(score, 0.5, "Expected neutral score when no quality requirements");
+        assert_eq!(
+            score, 0.5,
+            "Expected neutral score when no quality requirements"
+        );
     }
 
     #[test]
@@ -669,7 +706,11 @@ mod tests {
         let candidate = make_candidate("test", 10, 1024 * 1024 * 100);
 
         let score = matcher.health_score(&candidate);
-        assert!(score > 0.3 && score < 1.0, "Moderate seeders should give moderate score, got {}", score);
+        assert!(
+            score > 0.3 && score < 1.0,
+            "Moderate seeders should give moderate score, got {}",
+            score
+        );
     }
 
     #[test]
@@ -703,14 +744,14 @@ mod tests {
     fn test_score_candidate_overall() {
         let matcher = DumbMatcher::new();
         let context = make_context(&["flac"], "Abbey Road Beatles");
-        let candidate = make_candidate(
-            "Abbey Road - The Beatles [FLAC]",
-            25,
-            500 * 1024 * 1024,
-        );
+        let candidate = make_candidate("Abbey Road - The Beatles [FLAC]", 25, 500 * 1024 * 1024);
 
         let scored = matcher.score_candidate(&candidate, &context);
-        assert!(scored.score >= 0.8, "Good match should score high, got {}", scored.score);
+        assert!(
+            scored.score >= 0.8,
+            "Good match should score high, got {}",
+            scored.score
+        );
         assert!(!scored.reasoning.is_empty());
     }
 
@@ -725,7 +766,10 @@ mod tests {
             make_candidate("Beatles - Help!", 30, 500 * 1024 * 1024),
         ];
 
-        let result = matcher.score_candidates(&context, &candidates).await.unwrap();
+        let result = matcher
+            .score_candidates(&context, &candidates)
+            .await
+            .unwrap();
 
         assert_eq!(result.candidates.len(), 3);
         assert_eq!(result.method, "dumb");
@@ -845,10 +889,17 @@ mod tests {
 
         // MP3 instead of FLAC - penalized
         let mp3_score = matcher.quality_match("Abbey Road [MP3 320]", &context);
-        assert!(mp3_score < 0.5, "MP3 should be penalized when FLAC wanted, got {}", mp3_score);
+        assert!(
+            mp3_score < 0.5,
+            "MP3 should be penalized when FLAC wanted, got {}",
+            mp3_score
+        );
 
         // No format specified - neutral
         let no_format_score = matcher.quality_match("Abbey Road", &context);
-        assert!(no_format_score < flac_score, "No format should score less than matching FLAC");
+        assert!(
+            no_format_score < flac_score,
+            "No format should score less than matching FLAC"
+        );
     }
 }

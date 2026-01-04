@@ -4,8 +4,8 @@ use async_trait::async_trait;
 use thiserror::Error;
 
 use crate::searcher::TorrentCandidate;
-use crate::ticket::QueryContext;
 use crate::textbrain::types::{MatchResult, QueryBuildResult};
+use crate::ticket::QueryContext;
 
 /// Errors that can occur during TextBrain operations.
 #[derive(Debug, Error)]
@@ -47,7 +47,10 @@ pub trait QueryBuilder: Send + Sync {
     ///
     /// Returns multiple queries in priority order.
     /// The first query should be the most likely to find good results.
-    async fn build_queries(&self, context: &QueryContext) -> Result<QueryBuildResult, TextBrainError>;
+    async fn build_queries(
+        &self,
+        context: &QueryContext,
+    ) -> Result<QueryBuildResult, TextBrainError>;
 }
 
 /// Trait for scoring torrent candidates against ticket requirements.

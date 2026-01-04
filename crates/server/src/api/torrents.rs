@@ -9,9 +9,7 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
-use torrentino_core::{
-    AddTorrentRequest, AuditEvent, TorrentFilters, TorrentInfo, TorrentState,
-};
+use torrentino_core::{AddTorrentRequest, AuditEvent, TorrentFilters, TorrentInfo, TorrentState};
 
 use crate::api::AuthUser;
 use crate::state::AppState;

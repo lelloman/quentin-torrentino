@@ -63,7 +63,8 @@ pub struct MockSearcher {
     /// Configured indexer statuses.
     indexers: Arc<RwLock<Vec<IndexerStatus>>>,
     /// Filter function for results (optional).
-    result_filter: Arc<RwLock<Option<Box<dyn Fn(&SearchQuery, &TorrentCandidate) -> bool + Send + Sync>>>>,
+    result_filter:
+        Arc<RwLock<Option<Box<dyn Fn(&SearchQuery, &TorrentCandidate) -> bool + Send + Sync>>>>,
     /// Query handler for dynamic result generation based on query string.
     query_handler: Arc<RwLock<Option<QueryHandler>>>,
 }

@@ -25,7 +25,12 @@ pub trait TorrentCatalog: Send + Sync {
     ///
     /// If the torrent doesn't exist in the catalog, creates a minimal entry.
     /// If files already exist for this torrent, they are replaced.
-    fn store_files(&self, info_hash: &str, title: &str, files: &[TorrentFile]) -> Result<(), CatalogError>;
+    fn store_files(
+        &self,
+        info_hash: &str,
+        title: &str,
+        files: &[TorrentFile],
+    ) -> Result<(), CatalogError>;
 
     /// Get file listings for a torrent (if available).
     ///

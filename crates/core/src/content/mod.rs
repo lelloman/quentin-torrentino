@@ -27,7 +27,9 @@ mod video;
 use std::path::Path;
 
 use crate::searcher::{TorrentCandidate, TorrentFile};
-use crate::textbrain::{FileMapping, MatchResult, QueryBuildResult, TextBrainConfig, TextBrainError};
+use crate::textbrain::{
+    FileMapping, MatchResult, QueryBuildResult, TextBrainConfig, TextBrainError,
+};
 use crate::ticket::{ExpectedContent, QueryContext, Ticket};
 
 pub use types::{ContentError, PostProcessResult};
@@ -40,7 +42,8 @@ pub use types::{ContentError, PostProcessResult};
 /// Currently only implemented for music content.
 pub fn build_fallback_queries(context: &QueryContext) -> Vec<String> {
     match &context.expected {
-        Some(ExpectedContent::Album { artist, .. }) | Some(ExpectedContent::Track { artist, .. }) => {
+        Some(ExpectedContent::Album { artist, .. })
+        | Some(ExpectedContent::Track { artist, .. }) => {
             let audio_constraints = context
                 .search_constraints
                 .as_ref()
@@ -58,7 +61,8 @@ pub fn build_fallback_queries(context: &QueryContext) -> Vec<String> {
 /// in the file listing before considering it a match.
 pub fn is_discography_candidate(context: &QueryContext, candidate: &TorrentCandidate) -> bool {
     match &context.expected {
-        Some(ExpectedContent::Album { artist, .. }) | Some(ExpectedContent::Track { artist, .. }) => {
+        Some(ExpectedContent::Album { artist, .. })
+        | Some(ExpectedContent::Track { artist, .. }) => {
             music::is_discography_candidate(artist.as_deref(), candidate)
         }
         _ => false,
@@ -475,7 +479,9 @@ mod tests {
         assert!(!queries.is_empty());
         // Should contain discography-specific queries
         assert!(queries.iter().any(|q| q.contains("discography")));
-        assert!(queries.iter().any(|q| q.to_lowercase().contains("pink floyd")));
+        assert!(queries
+            .iter()
+            .any(|q| q.to_lowercase().contains("pink floyd")));
     }
 
     #[test]

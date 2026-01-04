@@ -150,7 +150,10 @@ impl MusicBrainzClient {
     }
 
     /// Get a specific release by MBID with full details including tracks.
-    pub async fn get_release(&self, mbid: &str) -> Result<MusicBrainzRelease, ExternalCatalogError> {
+    pub async fn get_release(
+        &self,
+        mbid: &str,
+    ) -> Result<MusicBrainzRelease, ExternalCatalogError> {
         self.wait_for_rate_limit().await;
 
         // Include recordings to get track list
@@ -286,7 +289,8 @@ impl From<MbRelease> for MusicBrainzRelease {
                             .artist_credit
                             .iter()
                             .map(|ac| {
-                                let name = ac.name.clone().unwrap_or_else(|| ac.artist.name.clone());
+                                let name =
+                                    ac.name.clone().unwrap_or_else(|| ac.artist.name.clone());
                                 let join = ac.joinphrase.clone().unwrap_or_default();
                                 format!("{}{}", name, join)
                             })
@@ -306,10 +310,7 @@ impl From<MbRelease> for MusicBrainzRelease {
             }
         }
 
-        let cover_art_available = mb
-            .cover_art_archive
-            .map(|caa| caa.artwork)
-            .unwrap_or(false);
+        let cover_art_available = mb.cover_art_archive.map(|caa| caa.artwork).unwrap_or(false);
 
         MusicBrainzRelease {
             mbid: mb.id,
